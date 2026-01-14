@@ -2,7 +2,11 @@
 name = "rohan"
 version = "0.1.0"
 description = "Risk Optimization with Heuristic Agent Network"
+readme = "README.md"
 requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+keywords = ["trading", "llm", "agents", "reinforcement-learning", "risk-optimization", "algorithmic-trading"]
+
 dependencies = [
     "google-adk>=1.22.1",
     "numpy>=2.4.1",
@@ -11,6 +15,88 @@ dependencies = [
     "pydantic-settings>=2.12.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/GabrieleDiCorato/rohan"
+Repository = "https://github.com/GabrieleDiCorato/rohan"
+Issues = "https://github.com/GabrieleDiCorato/rohan/issues"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
+]
+test = [
+    "pytest>=8.3.0",
+    "pytest-cov>=6.0.0",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 200
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "F",     # Pyflakes
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "RET",   # flake8-return
+    "ARG",   # flake8-unused-arguments
+    "PTH",   # flake8-use-pathlib
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["rohan"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+allow_untyped_calls = true
+allow_untyped_defs = true
+ignore_missing_imports = true
+check_untyped_defs = true
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_reexport = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--cov=src/rohan",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.coverage.run]
+source = ["src/rohan"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/.venv/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
