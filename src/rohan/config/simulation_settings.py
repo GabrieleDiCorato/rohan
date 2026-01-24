@@ -1,3 +1,6 @@
+"""Simulation settings configuration. Defines the structure and default values for simulation parameters.
+This is agnostic to the simulation engine used (e.g., ABIDES) and focuses on high-level settings."""
+
 from datetime import datetime
 from enum import Enum
 
