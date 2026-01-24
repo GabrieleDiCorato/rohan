@@ -8,6 +8,7 @@ license = { text = "Apache-2.0" }
 keywords = ["trading", "llm", "agents", "reinforcement-learning", "risk-optimization", "algorithmic-trading"]
 
 dependencies = [
+    "abides-rohan",
     "google-adk>=1.22.1",
     "numpy>=2.4.1",
     "pandas>=2.3.3",
@@ -25,6 +26,7 @@ dev = [
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "pre-commit>=4.0.0",
+    "ipykernel>=7.1.0",
 ]
 test = [
     "pytest>=8.3.0",
@@ -100,3 +102,6 @@ omit = [
 precision = 2
 show_missing = true
 skip_covered = false
+
+[tool.uv.sources]
+abides-rohan = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git", rev = "v1.2.0-rohan" }
