@@ -206,3 +206,6 @@ copilot_instructions.md
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Logs
+**/log/*
