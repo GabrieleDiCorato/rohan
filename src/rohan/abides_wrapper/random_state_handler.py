@@ -1,4 +1,4 @@
-import numpy as np
+from numpy.random import RandomState
 
 
 class RandomStateHandler:
@@ -12,23 +12,27 @@ class RandomStateHandler:
         self.seed = seed
 
         # Create a master random state from the seed WITHOUT affecting global state (different from ABIDES)
-        master_random_state = np.random.RandomState(seed=self.seed)
+        self.master_random_state: RandomState = RandomState(seed=self.seed)
 
-        self.oracle_state = self._get_random_state(master_random_state)
-        self.exchange_agent_state = self._get_random_state(master_random_state)
-        self.noise_agent_state = self._get_random_state(master_random_state)
-        self.value_agent_state = self._get_random_state(master_random_state)
-        self.adaptive_market_maker_agent_state = self._get_random_state(master_random_state)
-        self.momentum_agent_state = self._get_random_state(master_random_state)
-        self.latency_state = self._get_random_state(master_random_state)
-        self.random_state_kernel = self._get_random_state(master_random_state)
+        self.oracle_state: RandomState = self._get_random_state(self.master_random_state)
+        self.exchange_agent_state: RandomState = self._get_random_state(self.master_random_state)
+        self.latency_state: RandomState = self._get_random_state(self.master_random_state)
+        self.random_state_kernel: RandomState = self._get_random_state(self.master_random_state)
+
+    def get_random_state(self) -> RandomState:
+        """Returns a new RandomState instance derived from the master random state.
+        This can be used for components that need their own independent random state.
+        Returns:
+            RandomState: The created RandomState instance.
+        """
+        return self._get_random_state(self.master_random_state)
 
     @staticmethod
     def _get_random_state(
-        master_random_state: np.random.RandomState,
-    ) -> np.random.RandomState:
+        master_random_state: RandomState,
+    ) -> RandomState:
         """Creates a numpy RandomState from a master random state.
         Returns:
-            np.random.RandomState: The created RandomState instance.
+            RandomState: The created RandomState instance.
         """
-        return np.random.RandomState(seed=master_random_state.randint(low=0, high=2**32, dtype="uint64"))
+        return RandomState(seed=master_random_state.randint(low=0, high=2**32, dtype="uint64"))

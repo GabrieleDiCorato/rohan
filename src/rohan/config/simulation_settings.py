@@ -2,30 +2,14 @@
 This is agnostic to the simulation engine used (e.g., ABIDES) and focuses on high-level settings."""
 
 from datetime import datetime
-from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from rohan.config.agent_settings import AgentSettings
+from rohan.config.latency_settings import LatencyModelSettings
+
 DEFAULT_TICKER: str = "FTSEMIB"
-
-
-class LatencyType(str, Enum):
-    """Specifies the type of latency model to be used in the simulation.
-    See LatencyModel class in abides_core.latency_model for details."""
-
-    NO_LATENCY = ("no_latency",)
-    DETERMINISTIC = ("deterministic",)
-    CUBIC = "cubic"
-
-
-class LatencyModelSettings(BaseModel):
-    """Configuration for latency model."""
-
-    type: LatencyType = Field(default=LatencyType.DETERMINISTIC, description="Type of latency model to use in the simulation.")
-    jitter: float = Field(default=0.5, description="Jitter parameter for cubic latency model.")
-    jitter_clip: float = Field(default=0.1, description="Jitter clip parameter for cubic latency model.")
-    jitter_unit: float = Field(default=10.0, description="Jitter unit parameter for cubic latency model.")
 
 
 class SimulationSettings(BaseSettings):
@@ -42,6 +26,8 @@ class SimulationSettings(BaseSettings):
 
     computation_delay_ns: int = Field(default=50, description="Computation delay in nanoseconds.")
     latency: LatencyModelSettings = Field(default_factory=LatencyModelSettings, description="Settings for the latency model.")
+
+    agents: AgentSettings = Field(default_factory=AgentSettings, description="Settings for the agents in the simulation.")
 
     model_config = SettingsConfigDict(
         env_file=".env",  # path to the .env file. Overwrite with _env_file when instantiating

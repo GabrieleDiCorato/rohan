@@ -29,7 +29,7 @@ class ExchangeAgentSettings(BaseAgentSettings):
     book_logging: bool = Field(default=True, description="Whether to log the order book")
     book_log_depth: int = Field(default=10, description="Depth of the order book to log")
     stream_history_length: int = Field(default=500, description="Length of the stream history to maintain")
-    exchange_log_orders: bool | None = Field(default=None, description="Whether the exchange should log all orders")
+    exchange_log_orders: bool = Field(default=False, description="Whether the exchange should log all orders")
 
     pipeline_delay_ns: int = Field(default=0, description="Pipeline delay in nanoseconds")
     computation_delay_ns: int = Field(default=0, description="Computation delay in nanoseconds")
@@ -92,9 +92,9 @@ class OracleSettings(BaseModel):
 class AgentSettings(BaseModel):
     """Configuration for agents in the simulation."""
 
-    exchange_agent: ExchangeAgentSettings = Field(default_factory=ExchangeAgentSettings, description="Settings for the exchange agent")
-    noise_agent: NoiseAgentSettings = Field(default_factory=NoiseAgentSettings, description="Settings for the noise agents")
-    value_agent: ValueAgentSettings = Field(default_factory=ValueAgentSettings, description="Settings for the value agents")
+    exchange: ExchangeAgentSettings = Field(default_factory=ExchangeAgentSettings, description="Settings for the exchange agent")
+    noise: NoiseAgentSettings = Field(default_factory=NoiseAgentSettings, description="Settings for the noise agents")
+    value: ValueAgentSettings = Field(default_factory=ValueAgentSettings, description="Settings for the value agents")
     adaptive_market_maker: AdaptiveMarketMakerSettings = Field(default_factory=AdaptiveMarketMakerSettings, description="Settings for the adaptive market maker agents")
-    momentum_agent: MomentumAgentSettings = Field(default_factory=MomentumAgentSettings, description="Settings for the momentum agents")
+    momentum: MomentumAgentSettings = Field(default_factory=MomentumAgentSettings, description="Settings for the momentum agents")
     oracle: OracleSettings = Field(default_factory=OracleSettings, description="Settings for the oracle")
