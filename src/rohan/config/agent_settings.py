@@ -38,14 +38,14 @@ class ExchangeAgentSettings(BaseAgentSettings):
 class NoiseAgentSettings(BaseAgentSettings):
     """Settings for Noise Agents."""
 
-    num_agents: int = Field(default=1000, description="Number of agents in the simulation")
+    num_agents: int = 1000
     type: AgentType = AgentType.NOISE
 
 
 class ValueAgentSettings(BaseAgentSettings):
     """Settings for Value Agents."""
 
-    num_agents: int = Field(default=102, description="Number of agents in the simulation")
+    num_agents: int = 102
     type: AgentType = AgentType.VALUE
     r_bar: int = Field(default=100_000, description="True mean fundamental value")
     kappa: float = Field(default=1.67e-15, description="Value agents appraisal of mean-reversion")
@@ -74,7 +74,7 @@ class AdaptiveMarketMakerSettings(BaseAgentSettings):
 class MomentumAgentSettings(BaseAgentSettings):
     """Settings for Momentum Agents."""
 
-    num_agents: int = Field(default=12, description="Number of agents in the simulation")
+    num_agents: int = 12
     type: AgentType = AgentType.MOMENTUM
     min_size: int = Field(default=1, description="Minimum order size")
     max_size: int = Field(default=10, description="Maximum order size")

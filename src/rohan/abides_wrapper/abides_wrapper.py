@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from abides_core import LatencyModel
-from abides_core.utils import get_wake_time, str_to_ns
+from abides_core.utils import get_wake_time
 from abides_markets.agents import (
     AdaptiveMarketMakerAgent,
     ExchangeAgent,
@@ -20,6 +20,16 @@ from rohan.config.latency_settings import LatencyModelSettings, LatencyType
 from rohan.config.simulation_settings import SimulationSettings
 
 
+def str_to_ns(string: str | int) -> int:
+    """Converts a time string to nanoseconds.
+    Replaces abides_core.utils.str_to_ns which has issues with newer pandas/numpy versions.
+    """
+    if isinstance(string, int | float | np.integer | np.floating):
+        return int(string)
+
+    return int(pd.to_timedelta(string).value)
+
+
 class AbidesWrapper:
     """Wrapper for ABIDES simulation components.
     Handles the conversion of configuration settings to ABIDES-compatible objects.
@@ -34,13 +44,13 @@ class AbidesWrapper:
         random_state_handler: RandomStateHandler = self.random_state_handler
 
         # Calculate time-related parameters
-        date = pd.to_datetime(settings.date).value
+        date: int = int(pd.to_datetime(settings.date).value)
         kernel_start_time = date
-        mkt_open = date + str_to_ns(settings.start_time)
-        mkt_close = date + str_to_ns(settings.end_time)
-        noise_mkt_open = mkt_open - str_to_ns("00:30:00")
-        noise_mkt_close = date + str_to_ns("16:00:00")
-        kernel_stop_time = mkt_close + str_to_ns("1s")
+        mkt_open = date + str_to_ns(settings.start_time)  # default "09:30:00"
+        mkt_close = date + str_to_ns(settings.end_time)  # default "10:00:00"
+        noise_mkt_open = mkt_open - str_to_ns("00:30:00")  # default "09:00:00"
+        noise_mkt_close = date + str_to_ns("16:00:00")  # default "16:00:00"
+        kernel_stop_time = mkt_close + str_to_ns("1s")  # default "10:00:01"
 
         agents = self._build_agents(settings, mkt_open, mkt_close, noise_mkt_open, noise_mkt_close, random_state_handler)
         n_agents = len(agents)
