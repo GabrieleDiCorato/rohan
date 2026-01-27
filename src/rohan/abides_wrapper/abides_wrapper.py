@@ -34,7 +34,7 @@ class AbidesWrapper:
         random_state_handler: RandomStateHandler = self.random_state_handler
 
         # Calculate time-related parameters
-        date = int(pd.to_datetime(settings.date).to_datetime64())
+        date = pd.to_datetime(settings.date).value
         kernel_start_time = date
         mkt_open = date + str_to_ns(settings.start_time)
         mkt_close = date + str_to_ns(settings.end_time)

@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from rohan.config.agent_settings import AgentSettings
 from rohan.config.latency_settings import LatencyModelSettings
 
-DEFAULT_TICKER: str = "FTSEMIB"
+DEFAULT_TICKER: str = "ABM"
 
 
 class SimulationSettings(BaseSettings):
