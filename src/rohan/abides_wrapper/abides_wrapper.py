@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from abides_core import LatencyModel
-from abides_core.utils import get_wake_time
+from abides_core.utils import get_wake_time, str_to_ns
 from abides_markets.agents import (
     AdaptiveMarketMakerAgent,
     ExchangeAgent,
@@ -18,16 +18,6 @@ from rohan.abides_wrapper.random_state_handler import RandomStateHandler
 from rohan.config.agent_settings import AdaptiveMarketMakerSettings, AgentSettings, ExchangeAgentSettings, ValueAgentSettings
 from rohan.config.latency_settings import LatencyModelSettings, LatencyType
 from rohan.config.simulation_settings import SimulationSettings
-
-
-def str_to_ns(string: str | int) -> int:
-    """Converts a time string to nanoseconds.
-    Replaces abides_core.utils.str_to_ns which has issues with newer pandas/numpy versions.
-    """
-    if isinstance(string, int | float | np.integer | np.floating):
-        return int(string)
-
-    return int(pd.to_timedelta(string).value)
 
 
 class AbidesWrapper:
