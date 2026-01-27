@@ -11,6 +11,7 @@ from abides_markets.agents import (
 )
 from abides_markets.agents.financial_agent import FinancialAgent
 from abides_markets.models import OrderSizeModel
+from abides_markets.oracles import SparseMeanRevertingOracle
 from abides_markets.utils import generate_uniform_random_pairwise_dist_on_line, meters_to_light_ns
 
 from rohan.abides_wrapper.random_state_handler import RandomStateHandler
@@ -28,8 +29,51 @@ class AbidesWrapper:
         self.simulation_settings = simulation_settings
         self.random_state_handler = RandomStateHandler(simulation_settings.seed)
 
+    @staticmethod
+    def _build_oracle(settings: SimulationSettings, mkt_open: int, noise_mkt_close: int, random_state_handler: RandomStateHandler) -> SparseMeanRevertingOracle:
+        agent_settings: AgentSettings = settings.agents
+
+        symbols = {
+            settings.ticker: {
+                "r_bar": agent_settings.value.r_bar,
+                "kappa": agent_settings.oracle.kappa,
+                "sigma_s": agent_settings.oracle.sigma_s,
+                "fund_vol": agent_settings.oracle.fund_vol,
+                "megashock_lambda_a": agent_settings.oracle.megashock_lambda_a,
+                "megashock_mean": agent_settings.oracle.megashock_mean,
+                "megashock_var": agent_settings.oracle.megashock_var,
+                "random_state": random_state_handler.oracle_state,
+            }
+        }
+        return SparseMeanRevertingOracle(mkt_open, noise_mkt_close, symbols)
+
     def build_configuration(self):
-        pass
+        settings: SimulationSettings = self.simulation_settings
+        random_state_handler: RandomStateHandler = self.random_state_handler
+
+        # Calculate time-related parameters
+        date = int(pd.to_datetime(settings.date).to_datetime64())
+        kernel_start_time = date
+        mkt_open = date + str_to_ns("09:30:00")
+        mkt_close = date + str_to_ns(settings.end_time)
+        noise_mkt_close = date + str_to_ns("16:00:00")
+        kernel_stop_time = mkt_close + str_to_ns("1s")
+        agents = self._build_agents(settings, random_state_handler)
+        n_agents = len(agents)
+        oracle = self._build_oracle(settings, mkt_open, noise_mkt_close, random_state_handler)
+        latency_model = self._build_latency_model(n_agents, settings.latency, random_state_handler)
+
+        return {
+            "seed": settings.seed,
+            "start_time": kernel_start_time,
+            "stop_time": kernel_stop_time,
+            "agents": agents,
+            "agent_latency_model": latency_model,
+            "default_computation_delay": settings.computation_delay_ns,
+            "custom_properties": {"oracle": oracle},
+            "random_state_kernel": random_state_handler.random_state_kernel,
+            "stdout_log_level": settings.stdout_log_level,
+        }
 
     @staticmethod
     def _build_agents(
@@ -141,7 +185,6 @@ class AbidesWrapper:
                     starting_cash=starting_cash,
                     pov=market_maker_settings.pov,
                     min_order_size=market_maker_settings.min_order_size,
-                    # TODO this must be fixed on ABIDES side, look validate_window_size
                     window_size=market_maker_settings.window_size,
                     num_ticks=market_maker_settings.num_ticks,
                     wake_up_freq=mm_wake_up_freq,

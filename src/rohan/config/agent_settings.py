@@ -54,13 +54,13 @@ class AdaptiveMarketMakerSettings(BaseAgentSettings):
     """Settings for Adaptive Market Maker Agents."""
 
     type: AgentType = AgentType.ADAPTIVE_MARKET_MAKER
-    window_size: str = Field(default="adaptive", description="Window size for market maker")
+    window_size: int | str = Field(default="adaptive", description=" Size in ticks (cents). If equal to string 'adaptive', ladder starts at best bid and ask")
     pov: float = Field(default=0.025, description="Percentage of volume")
     num_ticks: int = Field(default=10, description="Number of ticks")
     wake_up_freq: str = Field(default="60s", description="Wake up frequency")
     poisson_arrival: bool = Field(default=True, description="Whether to use Poisson arrival")
     min_order_size: int = Field(default=1, description="Minimum order size")
-    skew_beta: float = Field(default=0, description="Skew beta parameter")
+    skew_beta: int = Field(default=0, description="Skew beta parameter")
     price_skew: int = Field(default=4, description="Price skew parameter")
     level_spacing: int = Field(default=5, description="Level spacing")
     spread_alpha: float = Field(default=0.75, description="Spread alpha parameter")
