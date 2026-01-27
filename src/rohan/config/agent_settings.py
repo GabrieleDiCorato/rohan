@@ -38,12 +38,14 @@ class ExchangeAgentSettings(BaseAgentSettings):
 class NoiseAgentSettings(BaseAgentSettings):
     """Settings for Noise Agents."""
 
+    num_agents: int = Field(default=1000, description="Number of agents in the simulation")
     type: AgentType = AgentType.NOISE
 
 
 class ValueAgentSettings(BaseAgentSettings):
     """Settings for Value Agents."""
 
+    num_agents: int = Field(default=102, description="Number of agents in the simulation")
     type: AgentType = AgentType.VALUE
     r_bar: int = Field(default=100_000, description="True mean fundamental value")
     kappa: float = Field(default=1.67e-15, description="Value agents appraisal of mean-reversion")
@@ -53,6 +55,7 @@ class ValueAgentSettings(BaseAgentSettings):
 class AdaptiveMarketMakerSettings(BaseAgentSettings):
     """Settings for Adaptive Market Maker Agents."""
 
+    num_agents: int = Field(default=2, description="Number of agents in the simulation")
     type: AgentType = AgentType.ADAPTIVE_MARKET_MAKER
     window_size: int | str = Field(default="adaptive", description=" Size in ticks (cents). If equal to string 'adaptive', ladder starts at best bid and ask")
     pov: float = Field(default=0.025, description="Percentage of volume")
@@ -71,9 +74,10 @@ class AdaptiveMarketMakerSettings(BaseAgentSettings):
 class MomentumAgentSettings(BaseAgentSettings):
     """Settings for Momentum Agents."""
 
+    num_agents: int = Field(default=12, description="Number of agents in the simulation")
     type: AgentType = AgentType.MOMENTUM
-    min_size: int = Field(default=100, description="Minimum order size")
-    max_size: int = Field(default=500, description="Maximum order size")
+    min_size: int = Field(default=1, description="Minimum order size")
+    max_size: int = Field(default=10, description="Maximum order size")
     wake_up_freq: str = Field(default="37s", description="Wake up frequency")
     poisson_arrival: bool = Field(default=True, description="Whether to use Poisson arrival")
 

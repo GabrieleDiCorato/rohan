@@ -29,24 +29,6 @@ class AbidesWrapper:
         self.simulation_settings = simulation_settings
         self.random_state_handler = RandomStateHandler(simulation_settings.seed)
 
-    @staticmethod
-    def _build_oracle(settings: SimulationSettings, mkt_open: int, noise_mkt_close: int, random_state_handler: RandomStateHandler) -> SparseMeanRevertingOracle:
-        agent_settings: AgentSettings = settings.agents
-
-        symbols = {
-            settings.ticker: {
-                "r_bar": agent_settings.value.r_bar,
-                "kappa": agent_settings.oracle.kappa,
-                "sigma_s": agent_settings.oracle.sigma_s,
-                "fund_vol": agent_settings.oracle.fund_vol,
-                "megashock_lambda_a": agent_settings.oracle.megashock_lambda_a,
-                "megashock_mean": agent_settings.oracle.megashock_mean,
-                "megashock_var": agent_settings.oracle.megashock_var,
-                "random_state": random_state_handler.oracle_state,
-            }
-        }
-        return SparseMeanRevertingOracle(mkt_open, noise_mkt_close, symbols)
-
     def build_configuration(self):
         settings: SimulationSettings = self.simulation_settings
         random_state_handler: RandomStateHandler = self.random_state_handler
@@ -54,11 +36,13 @@ class AbidesWrapper:
         # Calculate time-related parameters
         date = int(pd.to_datetime(settings.date).to_datetime64())
         kernel_start_time = date
-        mkt_open = date + str_to_ns("09:30:00")
+        mkt_open = date + str_to_ns(settings.start_time)
         mkt_close = date + str_to_ns(settings.end_time)
+        noise_mkt_open = mkt_open - str_to_ns("00:30:00")
         noise_mkt_close = date + str_to_ns("16:00:00")
         kernel_stop_time = mkt_close + str_to_ns("1s")
-        agents = self._build_agents(settings, random_state_handler)
+
+        agents = self._build_agents(settings, mkt_open, mkt_close, noise_mkt_open, noise_mkt_close, random_state_handler)
         n_agents = len(agents)
         oracle = self._build_oracle(settings, mkt_open, noise_mkt_close, random_state_handler)
         latency_model = self._build_latency_model(n_agents, settings.latency, random_state_handler)
@@ -78,12 +62,20 @@ class AbidesWrapper:
     @staticmethod
     def _build_agents(
         simulation_settings: SimulationSettings,
+        mkt_open: int,
+        mkt_close: int,
+        noise_mkt_open: int,
+        noise_mkt_close: int,
         random_state_handler: RandomStateHandler,
     ) -> list[FinancialAgent]:
         """Uses AgentSettings to create a list of ABIDES FinancialAgent instances.
 
         Arguments:
-        agent_settings: AgentSettings instance containing configuration for all agents.
+        simulation_settings: SimulationSettings instance containing configuration.
+        mkt_open: Market open time in nanoseconds.
+        mkt_close: Market close time in nanoseconds.
+        noise_mkt_open: Noise agent market open time in nanoseconds.
+        noise_mkt_close: Noise agent market close time in nanoseconds.
         random_state_handler: RandomStateHandler instance for managing random states.
         """
 
@@ -95,14 +87,6 @@ class AbidesWrapper:
         ticker = simulation_settings.ticker
         starting_cash = simulation_settings.starting_cash
         log_orders = simulation_settings.log_orders
-
-        # Calculate time-related parameters
-        date = int(pd.to_datetime(simulation_settings.date).to_datetime64())
-        mkt_open = date + str_to_ns("09:30:00")
-        mkt_close = date + str_to_ns(simulation_settings.end_time)
-        # These times needed for distribution of arrival times of Noise Agents (from ABIDES)
-        noise_mkt_open = mkt_open - str_to_ns("00:30:00")
-        noise_mkt_close = date + str_to_ns("16:00:00")
 
         # Create order size model (shared by trading agents)
         order_size_model = OrderSizeModel()
@@ -227,6 +211,29 @@ class AbidesWrapper:
         agent_count += agent_settings.momentum.num_agents
 
         return agents
+
+    @staticmethod
+    def _build_oracle(
+        settings: SimulationSettings,
+        mkt_open: int,
+        noise_mkt_close: int,
+        random_state_handler: RandomStateHandler,
+    ) -> SparseMeanRevertingOracle:
+        agent_settings: AgentSettings = settings.agents
+
+        symbols = {
+            settings.ticker: {
+                "r_bar": agent_settings.value.r_bar,
+                "kappa": agent_settings.oracle.kappa,
+                "sigma_s": agent_settings.oracle.sigma_s,
+                "fund_vol": agent_settings.oracle.fund_vol,
+                "megashock_lambda_a": agent_settings.oracle.megashock_lambda_a,
+                "megashock_mean": agent_settings.oracle.megashock_mean,
+                "megashock_var": agent_settings.oracle.megashock_var,
+                "random_state": random_state_handler.oracle_state,
+            }
+        }
+        return SparseMeanRevertingOracle(mkt_open, noise_mkt_close, symbols)
 
     @staticmethod
     def _build_latency_model(agent_count: int, latency_settings: LatencyModelSettings, random_state_handler: RandomStateHandler) -> LatencyModel:
