@@ -16,7 +16,7 @@ DEFAULT_TICKER: str = "ABM"
 class SimulationSettings(BaseSettings):
     """Configuration for the simulation environment."""
 
-    seed: int = Field(default=int(datetime.now().timestamp() * 1_000_000) % (2**32 - 1), description="Random seed for the simulation.")
+    seed: int = Field(default_factory=lambda: int(datetime.now().timestamp() * 1_000_000) % (2**32 - 1), description="Random seed for the simulation.")
     date: str = Field(default="20210205", description="Date of the simulation.")
     start_time: str = Field(default="09:30:00", description="Start time of the simulation.")
     end_time: str = Field(default="10:00:00", description="End time of the simulation.")

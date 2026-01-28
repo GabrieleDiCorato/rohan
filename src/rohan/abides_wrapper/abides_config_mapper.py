@@ -20,7 +20,7 @@ from rohan.config.latency_settings import LatencyModelSettings, LatencyType
 from rohan.config.simulation_settings import SimulationSettings
 
 
-class AbidesWrapper:
+class AbidesConfigMapper:
     """Wrapper for ABIDES simulation components.
     Handles the conversion of configuration settings to ABIDES-compatible objects.
     """

@@ -1,4 +1,4 @@
-from .abides_wrapper import AbidesWrapper, RandomStateHandler
+from .abides_wrapper import AbidesConfigMapper, RandomStateHandler
 from .config import (
     LatencyModelSettings,
     LatencyType,
@@ -7,7 +7,7 @@ from .config import (
 )
 
 __all__ = [
-    "AbidesWrapper",
+    "AbidesConfigMapper",
     "RandomStateHandler",
     "SecretSettings",
     "LatencyModelSettings",
