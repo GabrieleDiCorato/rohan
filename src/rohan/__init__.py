@@ -1,4 +1,4 @@
-from .abides_wrapper import AbidesConfigMapper, RandomStateHandler
+from .abides_impl import AbidesConfigMapper, RandomStateHandler
 from .config import (
     LatencyModelSettings,
     LatencyType,

@@ -12,7 +12,7 @@ Notes / pitfalls:
     snapshots align with a single trading day.
 """
 
-from typing import Any
+from typing import Any, override
 
 import numpy as np
 import pandas as pd
@@ -20,26 +20,20 @@ from abides_core.utils import parse_logs_df
 from abides_markets.agents import ExchangeAgent
 from abides_markets.order_book import OrderBook, ns_date
 
+from rohan.simulation import SimulationOutput
 
-class AbidesOutput:
+
+class AbidesOutput(SimulationOutput):
     """Wrapper class for ABIDES simulation output.
     Most methods are computationally expensive and return static information,
     so they are cached for efficiency.
     """
 
     def __init__(self, end_state: dict[str, Any]):
+        super().__init__()
         self.end_state = end_state
 
-    def get_order_book(self) -> OrderBook:
-        """Returns the order book data from the end state."""
-        # Lazy-load and cache the `OrderBook` to avoid repeated lookup cost.
-        # This attribute is intentionally stored on the instance so that
-        # subsequent calls are cheap.
-        if not hasattr(self, "_order_book"):
-            self._order_book = self.get_exchange_agent().order_books["ABM"]
-
-        return self._order_book
-
+    @override
     def get_order_book_l1(self) -> pd.DataFrame:
         """Returns the Level 1 order book data as a single DataFrame.
         Columns: time, bid_price, bid_qty, ask_price, ask_qty, timestamp
@@ -55,6 +49,7 @@ class AbidesOutput:
 
         return self._order_book_l1
 
+    @override
     def get_order_book_l2(self, n_levels: int) -> pd.DataFrame:
         """Returns the Level 2 order book as a single tidy DataFrame.
 
@@ -70,6 +65,7 @@ class AbidesOutput:
 
         return self._order_book_l2_cache[n_levels]
 
+    @override
     def get_logs_df(self) -> pd.DataFrame:
         """Returns a single DataFrame with the logs from all agents."""
 
@@ -81,7 +77,8 @@ class AbidesOutput:
 
         return self._logs_df
 
-    def get_logs_dict(self) -> dict:
+    @override
+    def get_logs_by_agent(self) -> dict:
         """Returns a dictionary of agent logs."""
         if not hasattr(self, "_logs_dict"):
             self._logs_dict = {agent.id: agent.log for agent in self.end_state["agents"]}
@@ -94,6 +91,16 @@ class AbidesOutput:
         # By convention in ABIDES setups used here, the exchange agent
         # appears as the first agent in the `end_state['agents']` list.
         return self.end_state["agents"][0]
+
+    def get_order_book(self) -> OrderBook:
+        """Returns the order book data from the end state."""
+        # Lazy-load and cache the `OrderBook` to avoid repeated lookup cost.
+        # This attribute is intentionally stored on the instance so that
+        # subsequent calls are cheap.
+        if not hasattr(self, "_order_book"):
+            self._order_book = self.get_exchange_agent().order_books["ABM"]
+
+        return self._order_book
 
     @staticmethod
     def _compute_order_book_l1(order_book: OrderBook) -> pd.DataFrame:

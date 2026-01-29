@@ -14,10 +14,8 @@ from abides_markets.models import OrderSizeModel
 from abides_markets.oracles import SparseMeanRevertingOracle
 from abides_markets.utils import generate_uniform_random_pairwise_dist_on_line, meters_to_light_ns
 
-from rohan.abides_wrapper.random_state_handler import RandomStateHandler
-from rohan.config.agent_settings import AdaptiveMarketMakerSettings, AgentSettings, ExchangeAgentSettings, ValueAgentSettings
-from rohan.config.latency_settings import LatencyModelSettings, LatencyType
-from rohan.config.simulation_settings import SimulationSettings
+from rohan.config import AdaptiveMarketMakerSettings, AgentSettings, ExchangeAgentSettings, LatencyModelSettings, LatencyType, SimulationSettings, ValueAgentSettings
+from rohan.simulation.abides_impl import RandomStateHandler
 
 
 class AbidesConfigMapper:
