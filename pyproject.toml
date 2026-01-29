@@ -105,4 +105,4 @@ show_missing = true
 skip_covered = false
 
 [tool.uv.sources]
-abides-rohan = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git", rev = "v1.2.3-rohan" }
+abides-rohan = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git", rev = "v1.2.4-rohan" }
