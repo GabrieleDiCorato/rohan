@@ -11,7 +11,7 @@ class RandomStateHandler:
         """We initialize all random states here to ensure reproducibility across different components."""
         self.seed = seed
 
-        # Create a master random state from the seed WITHOUT affecting global state (different from ABIDES)
+        # Create a master random state from the seed
         self.master_random_state: RandomState = RandomState(seed=self.seed)
 
         self.oracle_state: RandomState = self._get_random_state(self.master_random_state)

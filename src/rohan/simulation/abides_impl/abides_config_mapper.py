@@ -111,22 +111,21 @@ class AbidesConfigMapper:
         agent_count += 1
 
         # 2) Noise Agents
-        agents.extend(
-            [
+        for j in range(agent_count, agent_count + agent_settings.noise.num_agents):
+            rs_noise = random_state_handler.get_random_state()
+            agents.append(
                 NoiseAgent(
                     id=j,
                     name=f"NoiseAgent {j}",
                     type=agent_settings.noise.type.value,
                     symbol=ticker,
                     starting_cash=starting_cash,
-                    wakeup_time=get_wake_time(noise_mkt_open, noise_mkt_close),
+                    wakeup_time=get_wake_time(noise_mkt_open, noise_mkt_close, random_state=rs_noise),
                     log_orders=log_orders,
                     order_size_model=order_size_model,
-                    random_state=random_state_handler.get_random_state(),  # Each noise agent gets its own random state
+                    random_state=rs_noise,  # Each noise agent gets its own random state
                 )
-                for j in range(agent_count, agent_count + agent_settings.noise.num_agents)
-            ]
-        )
+            )
         agent_count += agent_settings.noise.num_agents
 
         # 3) Value Agents
