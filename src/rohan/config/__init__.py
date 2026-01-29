@@ -6,13 +6,14 @@ from .agent_settings import (
 )
 from .latency_settings import LatencyModelSettings, LatencyType
 from .secrets_settings import SecretSettings
-from .simulation_settings import SimulationSettings
+from .simulation_settings import SimulationEngine, SimulationSettings
 
 __all__ = [
     "SecretSettings",
     "LatencyModelSettings",
     "LatencyType",
     "SimulationSettings",
+    "SimulationEngine",
     "AgentSettings",
     "AdaptiveMarketMakerSettings",
     "ExchangeAgentSettings",

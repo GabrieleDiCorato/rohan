@@ -2,6 +2,7 @@
 This is agnostic to the simulation engine used (e.g., ABIDES) and focuses on high-level settings."""
 
 from datetime import datetime
+from enum import Enum
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,9 +14,16 @@ from rohan.config.latency_settings import LatencyModelSettings
 DEFAULT_TICKER: str = "ABM"
 
 
+class SimulationEngine(str, Enum):
+    """Enumeration of supported simulation engines."""
+
+    ABIDES = "ABIDES"
+
+
 class SimulationSettings(BaseSettings):
     """Configuration for the simulation environment."""
 
+    engine: SimulationEngine = Field(default=SimulationEngine.ABIDES, description="The simulation engine to use.")
     seed: int = Field(default_factory=lambda: int(datetime.now().timestamp() * 1_000_000) % (2**32 - 1), description="Random seed for the simulation.")
     date: str = Field(default="20210205", description="Date of the simulation.")
     start_time: str = Field(default="09:30:00", description="Start time of the simulation.")
