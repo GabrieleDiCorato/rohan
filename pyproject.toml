@@ -9,11 +9,13 @@ keywords = ["trading", "llm", "agents", "reinforcement-learning", "risk-optimiza
 
 dependencies = [
     "abides-rohan",
-    "google-adk>=1.22.1",
     "numpy>=2.4.1",
     "pandas>=2.3.3",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
+    "sqlalchemy>=2.0.0",
+    "psycopg[binary]>=3.2.0",
+    "langgraph>=1.0.7",
 ]
 
 [project.urls]

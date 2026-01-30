@@ -210,3 +210,8 @@ __marimo__/
 
 # Logs
 **/log/*
+
+# Databases
+**/*.db
+**/*.sqlite
+**/*.sqlite3

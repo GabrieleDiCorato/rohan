@@ -112,8 +112,8 @@ class AbidesOutput(SimulationOutput):
         # bids and asks can be merged on their snapshot times.
         l1: dict[str, Any] = order_book.get_L1_snapshots()
 
-        best_bids = pd.DataFrame(l1["best_bids"], columns=["time", "price", "qty"])
-        best_asks = pd.DataFrame(l1["best_asks"], columns=["time", "price", "qty"])
+        best_bids = pd.DataFrame(columns=["time", "price", "qty"]) if len(l1["best_bids"]) == 0 else pd.DataFrame(l1["best_bids"], columns=["time", "price", "qty"])
+        best_asks = pd.DataFrame(columns=["time", "price", "qty"]) if len(l1["best_asks"]) == 0 else pd.DataFrame(l1["best_asks"], columns=["time", "price", "qty"])
 
         # All times are provided as ns since epoch (1970). We subtract the
         # date component (ns at midnight for that date) so the `time`

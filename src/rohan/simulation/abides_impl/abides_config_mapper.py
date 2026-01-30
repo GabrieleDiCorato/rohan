@@ -12,10 +12,22 @@ from abides_markets.agents import (
 from abides_markets.agents.financial_agent import FinancialAgent
 from abides_markets.models import OrderSizeModel
 from abides_markets.oracles import SparseMeanRevertingOracle
-from abides_markets.utils import generate_uniform_random_pairwise_dist_on_line, meters_to_light_ns
+from abides_markets.utils import (
+    generate_uniform_random_pairwise_dist_on_line,
+    meters_to_light_ns,
+)
 
-from rohan.config import AdaptiveMarketMakerSettings, AgentSettings, ExchangeAgentSettings, LatencyModelSettings, LatencyType, SimulationSettings, ValueAgentSettings
-from rohan.simulation.abides_impl import RandomStateHandler
+from rohan.config import (
+    AdaptiveMarketMakerSettings,
+    AgentSettings,
+    ExchangeAgentSettings,
+    LatencyModelSettings,
+    LatencyType,
+    SimulationSettings,
+    ValueAgentSettings,
+)
+
+from .random_state_handler import RandomStateHandler
 
 
 class AbidesConfigMapper:
@@ -40,7 +52,14 @@ class AbidesConfigMapper:
         noise_mkt_close = date + str_to_ns("16:00:00")  # default "16:00:00"
         kernel_stop_time = mkt_close + str_to_ns("1s")  # default "10:00:01"
 
-        agents = self._build_agents(settings, mkt_open, mkt_close, noise_mkt_open, noise_mkt_close, random_state_handler)
+        agents = self._build_agents(
+            settings,
+            mkt_open,
+            mkt_close,
+            noise_mkt_open,
+            noise_mkt_close,
+            random_state_handler,
+        )
         n_agents = len(agents)
         oracle = self._build_oracle(settings, mkt_open, noise_mkt_close, random_state_handler)
         latency_model = self._build_latency_model(n_agents, settings.latency, random_state_handler)
@@ -233,7 +252,11 @@ class AbidesConfigMapper:
         return SparseMeanRevertingOracle(mkt_open, noise_mkt_close, symbols)
 
     @staticmethod
-    def _build_latency_model(agent_count: int, latency_settings: LatencyModelSettings, random_state_handler: RandomStateHandler) -> LatencyModel:
+    def _build_latency_model(
+        agent_count: int,
+        latency_settings: LatencyModelSettings,
+        random_state_handler: RandomStateHandler,
+    ) -> LatencyModel:
         """Uses LatencyModelSettings to create an instance of LatencyModel from abides_core.
 
         Arguments:
@@ -247,7 +270,12 @@ class AbidesConfigMapper:
         else:
             # All agents sit on line from Milan to Lisbon
             milan_to_lisbon_meters = 1687000
-            pairwise_distances = generate_uniform_random_pairwise_dist_on_line(0.0, milan_to_lisbon_meters, agent_count, random_state=random_state_handler.latency_state)
+            pairwise_distances = generate_uniform_random_pairwise_dist_on_line(
+                0.0,
+                milan_to_lisbon_meters,
+                agent_count,
+                random_state=random_state_handler.latency_state,
+            )
             pairwise_latencies = meters_to_light_ns(pairwise_distances)
 
         return LatencyModel(
