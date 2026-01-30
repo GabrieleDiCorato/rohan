@@ -4,6 +4,7 @@ from .agent_settings import (
     ExchangeAgentSettings,
     ValueAgentSettings,
 )
+from .database_settings import DatabaseSettings
 from .latency_settings import LatencyModelSettings, LatencyType
 from .secrets_settings import SecretSettings
 from .simulation_settings import SimulationEngine, SimulationSettings
@@ -18,4 +19,5 @@ __all__ = [
     "AdaptiveMarketMakerSettings",
     "ExchangeAgentSettings",
     "ValueAgentSettings",
+    "DatabaseSettings",
 ]

@@ -1,7 +1,8 @@
 """Service module for simulation-related operations. Injects dependencies and manages simulation execution."""
 
 from rohan.config import SimulationEngine, SimulationSettings
-from rohan.simulation import SimulationOutput, SimulationRunner
+from rohan.simulation.models import SimulationOutput
+from rohan.simulation.simulation_runner import SimulationRunner
 
 
 class SimulationService:

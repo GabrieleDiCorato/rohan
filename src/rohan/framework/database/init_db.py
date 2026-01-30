@@ -5,7 +5,7 @@ This module provides utilities to initialize the database schema
 for the agentic simulation framework.
 """
 
-from rohan.framework.database import Database
+from .database_connector import DatabaseConnector
 
 
 def initialize_database() -> None:
@@ -16,7 +16,7 @@ def initialize_database() -> None:
     defined in models.py. It's idempotent - running it multiple times
     won't cause errors.
     """
-    db = Database()
+    db = DatabaseConnector()
     db.create_tables()
     print("✓ Database tables created successfully")
 
@@ -27,9 +27,9 @@ def drop_all_tables() -> None:
 
     WARNING: This will delete all data! Use with caution.
     """
-    from rohan.framework.models import Base
+    from rohan.framework.database.models import Base
 
-    db = Database()
+    db = DatabaseConnector()
     Base.metadata.drop_all(bind=db.engine)
     print("✓ All tables dropped")
 

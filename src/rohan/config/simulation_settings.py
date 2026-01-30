@@ -7,8 +7,8 @@ from enum import Enum
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from rohan.config.agent_settings import AgentSettings
-from rohan.config.latency_settings import LatencyModelSettings
+from .agent_settings import AgentSettings
+from .latency_settings import LatencyModelSettings
 
 # TODO this is hardcoded in ABIDES, will be fixed in a new version
 DEFAULT_TICKER: str = "ABM"

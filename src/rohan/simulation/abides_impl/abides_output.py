@@ -20,7 +20,7 @@ from abides_core.utils import parse_logs_df
 from abides_markets.agents import ExchangeAgent
 from abides_markets.order_book import OrderBook, ns_date
 
-from rohan.simulation import SimulationOutput
+from rohan.simulation.models import SimulationOutput
 
 
 class AbidesOutput(SimulationOutput):

@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 
 from rohan.config import SimulationSettings
-from rohan.simulation import SimulationOutput
+from rohan.simulation.models import SimulationOutput
 
 
 class SimulationRunner(ABC):
