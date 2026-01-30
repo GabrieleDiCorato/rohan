@@ -115,10 +115,19 @@ class ArtifactStore:
             # Extract event_type
             event_type = row.get("EventType", "Unknown")
 
-            # Extract time_placed
+            # Extract time_placed and convert to datetime object
             time_placed = row.get("time_placed")
             if pd.isna(time_placed):
                 time_placed = None
+            elif isinstance(time_placed, str):
+                # Convert string to datetime object for SQLite DateTime compatibility
+                try:
+                    time_placed = pd.to_datetime(time_placed).to_pydatetime()
+                except Exception:
+                    time_placed = None
+            elif isinstance(time_placed, pd.Timestamp):
+                # Convert pandas Timestamp to Python datetime
+                time_placed = time_placed.to_pydatetime()
 
             log_item = row.drop(labels=structured_cols, errors="ignore").to_dict()
             log_json = self._sanitize_for_json(log_item)

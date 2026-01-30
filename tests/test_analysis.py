@@ -32,9 +32,9 @@ class TestAnalysisService:
         """Create a sample simulation output for testing."""
         settings = SimulationSettings()
         settings.start_time = "09:30:00"
-        settings.end_time = "09:30:30"  # 30 second simulation
-        settings.agents.noise.num_agents = 1
-        settings.agents.value.num_agents = 1
+        settings.end_time = "09:35:00"  # 5 minute simulation
+        settings.agents.noise.num_agents = 10  # Increased from 1 to ensure market activity
+        settings.agents.value.num_agents = 5  # Increased from 1 to ensure market activity
         settings.agents.momentum.num_agents = 0
         settings.agents.adaptive_market_maker.num_agents = 0
 

@@ -18,8 +18,8 @@ resolution-markers = [
 
 [[package]]
 name = "abides-rohan"
-version = "1.2.4"
-source = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git?rev=v1.2.4-rohan#59f5d79387f85c6d71ffc25f9ab7679c80650f45" }
+version = "1.2.5"
+source = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git?rev=v1.2.5-rohan#3960862628a14d8a189a7c4c6267d9fe70dfac2e" }
 dependencies = [
     { name = "coloredlogs" },
     { name = "gymnasium" },
@@ -2415,7 +2415,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "abides-rohan", git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git?rev=v1.2.4-rohan" },
+    { name = "abides-rohan", git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git?rev=v1.2.5-rohan" },
     { name = "langgraph", specifier = ">=1.0.7" },
     { name = "numpy", specifier = ">=2.4.1" },
     { name = "pandas", specifier = ">=2.3.3" },

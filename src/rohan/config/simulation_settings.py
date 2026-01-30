@@ -4,7 +4,7 @@ This is agnostic to the simulation engine used (e.g., ABIDES) and focuses on hig
 from datetime import datetime
 from enum import Enum
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .agent_settings import AgentSettings
@@ -37,6 +37,25 @@ class SimulationSettings(BaseSettings):
     latency: LatencyModelSettings = Field(default_factory=LatencyModelSettings, description="Settings for the latency model.")
 
     agents: AgentSettings = Field(default_factory=AgentSettings, description="Settings for the agents in the simulation.")
+
+    @field_validator("end_time")
+    @classmethod
+    def validate_minimum_duration(cls, end_time_str: str, info) -> str:
+        """Ensure simulation runs for at least 5 minutes to avoid edge cases like division by zero."""
+        if "start_time" in info.data:
+            start = datetime.strptime(info.data["start_time"], "%H:%M:%S").time()
+            end = datetime.strptime(end_time_str, "%H:%M:%S").time()
+
+            # Convert to seconds since midnight for comparison
+            start_seconds = start.hour * 3600 + start.minute * 60 + start.second
+            end_seconds = end.hour * 3600 + end.minute * 60 + end.second
+            duration_seconds = end_seconds - start_seconds
+
+            if duration_seconds < 300:  # Less than 5 minutes (300 seconds)
+                raise ValueError(
+                    f"Simulation duration must be at least 5 minutes (300 seconds). " f"Current duration: {duration_seconds} seconds " f"(from {info.data['start_time']} to {end_time_str})"
+                )
+        return end_time_str
 
     model_config = SettingsConfigDict(
         env_file=".env",  # path to the .env file. Overwrite with _env_file when instantiating

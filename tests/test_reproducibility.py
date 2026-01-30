@@ -7,9 +7,9 @@ from rohan.simulation import SimulationOutput, SimulationService
 def run_simulation(seed) -> SimulationOutput:
     config = SimulationSettings()
     config.seed = seed
-    # Use a short duration for testing
+    # Use a 5 minute duration for testing
     config.start_time = "09:30:00"
-    config.end_time = "09:31:00"
+    config.end_time = "09:35:00"
     config.date = "20260130"
     config.stdout_log_level = "OFF"  # Reduce noise
 

@@ -38,7 +38,7 @@ class TestSimulationEngine:
         # Create minimal simulation settings
         settings = SimulationSettings()
         settings.start_time = "09:30:00"
-        settings.end_time = "09:30:30"  # 30 second simulation
+        settings.end_time = "09:35:00"  # 5 minute simulation
         settings.agents.noise.num_agents = 2
         settings.agents.value.num_agents = 1
         settings.agents.momentum.num_agents = 0
