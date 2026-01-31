@@ -130,7 +130,7 @@ def render_sidebar_config():
         f"""
         <div style='text-align: center; padding: 20px 0;'>
             <h1 style='color: {COLORS['primary']}; font-size: 1.8rem; margin: 0;'>
-                ⚡ ABIDES
+                ABIDES-ROHAN
             </h1>
             <p style='color: {COLORS['secondary']}; font-size: 1.2rem; margin: 5px 0 0 0; letter-spacing: 2px;'>
                 TERMINAL
@@ -580,7 +580,7 @@ st.markdown(
     f"""
     <div style='text-align: center; padding: 20px 0;'>
         <h1 style='color: {COLORS['primary']}; font-size: 2.5rem; margin: 0;'>
-            ABIDES Simulation Terminal
+            ABIDES-Markets Simulation Terminal
         </h1>
         <p style='color: {COLORS['text_muted']}; font-size: 1.1rem; margin: 10px 0 0 0;'>
             Agent-Based Interactive Discrete Event Simulation
@@ -1417,8 +1417,15 @@ with tab2:
                         if event_col in logs_df.columns:
                             filtered_df = filtered_df[filtered_df[event_col] == selected_event]
 
-                    # Display logs
-                    st.dataframe(filtered_df.head(max_rows), use_container_width=True, height=500)
+                    # Display logs - convert object columns to strings to avoid Arrow errors
+                    display_df = filtered_df.head(max_rows).copy()
+
+                    # Convert object columns to strings for display
+                    for col in display_df.columns:
+                        if display_df[col].dtype == "object":
+                            display_df[col] = display_df[col].astype(str)
+
+                    st.dataframe(display_df, width="stretch", height=500)
 
                     # Log statistics
                     st.markdown("### 📊 Log Statistics")
