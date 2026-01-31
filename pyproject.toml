@@ -102,6 +102,7 @@ omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/.venv/*",
+    "src/rohan/ui/*",
 ]
 
 [tool.coverage.report]

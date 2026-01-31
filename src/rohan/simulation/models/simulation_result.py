@@ -90,14 +90,13 @@ class SimulationResult(BaseModel):
         description="Exception that caused failure (None if successful)",
     )
 
-    # To permit Exception and SimulationOutput types
     model_config = ConfigDict(
         extra="forbid",
         frozen=True,
         use_enum_values=True,
         validate_default=True,
         str_strip_whitespace=True,
-        arbitrary_types_allowed=True,
+        arbitrary_types_allowed=True,  # To permit Exception and SimulationOutput types
     )
 
     def model_post_init(self, __context):
