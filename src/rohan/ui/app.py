@@ -43,7 +43,10 @@ apply_theme()
 
 # Initialize session state
 if "simulation_config" not in st.session_state:
-    st.session_state.simulation_config = None
+    st.session_state.simulation_config = None  # Applied configuration (shown in Execute tab)
+
+if "draft_config" not in st.session_state:
+    st.session_state.draft_config = SimulationSettings()  # Draft configuration (being edited in sidebar)
 
 if "simulation_result" not in st.session_state:
     st.session_state.simulation_result = None
@@ -103,6 +106,23 @@ def compute_spread_data(_l1_df):
 # ============================================================================
 
 
+def compact_input(label, widget_type, key, **kwargs):
+    """Create a compact key-value input with label and widget on the same line."""
+    col1, col2 = st.columns([1.2, 1])
+    with col1:
+        st.markdown(f"**{label}:**")
+    with col2:
+        if widget_type == "text":
+            return st.text_input("", key=key, label_visibility="collapsed", **kwargs)
+        if widget_type == "number":
+            return st.number_input("", key=key, label_visibility="collapsed", **kwargs)
+        if widget_type == "selectbox":
+            return st.selectbox("", key=key, label_visibility="collapsed", **kwargs)
+        if widget_type == "checkbox":
+            return st.checkbox("", key=key, label_visibility="collapsed", **kwargs)
+        raise ValueError(f"Unknown widget type: {widget_type}")
+
+
 @st.fragment
 def render_sidebar_config():
     """Render configuration sidebar as a fragment for isolated updates."""
@@ -133,286 +153,327 @@ def render_sidebar_config():
     )
 
     if st.button("Load Preset", type="primary", use_container_width=True) and preset_name != "Custom":
-        st.session_state.simulation_config = get_preset_config(preset_name)
-        st.success(f"✅ Loaded: {preset_name}")
+        st.session_state.draft_config = get_preset_config(preset_name)
+        st.success(f"✅ Loaded preset: {preset_name} (click 'Apply Configuration' to use it)")
         st.rerun()
 
     st.markdown("---")
 
-    # Initialize config
-    config = SimulationSettings() if st.session_state.simulation_config is None else st.session_state.simulation_config
+    # Use draft config for sidebar inputs (being edited)
+    config = st.session_state.draft_config
 
     # Simulation Parameters
     with st.expander("🎯 SIMULATION", expanded=True):
-        date = st.text_input("Date (YYYYMMDD)", value=config.date, key="cfg_date")
-        start_time = st.text_input("Start Time", value=config.start_time, key="cfg_start_time")
-        end_time = st.text_input("End Time", value=config.end_time, key="cfg_end_time")
-        seed = st.number_input("Random Seed", value=config.seed, min_value=0, key="cfg_seed")
-        ticker = st.text_input("Ticker", value=config.ticker, key="cfg_ticker")
-        starting_cash = st.number_input(
-            "Starting Cash (cents)",
+        date = compact_input("Date (YYYYMMDD)", "text", "cfg_date", value=config.date)
+        start_time = compact_input("Start Time", "text", "cfg_start_time", value=config.start_time)
+        end_time = compact_input("End Time", "text", "cfg_end_time", value=config.end_time)
+        seed = compact_input("Random Seed", "number", "cfg_seed", value=config.seed, min_value=0)
+        ticker = compact_input("Ticker", "text", "cfg_ticker", value=config.ticker)
+        starting_cash = compact_input(
+            "Starting Cash",
+            "number",
+            "cfg_starting_cash",
             value=config.starting_cash,
             min_value=0,
             step=1000000,
-            key="cfg_starting_cash",
         )
-        stdout_log_level = st.selectbox(
+        stdout_log_level = compact_input(
             "Log Level",
+            "selectbox",
+            "cfg_log_level",
             options=["DEBUG", "INFO", "WARNING", "ERROR"],
             index=1,
-            key="cfg_log_level",
         )
-        log_orders = st.checkbox("Log Orders", value=config.log_orders, key="cfg_log_orders")
-        computation_delay_ns = st.number_input(
-            "Computation Delay (ns)",
+        log_orders = compact_input("Log Orders", "checkbox", "cfg_log_orders", value=config.log_orders)
+        computation_delay_ns = compact_input(
+            "Comp Delay (ns)",
+            "number",
+            "cfg_computation_delay_ns",
             value=config.computation_delay_ns,
             min_value=0,
-            key="cfg_computation_delay_ns",
         )
 
     # Exchange Agent
     with st.expander("🏦 EXCHANGE"):
-        exchange_book_logging = st.checkbox(
+        exchange_book_logging = compact_input(
             "Book Logging",
+            "checkbox",
+            "cfg_exchange_book_logging",
             value=config.agents.exchange.book_logging,
-            key="cfg_exchange_book_logging",
         )
-        exchange_book_log_depth = st.number_input(
+        exchange_book_log_depth = compact_input(
             "Book Log Depth",
+            "number",
+            "cfg_exchange_book_log_depth",
             value=config.agents.exchange.book_log_depth,
             min_value=1,
-            key="cfg_exchange_book_log_depth",
         )
-        exchange_stream_history = st.number_input(
+        exchange_stream_history = compact_input(
             "Stream History",
+            "number",
+            "cfg_exchange_stream_history",
             value=config.agents.exchange.stream_history_length,
             min_value=1,
-            key="cfg_exchange_stream_history",
         )
-        exchange_log_orders = st.checkbox(
-            "Exchange Log Orders",
+        exchange_log_orders = compact_input(
+            "Log Orders",
+            "checkbox",
+            "cfg_exchange_log_orders",
             value=config.agents.exchange.exchange_log_orders,
-            key="cfg_exchange_log_orders",
         )
-        exchange_pipeline_delay = st.number_input(
+        exchange_pipeline_delay = compact_input(
             "Pipeline Delay (ns)",
+            "number",
+            "cfg_exchange_pipeline_delay",
             value=config.agents.exchange.pipeline_delay_ns,
             min_value=0,
-            key="cfg_exchange_pipeline_delay",
         )
-        exchange_computation_delay = st.number_input(
-            "Computation Delay (ns)",
+        exchange_computation_delay = compact_input(
+            "Comp Delay (ns)",
+            "number",
+            "cfg_exchange_computation_delay",
             value=config.agents.exchange.computation_delay_ns,
             min_value=0,
-            key="cfg_exchange_computation_delay",
         )
 
     # Noise Agents
     with st.expander("📢 NOISE AGENTS"):
-        noise_num_agents = st.number_input(
+        noise_num_agents = compact_input(
             "Number of Agents",
+            "number",
+            "cfg_noise_num_agents",
             value=config.agents.noise.num_agents,
             min_value=0,
-            key="cfg_noise_num_agents",
         )
 
     # Value Agents
     with st.expander("💎 VALUE AGENTS"):
-        value_num_agents = st.number_input(
+        value_num_agents = compact_input(
             "Number of Agents",
+            "number",
+            "cfg_value_num_agents",
             value=config.agents.value.num_agents,
             min_value=0,
-            key="cfg_value_num_agents",
         )
-        value_r_bar = st.number_input(
+        value_r_bar = compact_input(
             "R Bar",
+            "number",
+            "cfg_value_r_bar",
             value=config.agents.value.r_bar,
             min_value=0,
-            key="cfg_value_r_bar",
         )
-        value_kappa = st.number_input(
+        value_kappa = compact_input(
             "Kappa",
+            "number",
+            "cfg_value_kappa",
             value=config.agents.value.kappa,
             format="%.2e",
-            key="cfg_value_kappa",
         )
-        value_lambda_a = st.number_input(
+        value_lambda_a = compact_input(
             "Lambda A",
+            "number",
+            "cfg_value_lambda_a",
             value=config.agents.value.lambda_a,
             format="%.2e",
-            key="cfg_value_lambda_a",
         )
 
     # Adaptive Market Makers
     with st.expander("🎯 MARKET MAKERS"):
-        amm_num_agents = st.number_input(
+        amm_num_agents = compact_input(
             "Number of Agents",
+            "number",
+            "cfg_amm_num_agents",
             value=config.agents.adaptive_market_maker.num_agents,
             min_value=0,
-            key="cfg_amm_num_agents",
         )
-        amm_window_size = st.text_input(
+        amm_window_size = compact_input(
             "Window Size",
+            "text",
+            "cfg_amm_window_size",
             value=str(config.agents.adaptive_market_maker.window_size),
-            key="cfg_amm_window_size",
         )
-        amm_pov = st.number_input(
+        amm_pov = compact_input(
             "POV",
+            "number",
+            "cfg_amm_pov",
             value=config.agents.adaptive_market_maker.pov,
             min_value=0.0,
             max_value=1.0,
             format="%.4f",
-            key="cfg_amm_pov",
         )
-        amm_num_ticks = st.number_input(
+        amm_num_ticks = compact_input(
             "Num Ticks",
+            "number",
+            "cfg_amm_num_ticks",
             value=config.agents.adaptive_market_maker.num_ticks,
             min_value=1,
-            key="cfg_amm_num_ticks",
         )
-        amm_wake_up_freq = st.text_input(
+        amm_wake_up_freq = compact_input(
             "Wake Up Freq",
+            "text",
+            "cfg_amm_wake_up_freq",
             value=config.agents.adaptive_market_maker.wake_up_freq,
-            key="cfg_amm_wake_up_freq",
         )
-        amm_poisson = st.checkbox(
+        amm_poisson = compact_input(
             "Poisson Arrival",
+            "checkbox",
+            "cfg_amm_poisson",
             value=config.agents.adaptive_market_maker.poisson_arrival,
-            key="cfg_amm_poisson",
         )
-        amm_min_order_size = st.number_input(
+        amm_min_order_size = compact_input(
             "Min Order Size",
+            "number",
+            "cfg_amm_min_order_size",
             value=config.agents.adaptive_market_maker.min_order_size,
             min_value=1,
-            key="cfg_amm_min_order_size",
         )
-        amm_level_spacing = st.number_input(
+        amm_level_spacing = compact_input(
             "Level Spacing",
+            "number",
+            "cfg_amm_level_spacing",
             value=config.agents.adaptive_market_maker.level_spacing,
             min_value=1,
-            key="cfg_amm_level_spacing",
         )
-        amm_skew_beta = st.number_input(
+        amm_skew_beta = compact_input(
             "Skew Beta",
+            "number",
+            "cfg_amm_skew_beta",
             value=config.agents.adaptive_market_maker.skew_beta,
-            key="cfg_amm_skew_beta",
         )
-        amm_price_skew = st.number_input(
+        amm_price_skew = compact_input(
             "Price Skew",
+            "number",
+            "cfg_amm_price_skew",
             value=config.agents.adaptive_market_maker.price_skew,
-            key="cfg_amm_price_skew",
         )
-        amm_spread_alpha = st.number_input(
+        amm_spread_alpha = compact_input(
             "Spread Alpha",
+            "number",
+            "cfg_amm_spread_alpha",
             value=config.agents.adaptive_market_maker.spread_alpha,
             min_value=0.0,
             max_value=1.0,
             format="%.2f",
-            key="cfg_amm_spread_alpha",
         )
-        amm_backstop_qty = st.number_input(
+        amm_backstop_qty = compact_input(
             "Backstop Qty",
+            "number",
+            "cfg_amm_backstop_qty",
             value=config.agents.adaptive_market_maker.backstop_quantity,
             min_value=0,
-            key="cfg_amm_backstop_qty",
         )
 
     # Momentum Agents
     with st.expander("📈 MOMENTUM AGENTS"):
-        momentum_num_agents = st.number_input(
+        momentum_num_agents = compact_input(
             "Number of Agents",
+            "number",
+            "cfg_momentum_num_agents",
             value=config.agents.momentum.num_agents,
             min_value=0,
-            key="cfg_momentum_num_agents",
         )
-        momentum_min_size = st.number_input(
+        momentum_min_size = compact_input(
             "Min Size",
+            "number",
+            "cfg_momentum_min_size",
             value=config.agents.momentum.min_size,
             min_value=1,
-            key="cfg_momentum_min_size",
         )
-        momentum_max_size = st.number_input(
+        momentum_max_size = compact_input(
             "Max Size",
+            "number",
+            "cfg_momentum_max_size",
             value=config.agents.momentum.max_size,
             min_value=1,
-            key="cfg_momentum_max_size",
         )
-        momentum_wake_up_freq = st.text_input(
+        momentum_wake_up_freq = compact_input(
             "Wake Up Freq",
+            "text",
+            "cfg_momentum_wake_up_freq",
             value=config.agents.momentum.wake_up_freq,
-            key="cfg_momentum_wake_up_freq",
         )
-        momentum_poisson = st.checkbox(
+        momentum_poisson = compact_input(
             "Poisson Arrival",
+            "checkbox",
+            "cfg_momentum_poisson",
             value=config.agents.momentum.poisson_arrival,
-            key="cfg_momentum_poisson",
         )
 
     # Oracle Settings
     with st.expander("🔮 ORACLE"):
-        oracle_kappa = st.number_input(
+        oracle_kappa = compact_input(
             "Kappa",
+            "number",
+            "cfg_oracle_kappa",
             value=config.agents.oracle.kappa,
             format="%.2e",
-            key="cfg_oracle_kappa",
         )
-        oracle_sigma_s = st.number_input(
+        oracle_sigma_s = compact_input(
             "Sigma S",
+            "number",
+            "cfg_oracle_sigma_s",
             value=config.agents.oracle.sigma_s,
             format="%.2e",
-            key="cfg_oracle_sigma_s",
         )
-        oracle_fund_vol = st.number_input(
+        oracle_fund_vol = compact_input(
             "Fund Vol",
+            "number",
+            "cfg_oracle_fund_vol",
             value=config.agents.oracle.fund_vol,
             format="%.2e",
-            key="cfg_oracle_fund_vol",
         )
-        oracle_megashock_lambda = st.number_input(
+        oracle_megashock_lambda = compact_input(
             "Megashock Lambda",
+            "number",
+            "cfg_oracle_megashock_lambda",
             value=config.agents.oracle.megashock_lambda_a,
             format="%.2e",
-            key="cfg_oracle_megashock_lambda",
         )
-        oracle_megashock_mean = st.number_input(
+        oracle_megashock_mean = compact_input(
             "Megashock Mean",
+            "number",
+            "cfg_oracle_megashock_mean",
             value=config.agents.oracle.megashock_mean,
             min_value=0,
-            key="cfg_oracle_megashock_mean",
         )
-        oracle_megashock_var = st.number_input(
+        oracle_megashock_var = compact_input(
             "Megashock Var",
+            "number",
+            "cfg_oracle_megashock_var",
             value=config.agents.oracle.megashock_var,
             min_value=0,
-            key="cfg_oracle_megashock_var",
         )
 
     # Latency Model
     with st.expander("⏱️ LATENCY"):
-        latency_type = st.selectbox(
+        latency_type = compact_input(
             "Type",
+            "selectbox",
+            "cfg_latency_type",
             options=[lt.value for lt in LatencyType],
             index=1,
-            key="cfg_latency_type",
         )
         if latency_type == LatencyType.CUBIC.value:
-            latency_jitter = st.number_input(
+            latency_jitter = compact_input(
                 "Jitter",
+                "number",
+                "cfg_latency_jitter",
                 value=config.latency.jitter,
                 min_value=0.0,
-                key="cfg_latency_jitter",
             )
-            latency_jitter_clip = st.number_input(
+            latency_jitter_clip = compact_input(
                 "Jitter Clip",
+                "number",
+                "cfg_latency_jitter_clip",
                 value=config.latency.jitter_clip,
                 min_value=0.0,
-                key="cfg_latency_jitter_clip",
             )
-            latency_jitter_unit = st.number_input(
+            latency_jitter_unit = compact_input(
                 "Jitter Unit",
+                "number",
+                "cfg_latency_jitter_unit",
                 value=config.latency.jitter_unit,
                 min_value=0.0,
-                key="cfg_latency_jitter_unit",
             )
         else:
             latency_jitter = config.latency.jitter
@@ -422,7 +483,7 @@ def render_sidebar_config():
     st.markdown("---")
 
     # Save configuration button
-    if st.button("💾 Save Configuration", type="primary", use_container_width=True):
+    if st.button("🚀 Apply Configuration", type="primary", use_container_width=True):
         try:
             # Build configuration
             agents = AgentSettings(
@@ -494,7 +555,8 @@ def render_sidebar_config():
             )
 
             st.session_state.simulation_config = new_config
-            st.success("✅ Configuration saved!")
+            st.success("✅ Configuration applied!")
+            st.rerun()  # Force full page refresh to update Execute tab
 
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
@@ -541,18 +603,18 @@ tab1, tab2 = st.tabs(["▶️ Execute", "📊 Analyze"])
 # ============================================================================
 
 
-@st.fragment
 def render_execute_tab():
     """Render execute tab as a fragment for isolated updates."""
     # Check if configuration exists
     if st.session_state.simulation_config is None:
-        st.warning("⚠️ No configuration saved. Please configure and save in the sidebar first.")
+        st.warning("⚠️ No configuration applied. Please configure the simulation in the sidebar first.")
         return
 
     config = st.session_state.simulation_config
 
     # Configuration Summary
-    st.markdown("### 📋 Configuration Summary")
+    st.markdown("### 📋 Applied Configuration")
+    st.info("ℹ️ This is the configuration that will be used for simulation runs. Modify settings in the sidebar and click 'Apply Configuration' to update.")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -627,6 +689,50 @@ def render_execute_tab():
     )
 
     st.info(f"ℹ️ Total agents: **{total_agents}**")
+
+    # Detailed configuration in expander
+    with st.expander("🔍 View Full Configuration Details", expanded=False):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**Simulation Settings**")
+            st.markdown(f"- **Starting Cash:** ${config.starting_cash:,}")
+            st.markdown(f"- **Log Level:** {config.stdout_log_level}")
+            st.markdown(f"- **Log Orders:** {config.log_orders}")
+            st.markdown(f"- **Computation Delay:** {config.computation_delay_ns} ns")
+            st.markdown("")
+
+            st.markdown("**Exchange Settings**")
+            st.markdown(f"- **Book Logging:** {config.agents.exchange.book_logging}")
+            st.markdown(f"- **Book Log Depth:** {config.agents.exchange.book_log_depth}")
+            st.markdown(f"- **Stream History:** {config.agents.exchange.stream_history_length}")
+            st.markdown(f"- **Pipeline Delay:** {config.agents.exchange.pipeline_delay_ns} ns")
+            st.markdown("")
+
+            st.markdown("**Latency Model**")
+            st.markdown(f"- **Type:** {config.latency.type.value}")
+            if config.latency.type.value == "cubic":
+                st.markdown(f"- **Jitter:** {config.latency.jitter}")
+                st.markdown(f"- **Jitter Clip:** {config.latency.jitter_clip}")
+
+        with col2:
+            st.markdown("**Oracle Settings**")
+            st.markdown(f"- **Kappa:** {config.agents.oracle.kappa:.2e}")
+            st.markdown(f"- **Sigma S:** {config.agents.oracle.sigma_s:.2e}")
+            st.markdown(f"- **Fund Vol:** {config.agents.oracle.fund_vol:.2e}")
+            st.markdown(f"- **Megashock Lambda:** {config.agents.oracle.megashock_lambda_a:.2e}")
+            st.markdown("")
+
+            st.markdown("**Value Agents**")
+            st.markdown(f"- **Count:** {config.agents.value.num_agents}")
+            st.markdown(f"- **R Bar:** {config.agents.value.r_bar}")
+            st.markdown(f"- **Kappa:** {config.agents.value.kappa:.2e}")
+            st.markdown("")
+
+            st.markdown("**Market Makers**")
+            st.markdown(f"- **Count:** {config.agents.adaptive_market_maker.num_agents}")
+            st.markdown(f"- **Window Size:** {config.agents.adaptive_market_maker.window_size}")
+            st.markdown(f"- **POV:** {config.agents.adaptive_market_maker.pov:.4f}")
 
     st.markdown("---")
 
@@ -793,7 +899,6 @@ with tab2:
         ) = st.tabs(["📈 Metrics", "💹 Price Charts", "📊 Volume", "📉 Spread", "📋 Logs"])
 
         # Metrics Dashboard
-        @st.fragment
         def render_metrics_tab():
             """Render metrics tab as a fragment."""
             st.markdown("### 📊 Key Metrics")
@@ -853,7 +958,6 @@ with tab2:
             render_metrics_tab()
 
         # Price Charts
-        @st.fragment
         def render_price_charts():
             """Render price charts as a fragment."""
             st.markdown("### 💹 Price Evolution")
@@ -992,7 +1096,6 @@ with tab2:
             render_price_charts()
 
         # Volume Analysis
-        @st.fragment
         def render_volume_analysis():
             """Render volume analysis as a fragment."""
             st.markdown("### 📊 Volume Analysis")
@@ -1136,7 +1239,6 @@ with tab2:
             render_volume_analysis()
 
         # Spread Analysis
-        @st.fragment
         def render_spread_analysis():
             """Render spread analysis as a fragment."""
             st.markdown("### 📉 Spread Analysis")
@@ -1208,7 +1310,11 @@ with tab2:
                             y=spread_df["spread"],
                             mode="markers",
                             name="Spread vs Price",
-                            marker={"color": COLORS["danger"], "size": 3, "opacity": 0.5},
+                            marker={
+                                "color": COLORS["danger"],
+                                "size": 3,
+                                "opacity": 0.5,
+                            },
                         ),
                         row=2,
                         col=2,
@@ -1260,7 +1366,6 @@ with tab2:
             render_spread_analysis()
 
         # Execution Logs
-        @st.fragment
         def render_logs():
             """Render logs as a fragment."""
             st.markdown("### 📋 Execution Logs")
