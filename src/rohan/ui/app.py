@@ -759,14 +759,21 @@ def render_execute_tab():
 
                 # Step 2: Initialize simulation service
                 st.write("⏳ Initializing simulation engine...")
-                service = SimulationService(config)
+                service = SimulationService()
                 st.write("✓ Simulation engine initialized")
 
                 # Step 3: Run simulation
                 st.write("⏳ Running simulation (this may take a few minutes)...")
                 start_time = datetime.now()
 
-                result = service.run_simulation()
+                sim_result = service.run_simulation(config)
+
+                # Check if simulation succeeded
+                if sim_result.error is not None:
+                    raise sim_result.error
+
+                result = sim_result.result
+                assert result is not None, "Result must not be None when error is None"
 
                 end_time = datetime.now()
                 duration = (end_time - start_time).total_seconds()

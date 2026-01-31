@@ -1,10 +1,10 @@
 import pandas as pd
 
 from rohan.config import SimulationSettings
-from rohan.simulation import SimulationOutput, SimulationService
+from rohan.simulation import SimulationService
 
 
-def run_simulation(seed) -> SimulationOutput:
+def run_simulation(seed):
     config = SimulationSettings()
     config.seed = seed
     # Use a 5 minute duration for testing
@@ -14,8 +14,14 @@ def run_simulation(seed) -> SimulationOutput:
     config.stdout_log_level = "OFF"  # Reduce noise
 
     # Run the simulation
-    simulation_service: SimulationService = SimulationService(config)
-    return simulation_service.run_simulation()
+    simulation_service = SimulationService()
+    result = simulation_service.run_simulation(config)
+
+    # Raise error if simulation failed
+    if result.error is not None:
+        raise result.error
+
+    return result.result
 
 
 def test_simulation_reproducibility():

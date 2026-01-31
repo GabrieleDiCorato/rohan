@@ -38,8 +38,14 @@ class TestAnalysisService:
         settings.agents.momentum.num_agents = 0
         settings.agents.adaptive_market_maker.num_agents = 0
 
-        service = SimulationService(settings)
-        return service.run_simulation()
+        service = SimulationService()
+        result = service.run_simulation(settings)
+
+        # Raise error if simulation failed
+        if result.error is not None:
+            raise result.error
+
+        return result.result
 
     def test_compute_simulation_metrics(self, sample_simulation_output):
         """Test computing summary metrics (PnL, Sharpe, volatility) from simulation output."""

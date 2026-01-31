@@ -33,3 +33,11 @@ class SimulationRunnerAbides(SimulationRunner):
         )
 
         return AbidesOutput(end_state)
+
+    @override
+    def cleanup(self) -> None:
+        """Cleanup resources after simulation.
+
+        For ABIDES simulations, no specific cleanup is needed.
+        """
+        pass

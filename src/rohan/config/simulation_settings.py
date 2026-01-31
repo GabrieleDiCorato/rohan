@@ -1,5 +1,6 @@
 """Simulation settings configuration. Defines the structure and default values for simulation parameters.
-This is agnostic to the simulation engine used (e.g., ABIDES) and focuses on high-level settings."""
+This is agnostic to the simulation engine used (e.g., ABIDES) and focuses on high-level settings.
+"""
 
 from datetime import datetime
 from enum import Enum
@@ -24,7 +25,10 @@ class SimulationSettings(BaseSettings):
     """Configuration for the simulation environment."""
 
     engine: SimulationEngine = Field(default=SimulationEngine.ABIDES, description="The simulation engine to use.")
-    seed: int = Field(default_factory=lambda: int(datetime.now().timestamp() * 1_000_000) % (2**32 - 1), description="Random seed for the simulation.")
+    seed: int = Field(
+        default_factory=lambda: int(datetime.now().timestamp() * 1_000_000) % (2**32 - 1),
+        description="Random seed for the simulation.",
+    )
     date: str = Field(default="20210205", description="Date of the simulation.")
     start_time: str = Field(default="09:30:00", description="Start time of the simulation.")
     end_time: str = Field(default="10:00:00", description="End time of the simulation.")
@@ -34,9 +38,15 @@ class SimulationSettings(BaseSettings):
     log_orders: bool = Field(default=True, description="Whether to log all orders.")
 
     computation_delay_ns: int = Field(default=50, description="Computation delay in nanoseconds.")
-    latency: LatencyModelSettings = Field(default_factory=LatencyModelSettings, description="Settings for the latency model.")
+    latency: LatencyModelSettings = Field(
+        default_factory=LatencyModelSettings,
+        description="Settings for the latency model.",
+    )
 
-    agents: AgentSettings = Field(default_factory=AgentSettings, description="Settings for the agents in the simulation.")
+    agents: AgentSettings = Field(
+        default_factory=AgentSettings,
+        description="Settings for the agents in the simulation.",
+    )
 
     @field_validator("end_time")
     @classmethod

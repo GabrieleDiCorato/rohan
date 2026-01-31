@@ -37,8 +37,15 @@ class SimulationEngine:
 
         try:
             # 2. Run Simulation
-            service = SimulationService(settings)
-            result = service.run_simulation()
+            service = SimulationService()
+            sim_result = service.run_simulation(settings)
+
+            # Check if simulation succeeded
+            if sim_result.error is not None:
+                raise sim_result.error
+
+            result = sim_result.result
+            assert result is not None, "Result must not be None when error is None"
 
             # 3. Extract Data
             l1_df = result.get_order_book_l1()
