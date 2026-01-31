@@ -10,7 +10,7 @@ keywords = ["trading", "llm", "agents", "reinforcement-learning", "risk-optimiza
 dependencies = [
     "abides-rohan",
     "numpy>=2.4.1",
-    "pandas>=2.3.3",
+    "pandas>=3.0.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
     "sqlalchemy>=2.0.0",
@@ -22,6 +22,9 @@ dependencies = [
 Homepage = "https://github.com/GabrieleDiCorato/rohan"
 Repository = "https://github.com/GabrieleDiCorato/rohan"
 Issues = "https://github.com/GabrieleDiCorato/rohan/issues"
+
+[project.scripts]
+ui = "rohan.ui.__main__:main"
 
 [dependency-groups]
 dev = [
