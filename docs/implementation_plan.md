@@ -580,7 +580,9 @@ class StrategicAgentAdapter(TradingAgent):
 
 ---
 
-#### Phase 1.5.3: Sandboxed Execution via Limited Interpreter 🔴
+#### Phase 1.5.3: Sandboxed Execution via Limited Interpreter ✅
+
+**Status:** Complete — Implemented in `src/rohan/simulation/strategy_validator.py`
 
 **Goal:** Execute LLM-generated strategy code safely without full Docker complexity.
 
@@ -591,13 +593,25 @@ class StrategicAgentAdapter(TradingAgent):
 
 1. **AST Validation** — Block dangerous imports and builtins before execution
 2. **Restricted Namespace** — Only expose safe builtins + framework types
-3. **Timeout** — Kill execution after configurable limit
+3. **Timeout** — *Not implemented for Windows execution in MVP (requires multiprocessing or signal)*
 
 **Implementation:**
 
 ```python
-import ast
-import signal
+class StrategyValidator:
+    SAFE_IMPORTS = {"math", "numpy", "pandas", "rohan", ...}
+    SAFE_BUILTINS = {"print", "len", "__import__", ...}
+
+    def validate(self, code: str) -> ValidationResult:
+        # Check AST for forbidden imports and attributes
+        ...
+
+    def execute_strategy(self, code: str, class_name: str) -> type:
+        # 1. Validate
+        # 2. Execute in restricted namespace
+        # 3. Return strategy class
+        ...
+```
 from typing import Any
 
 ALLOWED_IMPORTS = {"math", "numpy", "collections"}
