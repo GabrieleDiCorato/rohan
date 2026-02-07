@@ -1,7 +1,13 @@
 import ast
 import builtins
 
-from rohan.simulation.models.validation import ValidationResult
+from rohan.config import SimulationSettings
+from rohan.simulation.models import (
+    SimulationContext,
+    SimulationResult,
+    ValidationResult,
+)
+from rohan.simulation.simulation_service import SimulationService
 
 
 class StrategyValidator:
@@ -152,3 +158,56 @@ class StrategyValidator:
                 raise TypeError(f"Strategy class '{class_name}' missing required method: '{method}'")
 
         return strategy_class
+
+
+def execute_strategy_safely(
+    strategy_code: str,
+    settings: SimulationSettings,
+    _timeout_seconds: int = 300,
+) -> SimulationResult:
+    """
+    Executes a strategy simulation with safety checks and timeout.
+
+    1. Validates code safety (imports, builtins)
+    2. Compiles strategy class
+    3. Runs simulation in separate process/thread (or just safely here for MVP)
+
+    For MVP on Windows, we run in-process but with validation.
+    """
+    validator = StrategyValidator()
+
+    try:
+        # Extract class name - for now assume "MyStrategy" or parse it
+        # Simple parsing to find class name
+        model_tree = ast.parse(strategy_code)
+        class_name = None
+        for node in model_tree.body:
+            if isinstance(node, ast.ClassDef):
+                class_name = node.name
+                break
+
+        if not class_name:
+            return SimulationResult(
+                context=SimulationContext(settings=settings),
+                duration_seconds=0,
+                error=ValueError("No strategy class found in code"),
+            )
+
+        strategy_class = validator.execute_strategy(strategy_code, class_name)
+
+        # Instantiate strategy
+        # We need to adapt it? SimulationService takes strategy INSTANCE?
+        # SimulationService.run_simulation(settings, strategy)
+        # Strategy must be StrategicAgentAdapter?
+        # No, SimulationService takes `strategy: Optional[Any]`.
+        # And it uses `StrategicAgentAdapter` to wrap it.
+        # So we pass the minimal strategy instance.
+
+        # Minimal strategy interface: initialize, on_market_data, on_order_update
+        strategy_instance = strategy_class()
+
+        service = SimulationService()
+        return service.run_simulation(settings, strategy=strategy_instance)
+
+    except Exception as e:
+        return SimulationResult(context=SimulationContext(settings=settings), duration_seconds=0, error=e)

@@ -15,3 +15,38 @@ class SimulationMetrics(BaseModel):
     volatility: float
     traded_volume: int
     custom_metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentMetrics(BaseModel):
+    """Performance metrics for a specific agent."""
+
+    agent_id: int
+    realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
+    total_pnl: float = 0.0
+    sharpe_ratio: float = 0.0
+    max_drawdown: float = 0.0
+    active_returns: float = 0.0  # Returns exceeding baseline/risk-free
+    trade_count: int = 0
+    fill_rate: float = 0.0
+    start_inventory: int = 0
+    end_inventory: int = 0
+    avg_hold_time_ns: float | None = None
+
+
+class MarketMetrics(BaseModel):
+    """Market-wide statistics for baseline comparison."""
+
+    volatility: float
+    mean_spread: float
+    avg_bid_liquidity: float
+    avg_ask_liquidity: float
+    traded_volume: int
+
+
+class ComparisonResult(BaseModel):
+    """Comparison between strategy run and baseline run."""
+
+    strategy_metrics: AgentMetrics
+    baseline_metrics: MarketMetrics
+    market_impact: dict[str, float]  # Delta between runs (e.g. volatility impact)

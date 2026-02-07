@@ -12,15 +12,13 @@ comprehensive tracking of run IDs, timing, success/failure, and error informatio
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from rohan.config import SimulationSettings
-
-if TYPE_CHECKING:
-    from rohan.simulation.models.simulation_output import SimulationOutput
+from rohan.simulation.models.simulation_output import SimulationOutput
 
 
 class SimulationContext(BaseModel):
