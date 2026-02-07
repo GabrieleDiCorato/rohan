@@ -21,27 +21,24 @@ This framework provides an autonomous loop for generating, testing, and refining
 ```mermaid
 graph TD
     User[User / CLI] -->|Start Session| Manager[LangGraph Manager]
-    Manager -->|Status Update| DB[(PostgreSQL)]
 
-    subgraph "Strategy Generation"
+    subgraph "LangGraph Process (In-Memory)"
         Manager -->|1. Generate Code| StratGen[Strategy Generator]
-        StratGen -->|Save Code| DB
+        StratGen -->|Validated Code| SimNode[Simulation Node]
+        SimNode -->|Direct call| SimService[SimulationService]
+        SimService -->|SimulationResult| Interpreter[Interpreter Agent]
+        Interpreter -->|Scenario Summary| Comparator[Comparator Agent]
+        Comparator -->|Insights| Synthesizer[Synthesizer Agent]
+        Synthesizer -->|Final Report| Manager
     end
 
-    subgraph "Simulation Orchestration"
-        Manager -->|2. Queue Scenarios| SimNode[Simulation Node]
-        SimNode -->|Read Scenarios| DB
-        SimNode -->|3. Docker Run| Worker[Simulation Worker Container]
-        Worker -->|Writes Data| DB
+    subgraph "Async Persistence (Fire & Forget)"
+        SimService -.->|persist_async| DB[(PostgreSQL)]
+        StratGen -.->|Save Iteration| DB
     end
 
-    subgraph "Analysis"
-        Manager -->|4. Trigger| Analyzer[Result Analyzer Agent]
-        Analyzer -->|Reads Metrics/Logs| DB
-        Analyzer -->|5. Feedback| Manager
-    end
+    Manager -->|LangGraph Checkpointer| DB
 ```
-(install Mermaid if the graph is not visualized correctly)
 
 **Communication Protocol:**
 *   **LangGraph Nodes:** Direct in-memory communication via **LangGraph State**.
@@ -436,6 +433,390 @@ updated_run = repo.get_run(run.run_id)
 print(f"Status: {updated_run.status}")
 print(f"Metrics: {updated_run.metrics_summary}")
 ```
+
+---
+
+### 🚧 TODO: Phase 1.5 - Minimal Vertical Prototype
+
+**Goal:** Validate the key interfaces end-to-end before building the full agentic framework:
+1. **Strategy API**: The contract between LLM-generated code and the simulation
+2. **Result Interpretation**: What the LLM analyst receives for feedback
+
+```mermaid
+graph LR
+    Prompt[User Prompt] --> LLM[LLM Generator]
+    LLM --> Code[Strategy Code]
+    Code --> Validate[AST Validator]
+    Validate --> Docker[Docker Execution]
+    Docker --> Result[SimulationResult]
+    Result --> Analyze[Compute KPIs + Plots]
+    Analyze --> Interpret[LLM Interpreter]
+    Interpret --> Feedback[Evaluation Report]
+```
+
+---
+
+#### Phase 1.5.1: StrategicAgent API Redesign (High Priority) 🔴
+
+> [!IMPORTANT]
+> **This is a critical integration point.** The API must bridge the gap between the LLM's "strategy logic" view and ABIDES' "event-driven" reality.
+
+**Feasibility Findings:**
+*   **State Management**: ABIDES `TradingAgent` already tracks `holdings` (cash + inventory) and `orders`. We should expose this data read-only to the strategy, rather than duplicating it.
+*   **Lifecycle**: `kernel_starting` -> `initialize`, `wakeup` -> `on_market_data`, `order_executed` -> `on_order_update` maps cleanly.
+*   **Market Data Gap**: ABIDES agents must *explicitly subscribe* to market data (L1, L2, etc.). The Adapter must handle these subscriptions during initialization to ensure `on_market_data` receives fresh data.
+
+**Proposed API (Refined):**
+```python
+class StrategicAgent(Protocol):
+    """Framework-agnostic trading strategy interface."""
+
+    def initialize(self, config: AgentConfig) -> None:
+        """Called once at start. Set up initial state."""
+        ...
+
+    def on_market_data(self, state: MarketState) -> list[OrderAction]:
+        """Called when new market data is available (e.g., L1 update)."""
+        ...
+
+    def on_order_update(self, update: OrderUpdate) -> list[OrderAction]:
+        """Called when an order status changes (filled, cancelled)."""
+        ...
+```
+
+**Deliverables:**
+- [ ] Define `StrategicAgent` protocol and data models (`MarketState`, `OrderAction`)
+- [ ] Ensure `MarketState` maps correctly to `TradingAgent.holdings` and `TradingAgent.orders`
+
+---
+
+#### Phase 1.5.2: ABIDES Adapter & Injection (High Priority) 🔴
+
+**Goal:** Bridge the `StrategicAgent` protocol to ABIDES and inject it dynamically.
+
+**Feasibility Findings:**
+*   **Configuration**: `AbidesConfigMapper` hardcodes agent creation. We cannot easily add dynamic agents via `SimulationSettings` (Pydantic).
+*   **Injection Strategy**: We will modify `SimulationService.run_simulation` to accept an optional `strategy: StrategicAgent` argument. This runtime object will be passed down to `SimulationRunnerAbides` and injected into the agent list during `_build_agents`.
+
+**Implementation details:**
+1.  **Modify `SimulationService`**: Add `strategy` arg to `run_simulation`.
+2.  **Refactor `AbidesConfigMapper`**: Add `inject_strategic_agent(agent)` method.
+3.  **Implement Adapter**:
+    ```python
+    class StrategicAgentAdapter(TradingAgent):
+        def kernel_starting(self, start_time):
+            # adapter must SUBSCRIBE to market data here!
+            self.request_data_subscription(L1SubReqMsg(symbol=self.symbol, freq=1e9)) # 1 sec updates
+            self.strategy.initialize(...)
+    ```
+
+**Deliverables:**
+- [ ] `StrategicAgentAdapter` implementation
+- [ ] `SimulationService` refactoring for dynamic strategy injection
+- [ ] `AbidesConfigMapper` refactoring
+- [ ] Integration test verifying the strategy receives callbacks
+
+---
+
+#### Phase 1.5.3: Sandboxed Execution via Limited Interpreter 🔴
+
+**Goal:** Execute LLM-generated strategy code safely without full Docker complexity.
+
+> [!NOTE]
+> **Why not Docker for MVP?** The ABIDES `end_state` contains Python objects (agents, order book, numpy arrays) that aren't JSON-serializable. A limited in-process interpreter avoids serialization while providing "good enough" isolation for a thesis PoC. Docker can be added in Phase 3 for production.
+
+**Security Model:**
+
+1. **AST Validation** — Block dangerous imports and builtins before execution
+2. **Restricted Namespace** — Only expose safe builtins + framework types
+3. **Timeout** — Kill execution after configurable limit
+
+**Implementation:**
+
+```python
+import ast
+import signal
+from typing import Any
+
+ALLOWED_IMPORTS = {"math", "numpy", "collections"}
+BLOCKED_BUILTINS = {"exec", "eval", "compile", "open", "input", "__import__",
+                    "getattr", "setattr", "delattr", "globals", "locals"}
+
+class StrategyValidator:
+    """Validates LLM-generated strategy code via AST analysis."""
+
+    def validate(self, code: str) -> ValidationResult:
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            return ValidationResult(is_valid=False, errors=[f"Syntax error: {e}"])
+
+        errors = []
+        errors.extend(self._check_imports(tree))
+        errors.extend(self._check_blocked_names(tree))
+        errors.extend(self._check_protocol_compliance(tree))
+
+        return ValidationResult(is_valid=len(errors) == 0, errors=errors)
+
+    def _check_imports(self, tree: ast.AST) -> list[str]:
+        errors = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.split('.')[0] not in ALLOWED_IMPORTS:
+                        errors.append(f"Blocked import: {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and node.module.split('.')[0] not in ALLOWED_IMPORTS:
+                    errors.append(f"Blocked import: {node.module}")
+        return errors
+
+    def _check_blocked_names(self, tree: ast.AST) -> list[str]:
+        errors = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in BLOCKED_BUILTINS:
+                errors.append(f"Blocked builtin: {node.id}")
+        return errors
+
+    def _check_protocol_compliance(self, tree: ast.AST) -> list[str]:
+        """Check that code defines a class with required methods."""
+        errors = []
+        has_class = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                has_class = True
+                methods = {n.name for n in node.body if isinstance(n, ast.FunctionDef)}
+                if "on_market_data" not in methods:
+                    errors.append("Missing required method: on_market_data")
+        if not has_class:
+            errors.append("No class definition found")
+        return errors
+
+
+def execute_strategy_safely(
+    strategy_code: str,
+    settings: SimulationSettings,
+    timeout_seconds: int = 300
+) -> SimulationResult:
+    """Execute strategy code in a restricted namespace with timeout."""
+
+    # Validate first
+    validator = StrategyValidator()
+    validation = validator.validate(strategy_code)
+    if not validation.is_valid:
+        return SimulationResult(error=f"Validation failed: {validation.errors}")
+
+    # Create restricted namespace with safe builtins only
+    safe_builtins = {k: v for k, v in __builtins__.items()
+                     if k not in BLOCKED_BUILTINS}
+
+    namespace: dict[str, Any] = {
+        "__builtins__": safe_builtins,
+        # Framework types available to LLM code
+        "StrategicAgent": StrategicAgent,
+        "MarketState": MarketState,
+        "OrderAction": OrderAction,
+        "OrderUpdate": OrderUpdate,
+        "Side": Side,
+    }
+
+    # Compile and execute
+    try:
+        exec(strategy_code, namespace)
+    except Exception as e:
+        return SimulationResult(error=f"Execution error: {e}")
+
+    # Find the strategy class
+    strategy_class = None
+    for name, obj in namespace.items():
+        if isinstance(obj, type) and name != "StrategicAgent":
+            if hasattr(obj, "on_market_data"):
+                strategy_class = obj
+                break
+
+    if not strategy_class:
+        return SimulationResult(error="No valid StrategicAgent implementation found")
+
+    # Run simulation with timeout
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"Simulation exceeded {timeout_seconds}s timeout")
+
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout_seconds)
+
+    try:
+        result = SimulationService().run_simulation(
+            settings,
+            strategy=strategy_class()
+        )
+    finally:
+        signal.alarm(0)  # Cancel alarm
+
+    return result
+```
+
+**Deliverables:**
+- [ ] `StrategyValidator` class with AST checks
+- [ ] `execute_strategy_safely()` function with timeout
+- [ ] `ValidationResult` model
+- [ ] Unit tests for blocked imports/builtins
+
+> [!TIP]
+> **Phase 3 Enhancement:** For production or cloud deployment, wrap this in Docker for true process isolation and resource limits.
+
+---
+
+#### Phase 1.5.4: Agent-Specific KPIs 🔴
+
+**Goal:** Compute performance metrics for the strategic agent, not just market-wide stats.
+
+**Agent KPIs:**
+
+| Metric | Formula | Purpose |
+|--------|---------|---------|
+| **Total PnL** | `realized_pnl + (inventory × mid_price)` | Overall performance |
+| **Sharpe Ratio** | `mean(returns) / std(returns) × √N` | Risk-adjusted returns |
+| **Max Drawdown** | `max(peak - trough) / peak` | Worst loss from peak |
+| **Trade Count** | Count of `ORDER_EXECUTED` events | Activity level |
+| **Fill Rate** | `filled_orders / placed_orders` | Execution quality |
+| **End Inventory** | Final position size | Risk exposure |
+| **Avg Hold Time** | Mean time between open and close | Trading style |
+
+**Baseline Comparison (Market Impact):**
+
+For each evaluation, run **two simulations**:
+1. **With Strategy**: Scenario + LLM-generated agent
+2. **Baseline**: Same scenario, agent disabled or replaced with passive agent
+
+Compute delta metrics:
+```python
+class ComparisonResult(BaseModel):
+    strategy_metrics: AgentMetrics
+    baseline_metrics: MarketMetrics
+    market_impact: dict  # e.g., {"volatility_delta": 0.02, "spread_delta": 0.001}
+```
+
+**Implementation:**
+```python
+def compute_agent_metrics(output: SimulationOutput, agent_id: int) -> AgentMetrics:
+    logs = output.get_logs_by_agent()[agent_id]
+    # Parse order events, compute PnL, etc.
+    ...
+```
+
+**Deliverables:**
+- [ ] `AgentMetrics` model in `src/rohan/simulation/models/`
+- [ ] `compute_agent_metrics()` function
+- [ ] `run_with_baseline()` utility for comparison runs
+- [ ] `ComparisonResult` model
+
+---
+
+#### Phase 1.5.5: Structured Summary for LLM 🔴
+
+**Goal:** Create a rich but compact summary for the Interpreter Agent.
+
+**RunSummary Model:**
+```python
+class RunSummary(BaseModel):
+    """Structured summary for LLM interpretation."""
+
+    # Numeric KPIs
+    agent_metrics: AgentMetrics
+    market_metrics: MarketMetrics
+    comparison: ComparisonResult | None  # If baseline was run
+
+    # Visualizations (base64 PNG)
+    price_chart: str
+    spread_chart: str
+    pnl_chart: str
+
+    # Trade summary
+    trade_count: int
+    notable_trades: list[TradeSummary]  # Largest wins/losses
+
+    # Execution metadata
+    duration_seconds: float
+    error: str | None
+```
+
+**Prompt Template for Interpreter:**
+```
+You are analyzing the results of a trading strategy simulation.
+
+## Strategy Goal
+{goal_description}
+
+## Performance Metrics
+- Total PnL: ${agent_metrics.total_pnl:,.2f}
+- Sharpe Ratio: {agent_metrics.sharpe_ratio:.2f}
+- Max Drawdown: {agent_metrics.max_drawdown:.1%}
+- Trade Count: {agent_metrics.trade_count}
+- Fill Rate: {agent_metrics.fill_rate:.1%}
+
+## Market Impact (vs Baseline)
+- Volatility Change: {comparison.volatility_delta:+.2%}
+- Spread Change: {comparison.spread_delta:+.4f}
+
+## Charts
+[Price Chart]
+[PnL Chart]
+
+## Analysis Task
+1. Summarize the strategy's performance
+2. Identify strengths and weaknesses
+3. Suggest specific improvements for the next iteration
+```
+
+**Deliverables:**
+- [ ] `RunSummary` model
+- [ ] `figure_to_bytes()` utility (already in plan)
+- [ ] `generate_summary()` function
+- [ ] Prompt template for Interpreter
+
+---
+
+#### Phase 1.5.6: Single Iteration Pipeline 🔴
+
+**Goal:** Wire everything together for a single generate → validate → execute → interpret cycle.
+
+```python
+def single_iteration(
+    goal: str,
+    scenario: SimulationSettings,
+    previous_feedback: str | None = None
+) -> IterationResult:
+    """Execute one iteration of strategy development."""
+
+    # 1. Generate strategy code
+    code = llm_generate_strategy(goal, previous_feedback)
+
+    # 2. Validate
+    validation = validate_strategy_code(code)
+    if not validation.is_valid:
+        return IterationResult(error=validation.errors, code=code)
+
+    # 3. Execute in Docker (strategy + baseline)
+    strategy_result = run_in_docker(code, scenario)
+    baseline_result = run_in_docker(PASSIVE_AGENT_CODE, scenario)
+
+    # 4. Compute KPIs
+    summary = generate_summary(strategy_result, baseline_result)
+
+    # 5. LLM Interpretation
+    feedback = llm_interpret_results(summary)
+
+    return IterationResult(
+        code=code,
+        summary=summary,
+        feedback=feedback,
+    )
+```
+
+**Deliverables:**
+- [ ] `single_iteration()` orchestration function
+- [ ] `validate_strategy_code()` with AST checks
+- [ ] LLM prompts for generation and interpretation
+- [ ] End-to-end test with a simple strategy goal
 
 ---
 
