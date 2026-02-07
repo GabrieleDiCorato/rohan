@@ -7,6 +7,7 @@ from rohan.simulation.models import (
     SimulationContext,
     SimulationResult,
 )
+from rohan.simulation.models.strategy_api import StrategicAgent
 from rohan.simulation.simulation_runner import SimulationRunner
 
 
@@ -34,12 +35,18 @@ class SimulationService:
         >>> failed = [r for r in results if r.error is not None]
     """
 
-    def run_simulation(self, settings: SimulationSettings, context: SimulationContext | None = None) -> SimulationResult:
+    def run_simulation(
+        self,
+        settings: SimulationSettings,
+        context: SimulationContext | None = None,
+        strategy: StrategicAgent | None = None,
+    ) -> SimulationResult:
         """Runs a single simulation with the given settings.
 
         Args:
             settings: Configuration for the simulation.
             context: Optional context for tracking metadata. If not provided, one will be created.
+            strategy: Optional StrategicAgent to inject into the simulation.
 
         Returns:
             SimulationResult: Result object containing output, metadata, and status.
@@ -54,7 +61,7 @@ class SimulationService:
         start_time = time.time()
 
         try:
-            runner = self._create_runner(settings)
+            runner = self._create_runner(settings, strategy=strategy)
 
             # Validate before running
             errors = runner.validate()
@@ -112,11 +119,12 @@ class SimulationService:
 
         return results
 
-    def _create_runner(self, settings: SimulationSettings) -> SimulationRunner:
+    def _create_runner(self, settings: SimulationSettings, strategy: StrategicAgent | None = None) -> SimulationRunner:
         """Factory method to create the appropriate simulation runner.
 
         Args:
             settings: Simulation configuration.
+            strategy: Optional StrategicAgent to inject into the simulation.
 
         Returns:
             SimulationRunner instance for the specified engine.
@@ -127,6 +135,6 @@ class SimulationService:
         if settings.engine == SimulationEngine.ABIDES:
             from rohan.simulation.abides_impl import SimulationRunnerAbides
 
-            return SimulationRunnerAbides(settings)
+            return SimulationRunnerAbides(settings, strategy=strategy)
 
         raise ValueError(f"Unsupported simulation engine: {settings.engine}")

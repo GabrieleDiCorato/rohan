@@ -163,7 +163,7 @@ class TradingAgent(Agent):
     def get_current_spread(self, symbol: str, depth: int = 1)  # Async request
     def subscribe_to_market_data(self, symbol: str, depth: int = 1)
     def get_known_bid_ask(self, symbol: str, best: bool = True)
-        # → (bid_price, ask_price) or (None, None)
+        # → (bid_price, bid_size, ask_price, ask_size) or (None, 0, None, 0)
     def get_known_liquidity(self, symbol: str, within: float = 0.00)
         # → (bid_liquidity, ask_liquidity)
 

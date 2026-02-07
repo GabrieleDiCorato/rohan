@@ -26,8 +26,10 @@ from rohan.config import (
     SimulationSettings,
     ValueAgentSettings,
 )
+from rohan.simulation.models.strategy_api import StrategicAgent
 
 from .random_state_handler import RandomStateHandler
+from .strategic_agent_adapter import StrategicAgentAdapter
 
 
 class AbidesConfigMapper:
@@ -35,8 +37,13 @@ class AbidesConfigMapper:
     Handles the conversion of configuration settings to ABIDES-compatible objects.
     """
 
-    def __init__(self, simulation_settings: SimulationSettings):
+    def __init__(
+        self,
+        simulation_settings: SimulationSettings,
+        strategy: StrategicAgent | None = None,
+    ):
         self.simulation_settings = simulation_settings
+        self.strategy = strategy
         self.random_state_handler = RandomStateHandler(simulation_settings.seed)
 
     def build_configuration(self):
@@ -59,6 +66,7 @@ class AbidesConfigMapper:
             noise_mkt_open,
             noise_mkt_close,
             random_state_handler,
+            self.strategy,
         )
         n_agents = len(agents)
         oracle = self._build_oracle(settings, mkt_open, noise_mkt_close, random_state_handler)
@@ -84,6 +92,7 @@ class AbidesConfigMapper:
         noise_mkt_open: int,
         noise_mkt_close: int,
         random_state_handler: RandomStateHandler,
+        strategy: StrategicAgent | None = None,
     ) -> list[FinancialAgent]:
         """Uses AgentSettings to create a list of ABIDES FinancialAgent instances.
 
@@ -94,6 +103,7 @@ class AbidesConfigMapper:
         noise_mkt_open: Noise agent market open time in nanoseconds.
         noise_mkt_close: Noise agent market close time in nanoseconds.
         random_state_handler: RandomStateHandler instance for managing random states.
+        strategy: Optional StrategicAgent to inject into the simulation.
         """
 
         agent_settings: AgentSettings = simulation_settings.agents
@@ -225,6 +235,21 @@ class AbidesConfigMapper:
             ]
         )
         agent_count += agent_settings.momentum.num_agents
+
+        # 6) Strategic Agent (if provided)
+        if strategy is not None:
+            agents.append(
+                StrategicAgentAdapter(
+                    id=agent_count,
+                    strategy=strategy,
+                    symbol=ticker,
+                    starting_cash=starting_cash,
+                    wake_up_freq="1S",
+                    log_orders=log_orders,
+                    random_state=random_state_handler.get_random_state(),
+                )
+            )
+            agent_count += 1
 
         return agents
 

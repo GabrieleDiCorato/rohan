@@ -474,17 +474,30 @@ graph LR
 
 ---
 
-#### Phase 1.5.1: StrategicAgent API Redesign (High Priority) 🔴
+#### Phase 1.5.1: StrategicAgent API Redesign ✅
 
-> [!IMPORTANT]
-> **This is a critical integration point.** The API must bridge the gap between the LLM's "strategy logic" view and ABIDES' "event-driven" reality.
+**Status:** Complete — API implemented in `src/rohan/simulation/models/strategy_api.py`
 
-**Feasibility Findings:**
-*   **State Management**: ABIDES `TradingAgent` already tracks `holdings` (cash + inventory) and `orders`. We should expose this data read-only to the strategy, rather than duplicating it.
-*   **Lifecycle**: `kernel_starting` -> `initialize`, `wakeup` -> `on_market_data`, `order_executed` -> `on_order_update` maps cleanly.
-*   **Market Data Gap**: ABIDES agents must *explicitly subscribe* to market data (L1, L2, etc.). The Adapter must handle these subscriptions during initialization to ensure `on_market_data` receives fresh data.
+> [!NOTE]
+> **This is a critical integration point.** The API bridges the LLM's "strategy logic" view and ABIDES' "event-driven" reality.
 
-**Proposed API (Refined):**
+**ABIDES Mapping (Verified):**
+
+| `MarketState` Field | ABIDES Source | Notes |
+|---------------------|---------------|-------|
+| `timestamp_ns` | `current_time` param in callbacks | Nanoseconds |
+| `best_bid` / `best_ask` | `TradingAgent.get_known_bid_ask(symbol)` | Cached L1 data |
+| `last_trade` | `order_book.last_trade` | From market data subscription |
+| `inventory` | `TradingAgent.holdings[symbol]` | Signed position |
+| `cash` | `TradingAgent.holdings["CASH"]` | In cents |
+| `open_orders` | `TradingAgent.orders.values()` | Active limit orders |
+
+**Lifecycle Mapping:**
+- `kernel_starting()` → `initialize(config: AgentConfig)`
+- `receive_message(MarketDataMsg)` → `on_market_data(state: MarketState)`
+- `receive_message(OrderExecutedMsg)` → `on_order_update(update: Order)`
+
+**Implemented API:**
 ```python
 class StrategicAgent(Protocol):
     """Framework-agnostic trading strategy interface."""
@@ -497,42 +510,73 @@ class StrategicAgent(Protocol):
         """Called when new market data is available (e.g., L1 update)."""
         ...
 
-    def on_order_update(self, update: OrderUpdate) -> list[OrderAction]:
+    def on_order_update(self, update: Order) -> list[OrderAction]:
         """Called when an order status changes (filled, cancelled)."""
         ...
 ```
 
+**Implemented Models:**
+- `Side`, `OrderType`, `OrderStatus` enums
+- `Order`: Full order state including `status`, `filled_quantity`
+- `MarketState`: Agent's view of market + portfolio
+- `OrderAction`: Strategy's trading decisions
+- `AgentConfig`: Initialization parameters
+
 **Deliverables:**
-- [ ] Define `StrategicAgent` protocol and data models (`MarketState`, `OrderAction`)
-- [ ] Ensure `MarketState` maps correctly to `TradingAgent.holdings` and `TradingAgent.orders`
+- [x] Define `StrategicAgent` protocol and data models
+- [x] Ensure `MarketState` maps correctly to `TradingAgent.holdings` and `TradingAgent.orders`
 
 ---
 
-#### Phase 1.5.2: ABIDES Adapter & Injection (High Priority) 🔴
+#### Phase 1.5.2: ABIDES Adapter & Injection ✅
 
-**Goal:** Bridge the `StrategicAgent` protocol to ABIDES and inject it dynamically.
+**Status:** Complete — Implemented in `src/rohan/simulation/abides_impl/strategic_agent_adapter.py`
 
-**Feasibility Findings:**
-*   **Configuration**: `AbidesConfigMapper` hardcodes agent creation. We cannot easily add dynamic agents via `SimulationSettings` (Pydantic).
-*   **Injection Strategy**: We will modify `SimulationService.run_simulation` to accept an optional `strategy: StrategicAgent` argument. This runtime object will be passed down to `SimulationRunnerAbides` and injected into the agent list during `_build_agents`.
+**Architecture:**
 
-**Implementation details:**
-1.  **Modify `SimulationService`**: Add `strategy` arg to `run_simulation`.
-2.  **Refactor `AbidesConfigMapper`**: Add `inject_strategic_agent(agent)` method.
-3.  **Implement Adapter**:
-    ```python
-    class StrategicAgentAdapter(TradingAgent):
-        def kernel_starting(self, start_time):
-            # adapter must SUBSCRIBE to market data here!
-            self.request_data_subscription(L1SubReqMsg(symbol=self.symbol, freq=1e9)) # 1 sec updates
-            self.strategy.initialize(...)
-    ```
+| Component | Changes | Purpose |
+|-----------|---------|---------|
+| `StrategicAgentAdapter` | New class | Wraps `StrategicAgent` protocol, extends ABIDES `TradingAgent` |
+| `SimulationService` | Added `strategy` param | Entry point for injection |
+| `SimulationRunnerAbides` | Added `strategy` param | Passes strategy to config mapper |
+| `AbidesConfigMapper` | Added `strategy` param | Injects adapter into agent list |
+
+**Lifecycle Mapping (Implemented):**
+- `kernel_starting()` → `strategy.initialize(config: AgentConfig)`
+- `wakeup()` → `get_current_spread()` → triggers `QuerySpreadResponseMsg`
+- `receive_message(QuerySpreadResponseMsg)` → `strategy.on_market_data(state: MarketState)`
+- Strategy returns `list[OrderAction]` → `place_limit_order()` / `place_market_order()` / `cancel_order()`
+
+**Key Implementation Details:**
+```python
+class StrategicAgentAdapter(TradingAgent):
+    def get_wake_frequency(self) -> int:  # Required by TradingAgent
+        return self.wake_up_freq_ns
+
+    def _build_market_state(self, current_time: int) -> MarketState:
+        bid, _, ask, _ = self.get_known_bid_ask(self.symbol)  # 4-tuple return
+        return MarketState(
+            timestamp_ns=current_time,
+            best_bid=bid, best_ask=ask,
+            inventory=self.holdings.get(self.symbol, 0),
+            cash=self.holdings.get("CASH", 0),
+            open_orders=[...],
+        )
+```
+
+**Tests:** `tests/test_strategic_agent.py`
+- `test_strategy_receives_initialize_callback` ✅
+- `test_strategy_receives_market_data_callbacks` ✅
+- `test_strategy_market_state_has_valid_data` ✅
+- `test_strategy_can_place_orders` ✅
+- `test_simulation_without_strategy_still_works` ✅
+- `test_adapter_can_be_instantiated` ✅
 
 **Deliverables:**
-- [ ] `StrategicAgentAdapter` implementation
-- [ ] `SimulationService` refactoring for dynamic strategy injection
-- [ ] `AbidesConfigMapper` refactoring
-- [ ] Integration test verifying the strategy receives callbacks
+- [x] `StrategicAgentAdapter` implementation
+- [x] `SimulationService` refactoring for dynamic strategy injection
+- [x] `AbidesConfigMapper` refactoring
+- [x] Integration test verifying the strategy receives callbacks
 
 ---
 

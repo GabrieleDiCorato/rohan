@@ -33,22 +33,25 @@ class TestDatabaseAndRepository:
 
     def test_schema_validation(self):
         """Test Pydantic schema validation for market state, orders, and metrics."""
-        # Test MarketState
+        # Test MarketState (uses strategy_api fields)
         market_state = MarketState(
-            timestamp=1000000000,
-            best_bid=100.0,
-            best_ask=101.0,
-            last_trade_price=100.5,
+            timestamp_ns=1000000000,
+            best_bid=10000,  # Prices in cents
+            best_ask=10100,
+            last_trade=10050,
             inventory=10,
-            cash=10000.0,
+            cash=1000000,  # Cash in cents
+            open_orders=[],
         )
-        assert market_state.timestamp == 1000000000
-        assert market_state.best_bid == 100.0
+        assert market_state.timestamp_ns == 1000000000
+        assert market_state.best_bid == 10000
 
-        # Test OrderAction
-        order = OrderAction(side="BUY", type="LIMIT", price=100.0, quantity=10)
-        assert order.side == "BUY"
-        assert order.type == "LIMIT"
+        # Test OrderAction (uses strategy_api fields)
+        from rohan.simulation.models.strategy_api import OrderType, Side
+
+        order = OrderAction(side=Side.BID, order_type=OrderType.LIMIT, price=10000, quantity=10)
+        assert order.side == Side.BID
+        assert order.order_type == OrderType.LIMIT
 
         # Test SimulationMetrics
         metrics = SimulationMetrics(
