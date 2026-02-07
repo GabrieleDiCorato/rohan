@@ -7,7 +7,9 @@ from rohan.simulation.models import SimulationOutput
 
 
 class SimulationRunner(ABC):
-    """Abstract base class for market simulation implementations."""
+    """Abstract base class for market simulation implementations.
+    One-to-one relationship with SimulationSettings.
+    """
 
     def __init__(self, settings: SimulationSettings):
         self.settings: SimulationSettings = settings

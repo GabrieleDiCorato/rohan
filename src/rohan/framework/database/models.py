@@ -52,7 +52,7 @@ class StrategyIteration(Base):
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("strategy_sessions.session_id"), nullable=False)
     generation_number: Mapped[int] = mapped_column(Integer, nullable=False)
     code: Mapped[str] = mapped_column(Text, nullable=False)
-    reasoning: Mapped[StrategySession | None] = mapped_column(Text, nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["StrategySession"] = relationship(back_populates="iterations")
     runs: Mapped[list["SimulationRun"]] = relationship(back_populates="iteration")

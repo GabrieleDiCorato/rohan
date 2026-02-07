@@ -5,15 +5,15 @@ This framework provides an autonomous loop for generating, testing, and refining
 
 ## 2. Core Architecture
 
-### 2.1 Technology Stack
+### 2.1 Technology Stack (subject to change)
 *   **Orchestration:** LangGraph (Python)
 *   **Simulation Engine:** abides-rohan (Existing)
 *   **Database:** PostgreSQL
     *   *Features:* Relational Tables for Metrics/Logs/Series, BYTEA for Images/Code.
-*   **LLM Integration:**
+*   **LLM Integration:** Via `langchain` connectors or `OpenRouter` API. For example:
     *   *Analysis:* Google Gemini 1.5 Pro (via `langchain-google-genai`)
     *   *Code Generation:* Claude 3.5 (via `langchain-openai` / OpenRouter)
-*   **Execution:** Docker containers (via `docker-py`).
+*   **Execution:** LLM-generated code is executed in Docker containers (via `docker-py`) or using secure Python interpreters (e.g. [`pydantic/monty`](https://github.com/pydantic/monty)).
 
 ### 2.2 System Components & Communication
 
@@ -44,16 +44,16 @@ graph TD
 (install Mermaid if the graph is not visualized correctly)
 
 **Communication Protocol:**
-*   **Manager <-> Worker:** Asynchronous via **Database**.
-    *   The Manager creates [SimulationRun](file:///c:/Users/gabri/workspace/rohan/src/rohan/simulation/simulation_runner.py#9-23) rows (Status='PENDING').
-    *   The Docker Worker starts, grabs the config from DB, runs, writes results to DB tables, and updates Status='COMPLETED'/'FAILED'.
-    *   The Manager polls or waits on the container exit code.
-*   **Manager <-> Agents (SimNode/Analyzer):** Shared **LangGraph State** (Python Dictionary in memory) containing `session_id`, `current_strategy_id`, etc.
+*   **LangGraph Nodes:** Direct in-memory communication via **LangGraph State**.
+    *   `SimulationNode` calls `SimulationService.run_simulation()` directly, returning `SimulationResult` in-memory.
+    *   Results are passed to `InterpreterAgent`, `ComparatorAgent`, `SynthesizerAgent` via state.
+    *   No database polling — DB is used for **async persistence** only (fire-and-forget).
+*   **Database:** Historical storage and checkpointing, not inter-agent communication.
 
 ## 3. Data Models
 
 ### 3.1 Strategic Agent Protocol (Framework Agnostic)
-Defined in `src/rohan/framework/schema.py`. This is the **ONLY** interface the LLM interacts with.
+Defined in `src/rohan/simulation/models/strategy_api.py`. This is the **ONLY** interface the LLM interacts with.
 
 ```python
 from typing import Protocol, List, Literal
@@ -149,8 +149,6 @@ class StrategicAgent(Protocol):
 | `type` | TEXT | 'IMAGE', 'LOG_FILE' |
 | `path` | TEXT | Virtual path |
 | `content` | BYTEA | Binary content |
-
-## 4. Workflows
 
 ## 4. Workflows
 
@@ -253,7 +251,7 @@ Phase 1 establishes the complete data persistence layer, execution engine, and a
 
 **Implemented Components:**
 
-1. **SimulationEngine** (`src/rohan/framework/engine.py`)
+1. **SimulationEngine** (`src/rohan/framework/simulation_engine.py`)
    - `run_local()`: Execute simulation and persist all results
    - Orchestrates: SimulationService → AbidesOutput → Database
    - Updates run status: PENDING → RUNNING → COMPLETED/FAILED
@@ -271,7 +269,7 @@ Phase 1 establishes the complete data persistence layer, execution engine, and a
 
 **Implemented Components:**
 
-1. **AnalysisService** (`src/rohan/framework/analysis.py`)
+1. **AnalysisService** (`src/rohan/framework/analysis_service.py`)
    - `compute_metrics()`: Calculate PnL, Sharpe, volatility, spread, liquidity
    - `plot_price_series()`: Bid/ask/mid price visualization
    - `plot_volume()`: Volume at best bid/ask
@@ -283,6 +281,67 @@ Phase 1 establishes the complete data persistence layer, execution engine, and a
 - Returns matplotlib Figure objects for flexibility
 - Computes market-wide statistics (volatility, spread, liquidity)
 - Custom metrics support via dictionary
+
+#### Phase 1.4: Framework Hardening 🚧
+**Status:** TODO
+
+Technical debt and improvements identified during architecture review.
+
+> [!NOTE]
+> ~~**Priority 1 (Breaking Bugs):** Fix `reasoning` type annotation in `models.py:55`~~ — **FIXED** (2026-02-07)
+
+**1. Session Management**
+- [ ] Use `scoped_session` for thread-local session management
+- [ ] Ensure SQLAlchemy internals do not leak outside `ArtifactStore`
+- [ ] Add `remove_session()` for cleanup at worker/thread lifecycle end
+
+**2. Schema Fixes**
+
+| Table | Change | File | Line |
+|-------|--------|------|------|
+| ~~`StrategyIteration`~~ | ~~Fix `reasoning` type~~ | ~~`database/models.py`~~ | ~~55~~ | ✅ DONE |
+| `SimulationRun` | Add `RunStatus` enum (PENDING, RUNNING, COMPLETED, FAILED) | `database/models.py` | 68 |
+| `SimulationRun` | Add `error_message: str \| None` for simple error text | `database/models.py` | - |
+| `SimulationRun` | Add `error_traceback: str \| None` for full traceback (AI debugging) | `database/models.py` | - |
+| `SimulationRun` | Add `created_at`, `updated_at` timestamps | `database/models.py` | - |
+| All FK relationships | Add `cascade="all, delete-orphan"` | `database/models.py` | all |
+
+**3. Missing Indexes**
+```python
+Index("ix_agent_logs_agent_type", AgentLog.agent_type)
+Index("ix_agent_logs_event_type", AgentLog.event_type)
+Index("ix_market_data_time", MarketDataL1.time)
+Index("ix_simulation_runs_status", SimulationRun.status)
+```
+
+**4. Artifact Storage Abstraction**
+- [ ] Create `ArtifactStorage` protocol with `save()` and `load()` methods
+- [ ] Implement `LocalStorage` (file system)
+- [ ] Replace `Artifact.content: LargeBinary` with `storage_path: String`
+- [ ] Prepare abstraction for future S3/GCS backends (no implementation needed now)
+
+**5. Logging**
+
+| Issue | File | Lines |
+|-------|------|-------|
+| Replace `print()` with logging | `simulation_engine.py` | 29, 67, 70 |
+| Use `rohan.*` namespace | All framework modules | - |
+| Store error tracebacks in DB | `simulation_engine.py` | 74 (commented out) |
+
+**6. Metrics**
+
+| Issue | File | Lines |
+|-------|------|-------|
+| Use `None` for unavailable metrics (not `0.0`) | `analysis_service.py` | 47-51 |
+| Raise explicit errors for mandatory metrics | `analysis_service.py` | - |
+
+**7. Plot Pipeline (Incomplete)**
+
+| Issue | Current | Expected |
+|-------|---------|----------|
+| `generate_plots()` returns empty list | `analysis_service.py:154-161` | Should return bytes for DB storage |
+| `run_local()` doesn't save plots | `simulation_engine.py` | Should call `save_artifact()` with plot bytes |
+| Plot figure to bytes conversion | Not implemented | Add `figure_to_bytes()` utility |
 
 ### Testing
 
@@ -382,156 +441,267 @@ print(f"Metrics: {updated_run.metrics_summary}")
 
 ### 🚧 TODO: Phase 2 - LangGraph Orchestration
 
-Phase 2 will implement the autonomous agent loop using LangGraph.
+Phase 2 implements the autonomous agent loop using LangGraph with **in-memory execution** and **async persistence**.
 
-#### Phase 2.1: LangGraph State & Nodes
-- [ ] Define LangGraph state schema
-- [ ] Implement nodes: StrategyGenerator, SimulationNode, ResultAnalyzer
-- [ ] State persistence and checkpointing
+#### Core Architecture
 
-#### Phase 2.2: The "Observer" (Running Baselines)
-**Goal:** Verify system can run simulations and provide intelligent analysis without generating new strategies.
+```mermaid
+graph TD
+    subgraph "LangGraph Process"
+        A[SimulationNode] -->|Direct call| B[SimulationService]
+        B -->|Returns| C[SimulationResult]
+        C -->|In-memory| D[Interpreter Agent]
+        D --> E[Comparator Agent]
+        E --> F[Synthesizer Agent]
+        F --> G[Final Report]
+    end
 
-Workflow:
+    C -.->|Fire & forget| H[(Database)]
+```
+
+**Key Principles:**
+- **In-memory first**: LangGraph nodes call `SimulationService.run_simulation()` directly, returning [`SimulationResult`](file:///c:/Users/gabri/workspace/rohan/src/rohan/simulation/models/simulation_result.py) in-memory
+- **No DB polling**: All agent communication happens through LangGraph state
+- **Async persistence**: Database writes are fire-and-forget via background thread
+- **Result pattern**: Simulations never throw — errors are returned in `SimulationResult.error`
+
+**Persistence Strategy (Hybrid):**
+- **LangGraph PostgreSQL checkpointer**: Stores `AgentState` after each node (enables resume, UI observability)
+- **Async data persistence**: Simulation data (`SimulationResult`, metrics, plots) written via `persist_async()` to custom tables
+- **UI access**: Query `strategy_sessions`, `strategy_iterations`, `simulation_runs` for KPI data; query LangGraph checkpoint table for current workflow state
+
+#### Phase 2.1: Execution Model
+
+**Direct Execution (No Docker)**
+```python
+def simulate(settings: SimulationSettings) -> SimulationResult:
+    """Execute simulation directly. Never throws."""
+    return SimulationService().run_simulation(settings)
+```
+
+**Parallel Execution**
+```python
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+def run_simulations_parallel(settings_list: list[SimulationSettings]) -> list[SimulationResult]:
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(simulate, s): s for s in settings_list}
+        for future in as_completed(futures):
+            result = future.result()  # SimulationResult (never throws)
+            results.append(result)
+            persist_async(result)  # Fire-and-forget
+    return results
+```
+
+**Async Persistence**
+```python
+_persist_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="persist")
+
+def persist_async(result: SimulationResult) -> None:
+    """Fire-and-forget database write. Errors logged, not raised."""
+    def _persist():
+        try:
+            engine = SimulationEngine()
+            engine.save_result(result)
+        except Exception as e:
+            logger.error(f"Persistence failed: {e}")
+
+    _persist_executor.submit(_persist)
+```
+
+**Deliverables:**
+- [ ] In-memory simulation execution via `SimulationService`
+- [ ] `ThreadPoolExecutor` for parallel scenario execution
+- [ ] Async persistence with `persist_async()`
+
+**Image Handling (Multimodal Analysis):**
+
+Plots are stored as binary in the existing `Artifact` table and passed to LLMs via LangChain multimodal messages:
+
+```python
+# Storage: figure_to_bytes utility
+import io
+def figure_to_bytes(fig: Figure, format: str = "png") -> bytes:
+    buf = io.BytesIO()
+    fig.savefig(buf, format=format)
+    buf.seek(0)
+    return buf.read()
+
+# Persist: save to Artifact table
+repo.save_artifact(run_id, "IMAGE", "price_series.png", figure_to_bytes(fig))
+
+# LLM: pass as base64 in LangChain message
+import base64
+from langchain.schema import HumanMessage
+
+message = HumanMessage(content=[
+    {"type": "text", "text": "Analyze this price chart:"},
+    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64.b64encode(artifact.content).decode()}"}}
+])
+
+# UI: Streamlit displays bytes directly
+st.image(artifact.content)  # No conversion needed
+```
+
+---
+
+#### Phase 2.2: Analysis Agent Topology
+
+**Three Agent Types:**
+
+| Agent | Purpose | Input | Output |
+|-------|---------|-------|--------|
+| **Interpreter** | "What happened here?" | 1 SimulationResult | Scenario summary |
+| **Comparator** | "How do A and B differ?" | 2 Summaries | Comparative insight |
+| **Synthesizer** | "What's the conclusion?" | All summaries + insights | Final report |
+
+**When to Use:**
+
+| Scenario | Agents Used |
+|----------|-------------|
+| Single run | Interpreter only |
+| 2 runs (A vs B) | 2 Interpreters → 1 Comparator |
+| N runs (sweep) | N Interpreters → (N-1) Comparators → Synthesizer |
+| Strategy iteration | 2 Interpreters (gen N, N-1) → 1 Comparator → Feedback |
+
+**LangGraph Flow:**
+```python
+def analysis_flow(state: AgentState) -> AgentState:
+    results = state["simulation_results"]
+
+    # 1. Interpret each (parallel)
+    summaries = [interpret(r) for r in results]
+
+    # 2. Compare pairs (if multiple)
+    insights = []
+    if len(summaries) > 1:
+        for i in range(len(summaries) - 1):
+            insights.append(compare(summaries[i], summaries[i+1]))
+
+    # 3. Synthesize
+    report = synthesize(summaries, insights)
+
+    return {**state, "final_report": report}
+```
+
+**Deliverables:**
+- [ ] `InterpreterAgent` for single-scenario analysis
+- [ ] `ComparatorAgent` for pairwise comparison
+- [ ] `SynthesizerAgent` for final report generation
+- [ ] Multimodal analysis with Gemini (text + plots)
+
+---
+
+#### Phase 2.3: LangGraph State & Nodes
+
+**State Schema:**
+```python
+from typing import TypedDict
+from uuid import UUID
+
+class AgentState(TypedDict):
+    # Session context
+    session_id: UUID
+    goal_description: str
+
+    # Execution
+    pending_settings: list[SimulationSettings]
+    simulation_results: list[SimulationResult]  # In-memory results
+
+    # Analysis
+    scenario_summaries: list[str]
+    comparison_insights: list[str]
+    final_report: str | None
+
+    # Control flow
+    iteration_number: int
+    max_iterations: int
+    should_continue: bool
+```
+
+**Deliverables:**
+- [ ] Typed `AgentState` schema
+- [ ] State persistence via LangGraph PostgreSQL checkpointer
+- [ ] Nodes: `SimulationNode`, `InterpreterNode`, `ComparatorNode`, `SynthesizerNode`
+
+---
+
+#### Phase 2.4: The "Observer" (Running Baselines)
+**Goal:** Run simulations and provide intelligent analysis without generating new strategies.
+
+**Workflow:**
 1. User provides analysis goal (e.g., "Analyze impact of Noise Agent volume on Volatility")
-2. Manager creates multiple scenarios with different parameters
-3. SimulationNode executes runs for each scenario
-4. ResultAnalyzer (Gemini 1.5 Pro) compares results and generates insights
+2. System creates multiple `SimulationSettings` with different parameters
+3. `SimulationNode` executes runs in parallel, returns `SimulationResult` list
+4. `InterpreterAgent` summarizes each scenario
+5. `ComparatorAgent` analyzes differences between scenarios
+6. `SynthesizerAgent` generates final report
 
 **Deliverables:**
 - [ ] LangGraph workflow for baseline analysis
-- [ ] Multimodal analysis with Gemini (text + plots)
 - [ ] Session-level result aggregation
 
-#### Phase 2.3: The "Strategist" (Iterative Refinement)
+---
+
+#### Phase 2.5: The "Strategist" (Iterative Refinement)
 **Goal:** Autonomous strategy generation and improvement loops.
 
-Workflow:
-1. StrategyGenerator (DeepSeek/Claude) creates code conforming to `StrategicAgent` protocol
-2. **Code Validation**: Multi-stage validation before execution
-3. Code injected into simulation runs across test scenarios
-4. ResultAnalyzer compares vs previous generation
-5. Feedback loop: If improved → adopt; If worse → analyze why
-6. Manager passes analysis back to StrategyGenerator for next iteration
+> [!IMPORTANT]
+> **Phase 2.5 generates and validates code only — execution requires Phase 3 (Docker sandbox).**
+> Invalid code is returned to the LLM with error details for regeneration.
 
-**Code Validation Pipeline:**
+**Workflow:**
+1. `StrategyGenerator` (DeepSeek/Claude) creates code conforming to `StrategicAgent` protocol
+2. `StrategyValidator` validates code (syntax, imports, protocol compliance)
+3. **If validation fails**: Return code + errors to LLM, regenerate (max 3 attempts)
+4. **If validation passes**: Save to `strategy_iterations`, proceed to Phase 3 execution
+5. `ComparatorAgent` compares current vs previous generation
+6. Feedback loop: If improved → adopt; If worse → analyze why and iterate
 
-Before any generated strategy is executed, it passes through a validation pipeline that ensures safety and correctness:
+**Code Validation Pipeline (`StrategyValidator`):**
 
-**`StrategyValidator`** (`src/rohan/framework/strategy_validator.py`)
+1. **File Type Validation**: Single Python file only
+2. **Syntax Validation**: Parse AST, check for errors
+3. **Import Whitelist**: Only allow safe imports (`math`, `numpy`, `pandas`, `rohan.framework.schema`)
+4. **Protocol Compliance**: Must implement `StrategicAgent.on_market_update()`
+5. **Security Checks**: No file I/O, network, or code execution
+6. **Code Quality**: Warnings for long methods, missing docstrings
 
-1. **File Type Validation**
-   - Verify only a single Python script is produced
-   - Check file extension and content type
-   - Reject multiple files or non-Python content
-   - **Error message**: "Expected a single Python file, but received {file_count} files of types {types}"
-
-2. **Syntax & Compilation Validation**
-   - Parse Python AST (Abstract Syntax Tree)
-   - Check for syntax errors
-   - Verify code compiles without errors
-   - **Error message**: "Syntax error at line {line_no}, column {col}: {error_detail}. Please fix the syntax before resubmitting."
-
-3. **Import Whitelist Validation**
-   - Extract all import statements from AST
-   - Check against allowed imports whitelist:
-     ```python
-     ALLOWED_IMPORTS = {
-         # Standard library (safe subset)
-         "math", "statistics", "collections", "itertools", "functools",
-         "typing", "dataclasses", "enum", "abc",
-         # Scientific computing
-         "numpy", "pandas",
-         # Framework-specific
-         "rohan.framework.schema",  # MarketState, OrderAction
-     }
-     ```
-   - Reject dangerous modules: `os`, `sys`, `subprocess`, `eval`, `exec`, `__import__`
-   - **Error message**: "Forbidden import detected: '{module_name}'. Allowed imports are: {allowed_list}. Please remove or replace this import."
-
-4. **Protocol Compliance Validation**
-   - Verify class implements `StrategicAgent` protocol
-   - Check `on_market_update(self, market_state: MarketState) -> List[OrderAction]` method exists
-   - Validate method signature matches exactly
-   - Check return type annotations
-   - **Error message**: "Class '{class_name}' does not properly implement StrategicAgent protocol. Missing or incorrect method: {details}. Required: `def on_market_update(self, market_state: MarketState) -> List[OrderAction]`"
-
-5. **Security & Safety Checks**
-   - Scan for dangerous operations:
-     - File I/O (`open`, `read`, `write`)
-     - Network operations (`socket`, `urllib`, `requests`)
-     - Code execution (`eval`, `exec`, `compile` with user input)
-     - System commands (`os.system`, `subprocess`)
-   - Check for infinite loops (basic heuristics: `while True` without clear break)
-   - Verify no global state modifications outside class scope
-   - **Error message**: "Dangerous operation detected: {operation} at line {line_no}. Strategy code should only process market data and return orders. Forbidden operations: {forbidden_list}"
-
-6. **Code Quality Checks** (Warnings, non-blocking)
-   - Check for extremely long methods (>100 lines)
-   - Verify docstrings exist
-   - Check for unused imports
-   - **Warning message**: "Code quality concern: {issue}. While not blocking execution, consider: {suggestion}"
-
-**Validation Response Format:**
-
+**Error Recovery:**
 ```python
-@dataclass
-class ValidationResult:
-    is_valid: bool
-    errors: List[ValidationError]
-    warnings: List[ValidationWarning]
+class AgentState(TypedDict):
+    # ... existing fields ...
+    consecutive_validation_failures: int  # Reset on successful validation
+    consecutive_regression_count: int     # Generations that performed worse
 
-@dataclass
-class ValidationError:
-    stage: str  # "syntax", "imports", "protocol", "security"
-    line_number: Optional[int]
-    message: str
-    suggestion: str  # Actionable fix suggestion
-
-@dataclass
-class ValidationWarning:
-    category: str
-    message: str
-```
-
-**Error Feedback to LLM:**
-
-When validation fails, the error message is formatted for LLM understanding:
-
-```
-VALIDATION FAILED - Please fix the following issues:
-
-[SYNTAX ERROR] Line 15, Column 8
-  → Missing colon after if statement
-  Fix: Add ':' at the end of line 15
-
-[FORBIDDEN IMPORT] Line 3
-  → Import 'os' is not allowed
-  Allowed imports: math, numpy, pandas, rohan.framework.schema
-  Fix: Remove 'import os' or use allowed alternatives
-
-[PROTOCOL VIOLATION] Class 'MyStrategy'
-  → Method signature mismatch
-  Expected: def on_market_update(self, market_state: MarketState) -> List[OrderAction]
-  Found: def on_market_update(self, state)
-  Fix: Update method signature to match the protocol exactly
-
-Please generate a corrected version of the code addressing all issues above.
+def should_stop(state: AgentState) -> bool:
+    return (
+        state["iteration_number"] >= state["max_iterations"] or
+        state["consecutive_validation_failures"] >= 3 or
+        state["consecutive_regression_count"] >= 3
+    )
 ```
 
 **Deliverables:**
-- [ ] StrategyGenerator node with LLM integration
-- [ ] **StrategyValidator with comprehensive validation pipeline**
-- [ ] **Validation result formatting for LLM feedback**
-- [ ] Code injection into simulation worker
+- [ ] `StrategyGenerator` node with LLM integration
+- [ ] `StrategyValidator` with validation pipeline
+- [ ] Validation error formatting for LLM feedback (re-generation loop)
 - [ ] Multi-generation comparison and feedback loop
+- [ ] Error recovery with consecutive failure counters
 - [ ] Convergence criteria and stopping conditions
 
-### Phase 3: Docker & Distributed Execution
-- [ ] Docker container for simulation workers
-- [ ] Worker pulls config from DB, writes results back
-- [ ] Container orchestration (local/cloud)
-- [ ] Parallel scenario execution
+### Phase 3: Docker Sandbox for LLM-Generated Code
+**Goal:** Secure execution of LLM-generated strategy code in isolated containers.
+
+> [!NOTE]
+> Docker is only needed when executing untrusted LLM-generated code. Local simulations with built-in agents run directly without containers.
+
+- [ ] Docker container with minimal Python environment
+- [ ] Strategy code injection via volume mount
+- [ ] Container captures `SimulationResult` and returns via stdout/file
+- [ ] Resource limits (CPU, memory, timeout)
+- [ ] Container orchestration for parallel execution
 
 ### Phase 4: Production Features
 - [ ] Web UI for session monitoring

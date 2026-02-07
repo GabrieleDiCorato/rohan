@@ -53,7 +53,6 @@ class SimulationEngine:
             metrics = self.analyzer.compute_metrics(result)
 
             # 4. Save to DB
-            # 4. Save to DB
             self.repo.save_market_data(run_id, l1_df)
             self.repo.save_logs(run_id, logs_df)
 
