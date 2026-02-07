@@ -53,36 +53,54 @@ graph TD
 Defined in `src/rohan/simulation/models/strategy_api.py`. This is the **ONLY** interface the LLM interacts with.
 
 ```python
-from typing import Protocol, List, Literal
+from enum import Enum
+from typing import Protocol
 from pydantic import BaseModel
 
+class Side(str, Enum):
+    BID = "BID"
+    ASK = "ASK"
+
+class OrderType(str, Enum):
+    LIMIT = "LIMIT"
+    MARKET = "MARKET"
+
 class MarketState(BaseModel):
-    timestamp: int          # Nanoseconds from midnight
-    best_bid: float
-    best_ask: float
-    last_trade_price: float
-    inventory: int          # Current position
-    cash: float             # Available cash
+    timestamp_ns: int           # Nanoseconds from midnight
+    best_bid: int | None        # Price in cents
+    best_ask: int | None        # Price in cents
+    last_trade: int | None      # Last trade price in cents
+    inventory: int              # Signed position
+    cash: int                   # Cash in cents
+    open_orders: list["Order"]  # Active orders
 
 class OrderAction(BaseModel):
-    side: Literal["BUY", "SELL"]
-    type: Literal["LIMIT", "MARKET"]
-    price: float            # 0.0 for MARKET
+    side: Side
     quantity: int
+    price: int | None           # Required for LIMIT orders
+    order_type: OrderType
+    cancel_order_id: int | None = None  # If set, cancel this order
 
 class StrategicAgent(Protocol):
-    """
-    Protocol for LLM-generated strategies.
-    Must be stateless between calls (state stored in instance attributes).
-    """
-    def on_market_update(self, market_state: MarketState) -> List[OrderAction]:
+    """Protocol for LLM-generated trading strategies."""
+
+    def initialize(self, config: AgentConfig) -> None:
+        """Called once at the start of the simulation."""
+        ...
+
+    def on_market_data(self, state: MarketState) -> list[OrderAction]:
+        """Called when new market data (L1/L2) is received."""
+        ...
+
+    def on_order_update(self, update: Order) -> list[OrderAction]:
+        """Called when an order status changes."""
         ...
 ```
 
 ### 3.2 Database Schema (PostgreSQL)
 
 **Hierarchy:**
-`StrategySession` (User goal) -> `StrategyIteration` (One code version) -> `SimulationScenario` (Conditions) -> [SimulationRun](file:///c:/Users/gabri/workspace/rohan/src/rohan/simulation/simulation_runner.py#9-23) (Execution).
+`StrategySession` (User goal) -> `StrategyIteration` (One code version) -> `SimulationScenario` (Conditions) -> [SimulationRun](../src/rohan/simulation/simulation_runner.py) (Execution).
 
 **Table: `strategy_sessions`**
 | Column | Type | Description |
@@ -118,7 +136,7 @@ class StrategicAgent(Protocol):
 | `metrics_summary` | JSONB | e.g. `{sharpe: 1.2, pnl: 5000}` |
 | `status` | TEXT | 'PENDING', 'RUNNING', 'COMPLETED', 'FAILED' |
 
-**Table: `market_data_l1`** (Matches [AbidesOutput](file:///c:/Users/gabri/workspace/rohan/src/rohan/simulation/abides_impl/abides_output.py#26-193) L1 DataFrame)
+**Table: `market_data_l1`** (Matches [AbidesOutput](../src/rohan/simulation/abides_impl/abides_output.py) L1 DataFrame)
 | Column | Type | Description |
 | :--- | :--- | :--- |
 | `run_id` | UUID (FK) | Link to run |
@@ -129,14 +147,14 @@ class StrategicAgent(Protocol):
 | `ask_qty` | INT | Event Size |
 | `timestamp` | TIMESTAMP | Human readable time |
 
-**Table: `agent_logs`** (Matches [AbidesOutput](file:///c:/Users/gabri/workspace/rohan/src/rohan/simulation/abides_impl/abides_output.py#26-193) Logs DataFrame)
+**Table: `agent_logs`** (Matches [AbidesOutput](../src/rohan/simulation/abides_impl/abides_output.py) Logs DataFrame)
 | Column | Type | Description |
 | :--- | :--- | :--- |
 | `run_id` | UUID (FK) | Link to run |
-| `agent_id` | INT | |
+| `agent_id` | INT | Agent identifier |
 | `agent_type` | TEXT | "ValueAgent", "NoiseAgent" |
-| `EventType` | TEXT | "ORDER_SUBMITTED", "ORDER_EXECUTED" |
-| `time_placed` | TIMESTAMP | |
+| `event_type` | TEXT | "ORDER_SUBMITTED", "ORDER_EXECUTED" |
+| `time_placed` | TIMESTAMP | When the event occurred |
 | `log_json` | JSONB | The full log dict (contains internal state) |
 
 **Table: `artifacts`**
@@ -160,7 +178,7 @@ class StrategicAgent(Protocol):
 2.  **Orchestration (LangGraph Manager)**
     *   **Action:** Manager reads the pending scenarios from the Database.
     *   **System:**
-        *   Creates [SimulationRun](file:///c:/Users/gabri/workspace/rohan/src/rohan/simulation/simulation_runner.py#9-23) records for each scenario (Status='PENDING').
+        *   Creates [SimulationRun](../src/rohan/simulation/simulation_runner.py) records for each scenario (Status='PENDING').
         *   Invokes the `SimulationNode` with the list of generic Run IDs.
 3.  **Execution (SimulationNode)**
     *   **Action:** Node spins up Docker containers (or local processes) for each Run ID.
@@ -213,19 +231,19 @@ Phase 1 establishes the complete data persistence layer, execution engine, and a
 
 **Implemented Components:**
 
-1. **Pydantic Schemas** (`src/rohan/framework/schema.py`)
-   - `MarketState`: Market conditions snapshot (timestamp, prices, inventory, cash)
-   - `OrderAction`: Trading actions (BUY/SELL, LIMIT/MARKET, price, quantity)
+1. **Pydantic Schemas** (`src/rohan/simulation/models/`)
+   - `MarketState`: Market conditions snapshot (timestamp, prices, inventory, cash, open orders)
+   - `OrderAction`: Trading actions (Side, OrderType, price, quantity)
    - `StrategicAgent`: Protocol for LLM-generated strategies
    - `SimulationMetrics`: Summary statistics (PnL, Sharpe, max drawdown, win rate, volatility)
 
-2. **SQLAlchemy Models** (`src/rohan/framework/models.py`)
+2. **SQLAlchemy Models** (`src/rohan/framework/database/models.py`)
    - **Strategy Management**: `StrategySession`, `StrategyIteration`, `SimulationScenario`, `SimulationRun`
    - **Data Tables**: `MarketDataL1` (L1 order book), `AgentLog` (event logs), `Artifact` (plots, files)
    - All models support JSONB fields for flexible data storage
 
-3. **Database Connection** (`src/rohan/framework/database.py`)
-   - Singleton `Database` class with connection pooling
+3. **Database Connection** (`src/rohan/framework/database/database_connector.py`)
+   - `DatabaseConnector` class with connection pooling
    - Support for SQLite (default/dev) and PostgreSQL (production)
    - Configured via `.env`: `DB_CONNECTION_STRING`, `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`
 
@@ -237,7 +255,7 @@ Phase 1 establishes the complete data persistence layer, execution engine, and a
    - **Updates**: `update_run_status()`
    - Handles NaN values, bulk inserts, JSON sanitization
 
-5. **Database Initialization** (`src/rohan/framework/init_db.py`)
+5. **Database Initialization** (`src/rohan/framework/database/init_db.py`)
    - `initialize_database()`: Create all tables (idempotent)
    - `drop_all_tables()`: Drop all tables
    - `reset_database()`: Drop and recreate
@@ -841,7 +859,7 @@ graph TD
 ```
 
 **Key Principles:**
-- **In-memory first**: LangGraph nodes call `SimulationService.run_simulation()` directly, returning [`SimulationResult`](file:///c:/Users/gabri/workspace/rohan/src/rohan/simulation/models/simulation_result.py) in-memory
+- **In-memory first**: LangGraph nodes call `SimulationService.run_simulation()` directly, returning [`SimulationResult`](../src/rohan/simulation/models/simulation_result.py) in-memory
 - **No DB polling**: All agent communication happens through LangGraph state
 - **Async persistence**: Database writes are fire-and-forget via background thread
 - **Result pattern**: Simulations never throw — errors are returned in `SimulationResult.error`
@@ -1045,7 +1063,7 @@ class AgentState(TypedDict):
 1. **File Type Validation**: Single Python file only
 2. **Syntax Validation**: Parse AST, check for errors
 3. **Import Whitelist**: Only allow safe imports (`math`, `numpy`, `pandas`, `rohan.framework.schema`)
-4. **Protocol Compliance**: Must implement `StrategicAgent.on_market_update()`
+4. **Protocol Compliance**: Must implement `StrategicAgent.on_market_data()`
 5. **Security Checks**: No file I/O, network, or code execution
 6. **Code Quality**: Warnings for long methods, missing docstrings
 
