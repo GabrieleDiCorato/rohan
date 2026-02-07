@@ -48,5 +48,6 @@ class ComparisonResult(BaseModel):
     """Comparison between strategy run and baseline run."""
 
     strategy_metrics: AgentMetrics
+    strategy_market_metrics: MarketMetrics
     baseline_metrics: MarketMetrics
-    market_impact: dict[str, float]  # Delta between runs (e.g. volatility impact)
+    market_impact: dict[str, float]  # Percentage delta between runs

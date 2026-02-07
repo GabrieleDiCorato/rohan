@@ -73,12 +73,33 @@ def run_with_baseline(
     )
 
     # Compare
-    # Market Impact: Strategy Volatility vs Baseline Volatility
+    metrics1_market = MarketMetrics(
+        volatility=metrics1_sim.volatility,
+        mean_spread=metrics1_sim.custom_metrics.get("mean_spread", 0.0),
+        avg_bid_liquidity=metrics1_sim.custom_metrics.get("avg_bid_liquidity", 0.0),
+        avg_ask_liquidity=metrics1_sim.custom_metrics.get("avg_ask_liquidity", 0.0),
+        traded_volume=metrics1_sim.traded_volume,
+    )
+
+    # Compare
+    # Market Impact: Percentage Change (Strategy vs Baseline)
+    # Formula: (Strategy - Baseline) / Baseline
+    def pct_change(a: float, b: float) -> float:
+        if b == 0:
+            return 0.0 if a == 0 else float("inf")
+        return (a - b) / b
+
     impact = {
-        "volatility_delta": metrics1_sim.volatility - metrics2.volatility,
-        "spread_delta": metrics1_sim.custom_metrics.get("mean_spread", 0.0) - metrics2.mean_spread,
-        "liquidity_bid_delta": metrics1_sim.custom_metrics.get("avg_bid_liquidity", 0.0) - metrics2.avg_bid_liquidity,
-        "liquidity_ask_delta": metrics1_sim.custom_metrics.get("avg_ask_liquidity", 0.0) - metrics2.avg_ask_liquidity,
+        "volatility_pct_change": pct_change(metrics1_market.volatility, metrics2.volatility),
+        "spread_pct_change": pct_change(metrics1_market.mean_spread, metrics2.mean_spread),
+        "liquidity_bid_pct_change": pct_change(metrics1_market.avg_bid_liquidity, metrics2.avg_bid_liquidity),
+        "liquidity_ask_pct_change": pct_change(metrics1_market.avg_ask_liquidity, metrics2.avg_ask_liquidity),
+        "volume_pct_change": pct_change(float(metrics1_market.traded_volume), float(metrics2.traded_volume)),
     }
 
-    return ComparisonResult(strategy_metrics=metrics1, baseline_metrics=metrics2, market_impact=impact)
+    return ComparisonResult(
+        strategy_metrics=metrics1,
+        strategy_market_metrics=metrics1_market,
+        baseline_metrics=metrics2,
+        market_impact=impact,
+    )

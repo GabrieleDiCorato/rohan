@@ -33,24 +33,27 @@ Metrics evaluating the agent's ability to access liquidity.
 
 ## 2. Market Impact Analysis
 
-To assess the externality of the strategy, we compare market conditions between a **Strategy Run** (with the active agent) and a **Baseline Run** (agent disabled or replaced by noise).
+To assess the externality of the strategy, we compare market conditions between a **Strategy Run** (with the active agent) and a **Baseline Run** (agent disabled or replaced by noise). The report provides:
+1.  **Strategy Value**: The raw metric value from the strategy run.
+2.  **Baseline Value**: The raw metric value from the baseline run.
+3.  **Percentage Change**: The relative impact of the strategy.
 
 ### 2.1 Volatility Impact
 
 Measures how much the strategy contributes to price instability.
 
 *   **Volatility**: Annualized standard deviation of mid-price returns.
-    *   *Normalization:* $\sigma_{annual} = \sigma_{sample} \times \sqrt{252 \times 390 \times 60}$ (assuming 1-second snapshots).
-*   **Volatility Delta**: $\Delta \sigma = \sigma_{strategy} - \sigma_{baseline}$
-    *   *Interpretation:* Positive delta implies the strategy increases market noise/instability.
+*   **Volatility % Change**:
+    *   *Formula:* $\Delta \sigma (\%) = \frac{\sigma_{strategy} - \sigma_{baseline}}{\sigma_{baseline}}$
+    *   *Interpretation:* Positive percentage implies the strategy increases market noise/instability.
 
 ### 2.2 Liquidity & Spread
 
-*   **Spread Delta**: Change in the average bid-ask spread.
-    *   *Formula:* $\Delta Spread = \mu(Spread_{strategy}) - \mu(Spread_{baseline})$
-    *   *Interpretation:* Negative delta implies the strategy improves market quality (tighter spreads).
-*   **Liquidity Consumption/Provision**: Change in order book depth at the best levels.
-    *   *Formula:* $\Delta Liquidity_{bid} = \mu(Vol_{bid, strategy}) - \mu(Vol_{bid, baseline})$
+*   **Spread % Change**: Relative change in the average bid-ask spread.
+    *   *Formula:* $\Delta Spread (\%) = \frac{\mu(Spread_{strategy}) - \mu(Spread_{baseline})}{\mu(Spread_{baseline})}$
+    *   *Interpretation:* Negative percentage implies the strategy improves market quality (tighter spreads).
+*   **Liquidity % Change**: Relative change in order book depth at the best levels.
+    *   *Formula:* $\Delta Liquidity (\%) = \frac{Liquidity_{strategy} - Liquidity_{baseline}}{Liquidity_{baseline}}$
 
 ## 3. Comparative Evaluation
 
@@ -60,8 +63,8 @@ The `ComparisonResult` object encapsulates these metrics to provide a holistic v
 | :--- | :--- |
 | **Alpha Generation** | Total PnL, Sharpe Ratio |
 | **Execution** | Fill Rate, Inventory Management |
-| **Market Quality** | Spread Delta, Volatility Delta |
+| **Market Quality** | Spread % Change, Volatility % Change |
 
 This structured comparison allows specific feedback loops:
-- *High PnL but High Volatility Delta* $\rightarrow$ Strategy is profitable but destabilizing.
+- *High PnL but High Volatility Impact* $\rightarrow$ Strategy is profitable but destabilizing.
 - *Low Fill Rate & Low PnL* $\rightarrow$ Strategy is too passive.
