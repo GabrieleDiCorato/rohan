@@ -2,6 +2,7 @@ from .simulation_metrics import (
     AgentMetrics,
     ComparisonResult,
     MarketMetrics,
+    RunSummary,
     SimulationMetrics,
 )
 from .simulation_output import SimulationOutput
@@ -16,6 +17,7 @@ __all__ = [
     "AgentMetrics",
     "ComparisonResult",
     "MarketMetrics",
+    "RunSummary",
     "SimulationMetrics",
     "SimulationOutput",
     "SimulationContext",

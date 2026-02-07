@@ -1,9 +1,14 @@
+from typing import TYPE_CHECKING
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 from rohan.simulation import AgentMetrics, SimulationMetrics, SimulationOutput
+
+if TYPE_CHECKING:
+    from rohan.simulation import ComparisonResult, RunSummary
 
 # Use non-interactive backend for server/CI environments
 matplotlib.use("Agg")
@@ -210,10 +215,66 @@ class AnalysisService:
         return fig
 
     @staticmethod
-    def generate_plots() -> list[str]:
-        """Generates plots and returns a list of paths (virtual or temp).
-        In the final system these bytes are returned to be saved in DB.
-        For now we just return bytes? Or create matplotlib figures.
+    def figure_to_base64(fig: plt.Figure) -> str:
+        """Convert a matplotlib figure to a base64-encoded PNG string.
+
+        Args:
+            fig: Matplotlib Figure object.
+
+        Returns:
+            Base64-encoded PNG string.
         """
-        # TODO: Implement Plotting to returning bytes for DB storage
-        return []
+        import base64
+        from io import BytesIO
+
+        buf = BytesIO()
+        fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode("utf-8")
+        buf.close()
+        plt.close(fig)
+        return encoded
+
+    @staticmethod
+    def generate_summary(
+        comparison: "ComparisonResult",
+        strategy_output: SimulationOutput | None = None,
+        duration_seconds: float = 0.0,
+        error: str | None = None,
+    ) -> "RunSummary":
+        """Generate a structured summary for LLM interpretation.
+
+        Args:
+            comparison: ComparisonResult from run_with_baseline.
+            strategy_output: Optional SimulationOutput to generate charts.
+            duration_seconds: Execution time.
+            error: Error message if any.
+
+        Returns:
+            RunSummary with metrics and optional charts.
+        """
+        from rohan.simulation import RunSummary
+
+        price_chart = None
+        spread_chart = None
+
+        if strategy_output is not None:
+            try:
+                price_fig = AnalysisService.plot_price_series(strategy_output)
+                price_chart = AnalysisService.figure_to_base64(price_fig)
+            except Exception:
+                pass
+
+            try:
+                spread_fig = AnalysisService.plot_spread(strategy_output)
+                spread_chart = AnalysisService.figure_to_base64(spread_fig)
+            except Exception:
+                pass
+
+        return RunSummary(
+            comparison=comparison,
+            price_chart=price_chart,
+            spread_chart=spread_chart,
+            duration_seconds=duration_seconds,
+            error=error,
+        )

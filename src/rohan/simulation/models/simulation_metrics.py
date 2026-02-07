@@ -51,3 +51,17 @@ class ComparisonResult(BaseModel):
     strategy_market_metrics: MarketMetrics
     baseline_metrics: MarketMetrics
     market_impact: dict[str, float]  # Percentage delta between runs
+
+
+class RunSummary(BaseModel):
+    """Structured summary for LLM interpretation.
+
+    Provides a compact view of simulation results including metrics,
+    optional visualizations, and execution metadata.
+    """
+
+    comparison: ComparisonResult
+    price_chart: str | None = None  # Base64-encoded PNG
+    spread_chart: str | None = None  # Base64-encoded PNG
+    duration_seconds: float = 0.0
+    error: str | None = None
