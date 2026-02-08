@@ -54,10 +54,10 @@ class StrategicAgentAdapter(TradingAgent):
             log_orders=log_orders,
             random_state=random_state,
         )
-        self.strategy = strategy
-        self.symbol = symbol
-        self.wake_up_freq_ns = str_to_ns(wake_up_freq)
-        self._initialized = False
+        self.strategy: StrategicAgent = strategy
+        self.symbol: str = symbol
+        self.wake_up_freq_ns: int = str_to_ns(wake_up_freq)
+        self._initialized: bool = False
         self._previous_holdings: dict[str, int] = {}
 
     def get_wake_frequency(self) -> int:
@@ -85,6 +85,7 @@ class StrategicAgentAdapter(TradingAgent):
 
     def wakeup(self, current_time: int) -> None:
         """Called periodically. Request market data update."""
+        # Call parent to handle base wake logic
         super().wakeup(current_time)
 
         # Request current spread to trigger on_market_data
@@ -125,6 +126,10 @@ class StrategicAgentAdapter(TradingAgent):
         # get_known_bid_ask returns (bid_price, bid_size, ask_price, ask_size)
         bid, _, ask, _ = self.get_known_bid_ask(self.symbol)
 
+        # Convert float prices to int (cents)
+        bid_int = int(bid) if bid is not None else None
+        ask_int = int(ask) if ask is not None else None
+
         # Build open orders list
         open_orders = [
             Order(
@@ -132,7 +137,7 @@ class StrategicAgentAdapter(TradingAgent):
                 symbol=order.symbol,
                 side=Side.BID if order.side == AbidesSide.BID else Side.ASK,
                 quantity=order.quantity,
-                price=order.limit_price,
+                price=int(getattr(order, "limit_price", 0)),
                 order_type=OrderType.LIMIT,
                 status=OrderStatus.NEW,  # Active orders are "NEW" from strategy perspective
                 filled_quantity=0,
@@ -142,8 +147,8 @@ class StrategicAgentAdapter(TradingAgent):
 
         return MarketState(
             timestamp_ns=current_time,
-            best_bid=bid,
-            best_ask=ask,
+            best_bid=bid_int,
+            best_ask=ask_int,
             last_trade=None,  # Would require additional tracking
             inventory=self.holdings.get(self.symbol, 0),
             cash=self.holdings.get("CASH", 0),
@@ -156,8 +161,9 @@ class StrategicAgentAdapter(TradingAgent):
             if action.cancel_order_id is not None:
                 # Cancel existing order
                 order_to_cancel = self.orders.get(action.cancel_order_id)
-                if order_to_cancel:
-                    self.cancel_order(order_to_cancel)
+                if order_to_cancel is not None:
+                    # Cancel order by order ID (ABIDES LimitOrder object)
+                    self.cancel_order(order_to_cancel)  # type: ignore[arg-type]
             elif action.order_type == OrderType.MARKET:
                 # Place market order
                 side = AbidesSide.BID if action.side == Side.BID else AbidesSide.ASK

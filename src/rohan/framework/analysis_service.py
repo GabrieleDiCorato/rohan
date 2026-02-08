@@ -4,6 +4,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.figure import Figure
 
 from rohan.simulation import AgentMetrics, SimulationMetrics, SimulationOutput
 
@@ -66,10 +67,12 @@ class AnalysisService:
     @staticmethod
     def compute_agent_metrics(result: SimulationOutput, agent_id: int) -> AgentMetrics:
         """Computes metrics for a specific agent."""
+        # Note: This functionality requires end_state to be available in SimulationOutput
+        # Currently returning placeholder metrics
         if not hasattr(result, "end_state"):
             return AgentMetrics(agent_id=agent_id)
 
-        agents = {a.id: a for a in result.end_state["agents"]}
+        agents = {a.id: a for a in result.end_state["agents"]}  # noqa: PGH003
         if agent_id not in agents:
             raise ValueError(f"Agent {agent_id} not found in simulation output")
 
@@ -122,7 +125,7 @@ class AnalysisService:
         )
 
     @staticmethod
-    def plot_price_series(result: SimulationOutput) -> plt.Figure:
+    def plot_price_series(result: SimulationOutput) -> Figure:
         """
         Generate a plot of price series (bid, ask, mid) over time.
         Returns a matplotlib Figure object.
@@ -156,7 +159,7 @@ class AnalysisService:
         return fig
 
     @staticmethod
-    def plot_volume(result: SimulationOutput) -> plt.Figure:
+    def plot_volume(result: SimulationOutput) -> Figure:
         """
         Generate a plot of volume at best bid/ask over time.
         Returns a matplotlib Figure object.
@@ -185,7 +188,7 @@ class AnalysisService:
         return fig
 
     @staticmethod
-    def plot_spread(result: SimulationOutput) -> plt.Figure:
+    def plot_spread(result: SimulationOutput) -> Figure:
         """
         Generate a plot of bid-ask spread over time.
         Returns a matplotlib Figure object.
@@ -215,7 +218,7 @@ class AnalysisService:
         return fig
 
     @staticmethod
-    def figure_to_base64(fig: plt.Figure) -> str:
+    def figure_to_base64(fig: Figure) -> str:
         """Convert a matplotlib figure to a base64-encoded PNG string.
 
         Args:
