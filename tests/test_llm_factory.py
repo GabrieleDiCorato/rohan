@@ -36,7 +36,7 @@ class TestCreateChatModel:
         mock_cls.assert_called_once()
         call_kwargs = mock_cls.call_args.kwargs
         assert call_kwargs["model"] == "anthropic/claude-sonnet-4"
-        assert call_kwargs["openai_api_base"] == _OPENROUTER_BASE_URL
+        assert call_kwargs["base_url"] == _OPENROUTER_BASE_URL
         assert call_kwargs["temperature"] == 0.2
 
     @patch("rohan.llm.factory.ChatOpenAI")
@@ -48,8 +48,8 @@ class TestCreateChatModel:
         mock_cls.assert_called_once()
         call_kwargs = mock_cls.call_args.kwargs
         assert call_kwargs["model"] == "gpt-4o"
-        # OpenAI provider should NOT set openai_api_base
-        assert "openai_api_base" not in call_kwargs
+        # OpenAI provider should NOT set base_url
+        assert "base_url" not in call_kwargs
 
     def test_missing_openrouter_key_raises(self):
         settings = LLMSettings(

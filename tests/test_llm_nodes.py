@@ -189,7 +189,7 @@ class TestValidatorNode:
     def test_empty_code_fails(self):
         state = _base_state(current_code="")
         result = validator_node(state)
-        assert "No class definition" in result["validation_errors"][0]
+        assert "No code to validate" in result["validation_errors"][0]
 
     def test_attempt_counter_increments(self):
         state = _base_state(current_code=INVALID_STRATEGY, validation_attempts=2)
