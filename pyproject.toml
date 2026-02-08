@@ -16,7 +16,14 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "sqlalchemy>=2.0.0",
     "psycopg[binary]>=3.2.0",
-    "langgraph>=1.0.7",
+    "langgraph>=1.0.8",
+    "langchain>=0.3",
+    "langchain-openai>=0.2",
+]
+
+[project.optional-dependencies]
+llm = [
+    "langchain-google-genai>=2.0",
 ]
 
 [project.urls]
@@ -26,6 +33,7 @@ Issues = "https://github.com/GabrieleDiCorato/rohan/issues"
 
 [project.scripts]
 ui = "rohan.ui.__main__:main"
+refine = "rohan.llm.cli:main"
 
 [dependency-groups]
 dev = [
