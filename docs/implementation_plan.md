@@ -188,20 +188,11 @@ Use **LangChain** for model abstraction.
         "langchain>=0.3",
         "langchain-openai>=0.2",
         "langchain-google-genai>=2.0",
+        "langgraph>=0.2",
     ]
     ```
 *   **Create `src/rohan/llm/__init__.py`** — LLM module.
-*   **Create `src/rohan/llm/factory.py`** — Model factory using LangChain:
-    ```python
-    from langchain_openai import ChatOpenAI
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    def get_chat_model(settings: LLMSettings) -> BaseChatModel:
-        match settings.provider:
-            case "openai": return ChatOpenAI(model=settings.model, ...)
-            case "google": return ChatGoogleGenerativeAI(model=settings.model, ...)
-            case "mock": return FakeChatModel(responses=[...])
-    ```
+*   **Create `src/rohan/llm/factory.py`** — Model factory using LangChain.
 *   **Create `src/rohan/config/llm_settings.py`** — Pydantic settings.
 
 **File Structure:**
@@ -209,38 +200,250 @@ Use **LangChain** for model abstraction.
 src/rohan/llm/
 ├── __init__.py
 ├── factory.py          # LangChain model factory
-├── interpreter.py      # InterpreterService
 ├── models.py           # Pydantic response models
 └── prompts.py          # Prompt templates
 ```
 
-##### 2.1.2 Interpreter Service
-*   **Create `src/rohan/llm/interpreter.py`** — `InterpreterService` class.
-*   **Create `src/rohan/llm/models.py`** — Pydantic models (`InterpretationResult`, `StrategyGenerationResult`).
-*   **Use LangChain's `with_structured_output()`** for JSON parsing.
+---
 
-##### 2.1.3 Integrate with IterationPipeline
-*   **Update `PipelineConfig`** — Add `llm_settings: LLMSettings | None`.
-*   **Update `IterationPipeline.run()`** — Call interpreter after simulation.
-*   **Update `IterationResult`** — Add `interpretation: InterpretationResult | None`.
+#### Step 2.2: Multi-Agent Architecture
 
-##### 2.1.4 Entry Point Script
-*   **Create `src/rohan/cli/`** — CLI module using `click` or `typer`.
-*   **Update `pyproject.toml`** — UV scripts.
+**Design Principle:** Each agent is a separate LangGraph node with a single responsibility. Agents communicate through state, not direct calls.
 
-##### 2.1.5 Testing
-*   **Create `tests/test_interpreter.py`** — Test with `FakeChatModel`.
+##### Agent Topology
+
+```mermaid
+flowchart TD
+    START([🎯 Goal]) --> W
+
+    subgraph generation ["📝 Strategy Generation Loop"]
+        W[Writer Agent<br/>Generates strategy code] --> V[Validator Agent<br/>AST + sandbox check]
+        V -->|❌ Invalid<br/>retries ≤ 3| W
+    end
+
+    V -->|✅ Valid| SE
+    V -->|❌ Max retries| FAIL([💥 Failed])
+
+    subgraph execution ["⚡ Scenario Execution"]
+        SE[Scenario Executor] --> S1[Scenario 1<br/>Volatile Market]
+        SE --> S2[Scenario 2<br/>Stable Market]
+        SE -.-> SN[Scenario N<br/>Custom]
+    end
+
+    subgraph analysis ["🔍 Scenario Analysis"]
+        S1 --> E1[Explainer Agent<br/>+ Tools 🛠️]
+        S2 --> E2[Explainer Agent<br/>+ Tools 🛠️]
+        SN -.-> EN[Explainer Agent<br/>+ Tools 🛠️]
+    end
+
+    E1 --> AGG[Aggregator<br/>Cross-scenario synthesis]
+    E2 --> AGG
+    EN -.-> AGG
+
+    AGG -->|iteration < max| W
+    AGG -->|converged OR<br/>iteration = max| DONE([✅ Done])
+
+    style W fill:#4CAF50,color:white
+    style V fill:#FF9800,color:white
+    style SE fill:#2196F3,color:white
+    style E1 fill:#9C27B0,color:white
+    style E2 fill:#9C27B0,color:white
+    style EN fill:#9C27B0,color:white
+    style AGG fill:#607D8B,color:white
+```
+
+##### 2.2.1 Writer Agent
+**Role:** Generate strategy code from goal + feedback.
+
+*   **Input:** Goal description, previous feedback (if any).
+*   **Output:** Python strategy code.
+*   **LangGraph node:** `writer_node`.
+
+##### 2.2.2 Validator Agent
+**Role:** Validate strategy code (AST + sandbox execution).
+
+*   **Input:** Strategy code.
+*   **Output:** Valid flag, error message (if any).
+*   **Loop:** If invalid, return error to Writer. **Failsafe:** Max 3 retries.
+*   **Implementation:** Uses existing `StrategyValidator` + optional LLM self-critique.
+*   **LangGraph node:** `validator_node`.
+
+##### 2.2.3 Scenario Executor
+**Role:** Run validated strategy across multiple scenarios.
+
+*   **Input:** Validated strategy code, list of scenario configs.
+*   **Output:** List of `SimulationOutput` + `SimulationMetrics` per scenario.
+*   **Scalability:** Currently runs single pre-defined scenario, but architecture supports:
+    - Pre-defined scenario list
+    - Dynamic scenario selection (future: agent-driven)
+*   **LangGraph node:** `scenario_executor_node`.
+
+##### 2.2.4 Explainer Agent (per scenario)
+**Role:** Analyze simulation results with tool access.
+
+*   **Input:** `SimulationOutput`, `SimulationMetrics`, `RunSummary`.
+*   **Tools available:**
+    - `get_order_book_snapshot(timestamp)` — Query L1 data.
+    - `get_agent_trades(agent_id)` — Get trade history.
+    - `compute_pnl_curve()` — Generate PnL over time.
+    - `plot_price_series()` — Generate chart.
+    - `query_dataframe(query)` — Pandas query on logs.
+*   **Output:** `ScenarioExplanation` with insights, charts, recommendations.
+*   **LangGraph node:** `explainer_node` (runs per scenario, can parallelize).
+
+##### 2.2.5 Aggregator
+**Role:** Combine all scenario explanations into unified feedback.
+
+*   **Input:** List of `ScenarioExplanation`.
+*   **Output:** Aggregated feedback for Writer (cross-scenario patterns, overall assessment).
+*   **LangGraph node:** `aggregator_node`.
 
 ---
 
-#### Step 2.2: UI & Notebook for Local Testing
+#### Step 2.3: LangGraph State & Graph
+
+##### State Schema
+```python
+class IterationSummary(BaseModel):
+    """Summary of a single iteration for history tracking."""
+    iteration_number: int
+    strategy_code: str
+    scenario_metrics: dict[str, ScenarioMetrics]  # scenario_name -> metrics
+    aggregated_explanation: str
+    judge_score: float | None  # 1-10 from LLM judge
+    judge_reasoning: str | None
+    timestamp: datetime
+
+class RefinementState(TypedDict):
+    goal: str
+    current_code: str | None
+    validation_errors: list[str]
+    validation_attempts: int
+    scenarios: list[ScenarioConfig]
+    scenario_results: list[ScenarioResult]
+    explanations: list[ScenarioExplanation]
+    iterations: list[IterationSummary]  # ← Full iteration history
+    aggregated_feedback: str | None
+    iteration_number: int
+    max_iterations: int
+    status: Literal["writing", "validating", "executing", "explaining", "aggregating", "done", "failed"]
+```
+
+##### Convergence Assessment (LLM-as-Judge)
+
+The **Aggregator** evaluates each iteration against the goal and previous iterations.
+
+**Judge Input (Prompt):**
+```
+## Goal
+{goal}
+
+## Previous Iterations
+| Iter | PnL | Volatility Δ | Spread Δ | Score | Summary |
+|------|-----|--------------|----------|-------|---------|
+| 1    | -$50 | +12%        | +5%      | 3/10  | High market impact... |
+| 2    | +$20 | +8%         | +2%      | 5/10  | Improved but still... |
+
+## Current Iteration (3)
+[Current metrics and scenario explanations]
+
+## Task
+1. Score this iteration (1-10) relative to the GOAL
+2. Compare to previous iterations — is it improving?
+3. Recommend: continue, stop (converged), or stop (no progress)
+```
+
+**Judge Output (Structured):**
+```python
+class JudgeVerdict(BaseModel):
+    score: float  # 1-10
+    comparison: Literal["better", "worse", "similar"]
+    reasoning: str
+    recommendation: Literal["continue", "stop_converged", "stop_plateau"]
+```
+
+**Convergence Criteria:**
+- `stop_converged`: Score ≥ 8 and improvement plateaued
+- `stop_plateau`: Score similar for 3+ iterations
+- `continue`: Otherwise, keep refining
+
+##### Graph Definition
+```python
+from langgraph.graph import StateGraph, END
+
+def build_refinement_graph():
+    graph = StateGraph(RefinementState)
+
+    # Nodes
+    graph.add_node("writer", writer_node)
+    graph.add_node("validator", validator_node)
+    graph.add_node("executor", scenario_executor_node)
+    graph.add_node("explainer", explainer_node)  # Runs for each scenario
+    graph.add_node("aggregator", aggregator_node)
+
+    # Edges
+    graph.add_edge("writer", "validator")
+    graph.add_conditional_edges("validator", validation_router, {
+        "retry": "writer",      # Invalid + retries left
+        "execute": "executor",  # Valid
+        "fail": END,            # Max retries exceeded
+    })
+    graph.add_edge("executor", "explainer")
+    graph.add_edge("explainer", "aggregator")
+    graph.add_conditional_edges("aggregator", should_continue, {
+        "continue": "writer",   # More iterations
+        "done": END,            # Converged or max iterations
+    })
+
+    graph.set_entry_point("writer")
+    return graph.compile()
+```
+
+---
+
+#### Step 2.4: Tool-Equipped Explainer
+
+The Explainer agent needs **tool calling** to deeply analyze simulation results.
+
+##### Tool Definitions
+*   **Create `src/rohan/llm/tools.py`** — LangChain tools wrapping analysis functions:
+    ```python
+    from langchain_core.tools import tool
+
+    @tool
+    def get_agent_trades(agent_id: int, output: SimulationOutput) -> list[dict]:
+        """Get all trades executed by a specific agent."""
+        ...
+
+    @tool
+    def compute_volatility_window(start_ts: int, end_ts: int) -> float:
+        """Compute price volatility in a time window."""
+        ...
+
+    @tool
+    def plot_metric(metric: str) -> str:
+        """Generate a chart for a metric. Returns base64 PNG."""
+        ...
+    ```
+
+##### Explainer as ReAct Agent
+```python
+from langgraph.prebuilt import create_react_agent
+
+def create_explainer_agent(model: BaseChatModel):
+    tools = [get_agent_trades, compute_volatility_window, plot_metric, ...]
+    return create_react_agent(model, tools, state_schema=ExplainerState)
+```
+
+---
+
+#### Step 2.5: UI & Notebook for Local Testing
 **Status:** TODO.
-**Goal:** Interactive interface for testing strategies and viewing results.
 
 *   **Create `notebooks/quickstart.ipynb`** — Interactive demo.
 *   **Add "Strategy" tab** — Code editor for strategy input.
-*   **Add "Interpretation" panel** — Display LLM feedback.
-*   **Integrate `IterationPipeline`** — Replace direct `SimulationService` calls.
+*   **Add "Interpretation" panel** — Display agent feedback.
+*   **Add "Scenario Results" view** — Per-scenario metrics and explanations.
 
 **UV Scripts:**
 ```toml
@@ -251,59 +454,48 @@ notebook = "jupyter lab notebooks/"
 
 ---
 
-#### Step 2.3: LLM Feedback Benchmarking
+#### Step 2.6: LLM Feedback Benchmarking
 **Status:** TODO.
-**Goal:** Evaluate and improve LLM interpretation quality.
 
 *   **Create `src/rohan/llm/eval/`** — Evaluation module.
 *   **Create `notebooks/llm_benchmark.ipynb`** — Compare providers.
-*   **Create `src/rohan/llm/prompts/`** — Multiple prompt templates.
 *   **Document findings** in `docs/llm_evaluation.md`.
 
 ---
 
-#### Step 2.4: Strategy Refinement Cycle
-**Status:** TODO.
-**Goal:** Full autonomous loop — interpret → generate → validate → execute → interpret.
+**MVP Scope (Step 2.1-2.4):**
+1. Writer + Validator loop (3 retries)
+2. Single pre-defined scenario
+3. Single Explainer agent with basic tools
+4. Aggregator returns feedback to Writer
+5. 1-3 refinement iterations
 
-##### 2.4.1 LangGraph State Machine
-*   **Create `src/rohan/orchestration/__init__.py`** — Orchestration module.
-*   **Create `src/rohan/orchestration/state.py`** — `RefinementState` TypedDict.
-
-##### 2.4.2 LangGraph Nodes
-*   **Create `src/rohan/orchestration/nodes.py`**:
-    - `generate_node` — Generate strategy code
-    - `validate_node` — AST validation
-    - `execute_node` — Run simulation
-    - `interpret_node` — LLM analysis
-    - `should_continue` — Conditional edge
-
-##### 2.4.3 Graph Definition
-*   **Create `src/rohan/orchestration/graph.py`** — Build LangGraph with `StateGraph`.
-
-##### 2.4.4 CLI & UI Integration
-*   **Add `rohan refine` command** — Run full cycle from CLI.
-*   **Add "Auto-Refine" button** to UI.
-
----
+**Future Extensions:**
+- Multiple scenarios in parallel
+- Agent-driven scenario selection
+- Advanced tool suite for Explainer
+- Persistent checkpointing
 
 **Dependencies & Order:**
 ```mermaid
 graph LR
-    A[Phase 1.5 IterationPipeline] --> B[2.1 LLM MVP]
-    B --> C[2.2 UI/Notebook]
-    B --> D[2.3 LLM Benchmarking]
-    C --> E[2.4 Refinement Cycle]
-    D --> E
+    A[Phase 1.5 IterationPipeline] --> B[2.1 LLM Setup]
+    B --> C[2.2 Agent Architecture]
+    C --> D[2.3 LangGraph State]
+    D --> E[2.4 Tool-Equipped Explainer]
+    E --> F[2.5 UI/Notebook]
+    F --> G[2.6 Benchmarking]
 ```
 
 **Estimated Timeline:**
 | Step | Effort | Notes |
 |------|--------|-------|
-| 2.1 | 2-3 days | LangChain integration, interpreter service |
-| 2.2 | 1-2 days | UI updates, notebook |
-| 2.3 | 2-3 days | Prompt engineering, benchmarking |
-| 2.4 | 3-5 days | LangGraph, full cycle |
+| 2.1 | 1 day | LangChain setup |
+| 2.2 | 2-3 days | Agent nodes implementation |
+| 2.3 | 1-2 days | LangGraph wiring |
+| 2.4 | 2-3 days | Tools + ReAct explainer |
+| 2.5 | 1-2 days | UI updates |
+| 2.6 | 2-3 days | Benchmarking |
 
 ### 🚧 TODO: Phase 3 - Docker Sandbox
 **Status:** Deferred.
