@@ -5,7 +5,11 @@ This module provides utilities to initialize the database schema
 for the agentic simulation framework.
 """
 
+import logging
+
 from .database_connector import DatabaseConnector
+
+logger = logging.getLogger(__name__)
 
 
 def initialize_database() -> None:
@@ -18,7 +22,7 @@ def initialize_database() -> None:
     """
     db = DatabaseConnector()
     db.create_tables()
-    print("✓ Database tables created successfully")
+    logger.info("Database tables created successfully")
 
 
 def drop_all_tables() -> None:
@@ -31,7 +35,7 @@ def drop_all_tables() -> None:
 
     db = DatabaseConnector()
     Base.metadata.drop_all(bind=db.engine)
-    print("✓ All tables dropped")
+    logger.info("All tables dropped")
 
 
 def reset_database() -> None:
@@ -42,11 +46,13 @@ def reset_database() -> None:
     """
     drop_all_tables()
     initialize_database()
-    print("✓ Database reset complete")
+    logger.info("Database reset complete")
 
 
 if __name__ == "__main__":
     import sys
+
+    logging.basicConfig(level=logging.INFO)
 
     if len(sys.argv) > 1:
         command = sys.argv[1]
@@ -57,7 +63,7 @@ if __name__ == "__main__":
         elif command == "reset":
             reset_database()
         else:
-            print(f"Unknown command: {command}")
+            logger.error("Unknown command: %s", command)
             print("Usage: python -m rohan.framework.init_db [init|drop|reset]")
     else:
         # Default action

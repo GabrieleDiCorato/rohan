@@ -1,6 +1,16 @@
 from .database_connector import DatabaseConnector
 from .init_db import drop_all_tables, initialize_database, reset_database
-from .models import AgentLog, Artifact, MarketDataL1, SimulationRun, SimulationScenario, StrategyIteration, StrategySession
+from .models import (
+    AgentLog,
+    Artifact,
+    ArtifactType,
+    MarketDataL1,
+    RunStatus,
+    SimulationRun,
+    SimulationScenario,
+    StrategyIteration,
+    StrategySession,
+)
 
 __all__ = [
     "DatabaseConnector",
@@ -14,4 +24,6 @@ __all__ = [
     "MarketDataL1",
     "AgentLog",
     "Artifact",
+    "RunStatus",
+    "ArtifactType",
 ]

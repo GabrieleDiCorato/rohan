@@ -16,7 +16,9 @@ import pytest
 
 from rohan.framework import ArtifactStore, MarketState, OrderAction, SimulationMetrics
 from rohan.framework.database import (
+    ArtifactType,
     DatabaseConnector,
+    RunStatus,
 )
 
 
@@ -96,7 +98,7 @@ class TestDatabaseAndRepository:
             status="PENDING",
         )
         assert run.run_id is not None
-        assert run.status == "PENDING"
+        assert run.status == RunStatus.PENDING
 
     def test_save_and_retrieve_market_data(self, setup_db):
         """Test bulk insert and retrieval of L1 market data."""
@@ -173,12 +175,12 @@ class TestDatabaseAndRepository:
 
         # Save an artifact (e.g., a plot image)
         test_content = b"fake image data"
-        repo.save_artifact(run.run_id, "IMAGE", "pnl_plot.png", test_content)
+        repo.save_artifact(run.run_id, ArtifactType.IMAGE, "pnl_plot.png", test_content)
 
         # Retrieve and verify
         artifacts = repo.get_artifacts(run.run_id)
         assert len(artifacts) == 1
-        assert artifacts[0].type == "IMAGE"
+        assert artifacts[0].artifact_type == ArtifactType.IMAGE
         assert artifacts[0].path == "pnl_plot.png"
         assert artifacts[0].content == test_content
 
@@ -194,12 +196,12 @@ class TestDatabaseAndRepository:
 
         # Update status
         metrics = {"sharpe": 1.5, "pnl": 5000.0}
-        repo.update_run_status(run.run_id, "COMPLETED", metrics)
+        repo.update_run_status(run.run_id, RunStatus.COMPLETED, metrics)
 
         # Retrieve and verify
         updated_run = repo.get_run(run.run_id)
         assert updated_run is not None
-        assert updated_run.status == "COMPLETED"
+        assert updated_run.status == RunStatus.COMPLETED
         assert updated_run.metrics_summary["sharpe"] == 1.5
         assert updated_run.metrics_summary["pnl"] == 5000.0
 
@@ -211,7 +213,7 @@ class TestDatabaseAndRepository:
         # Test session creation
         session = db.get_session()
         assert session is not None
-        session.close()
+        db.remove_session()
 
 
 if __name__ == "__main__":

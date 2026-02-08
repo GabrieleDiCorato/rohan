@@ -12,6 +12,7 @@ import pytest
 
 from rohan.config import SimulationSettings
 from rohan.framework import ArtifactStore, DatabaseConnector, SimulationEngine
+from rohan.framework.database import RunStatus
 
 
 class TestSimulationEngine:
@@ -58,7 +59,7 @@ class TestSimulationEngine:
         # Verify results were saved
         updated_run = repo.get_run(run.run_id)
         assert updated_run is not None
-        assert updated_run.status == "COMPLETED"
+        assert updated_run.status == RunStatus.COMPLETED
         assert updated_run.metrics_summary is not None
 
         # Verify market data was saved (may be empty for very short simulations)
@@ -110,7 +111,7 @@ class TestSimulationEngine:
         # Verify run status was updated to FAILED
         updated_run = repo.get_run(run.run_id)
         assert updated_run is not None
-        assert updated_run.status == "FAILED"
+        assert updated_run.status == RunStatus.FAILED
 
 
 if __name__ == "__main__":

@@ -234,15 +234,29 @@ class AnalysisService:
             Base64-encoded PNG string.
         """
         import base64
+
+        raw = AnalysisService.figure_to_bytes(fig)
+        return base64.b64encode(raw).decode("utf-8")
+
+    @staticmethod
+    def figure_to_bytes(fig: Figure) -> bytes:
+        """Convert a matplotlib figure to raw PNG bytes.
+
+        Args:
+            fig: Matplotlib Figure object.
+
+        Returns:
+            PNG bytes suitable for storage as an artifact.
+        """
         from io import BytesIO
 
         buf = BytesIO()
         fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
         buf.seek(0)
-        encoded = base64.b64encode(buf.read()).decode("utf-8")
+        data = buf.read()
         buf.close()
         plt.close(fig)
-        return encoded
+        return data
 
     @staticmethod
     def generate_summary(

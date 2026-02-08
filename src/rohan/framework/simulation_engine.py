@@ -1,11 +1,17 @@
+"""Orchestrates end-to-end simulation execution and persistence."""
+
+import logging
+import traceback
 from uuid import UUID
 
 from rohan.config import SimulationSettings
 from rohan.simulation import SimulationService
 
 from .analysis_service import AnalysisService
-from .database import DatabaseConnector, SimulationRun
+from .database import ArtifactType, DatabaseConnector, RunStatus
 from .repository import ArtifactStore
+
+logger = logging.getLogger(__name__)
 
 
 class SimulationEngine:
@@ -13,7 +19,7 @@ class SimulationEngine:
     Orchestrates the execution of a simulation run.
     1. Loads Config
     2. Runs Simulation
-    3. Saves Results (L1, Logs, Metrics) to DB
+    3. Saves Results (L1, Logs, Metrics, Plot artifacts) to DB
     """
 
     def __init__(self, db: DatabaseConnector | None = None):
@@ -26,14 +32,10 @@ class SimulationEngine:
         Executes a simulation locally (blocking) and saves results.
         Updates the SimulationRun status in DB.
         """
-        print(f"Starting Local Run: {run_id}")
+        logger.info("Starting local run: %s", run_id)
 
         # 1. Update Status to RUNNING
-        with self.db.get_session() as session:
-            run = session.get(SimulationRun, run_id)
-            if run:
-                run.status = "RUNNING"
-                session.commit()
+        self.repo.update_run_status(run_id, RunStatus.RUNNING)
 
         try:
             # 2. Run Simulation
@@ -56,22 +58,45 @@ class SimulationEngine:
             self.repo.save_market_data(run_id, l1_df)
             self.repo.save_logs(run_id, logs_df)
 
-            # 5. Update Run with Metrics and Completion Status
-            with self.db.get_session() as session:
-                run = session.get(SimulationRun, run_id)
-                if run:
-                    run.status = "COMPLETED"
-                    run.metrics_summary = metrics.model_dump()
-                    session.commit()
+            # 5. Save plot artifacts
+            self._save_plot_artifacts(run_id, result)
 
-            print(f"Run {run_id} Completed successfully.")
+            # 6. Update Run with Metrics and Completion Status
+            self.repo.update_run_status(
+                run_id,
+                RunStatus.COMPLETED,
+                metrics=metrics.model_dump(),
+            )
+
+            logger.info("Run %s completed successfully.", run_id)
 
         except Exception as e:
-            print(f"Run {run_id} Failed: {e}")
-            with self.db.get_session() as session:
-                run = session.get(SimulationRun, run_id)
-                if run:
-                    run.status = "FAILED"
-                    # run.error_log = str(e) # If we had an error column
-                    session.commit()
-            raise e
+            tb = traceback.format_exc()
+            logger.error("Run %s failed: %s", run_id, e)
+            self.repo.update_run_status(
+                run_id,
+                RunStatus.FAILED,
+                error_message=str(e),
+                error_traceback=tb,
+            )
+            raise
+
+    def _save_plot_artifacts(self, run_id: UUID, result) -> None:
+        """Generate and persist standard plot artifacts for a run."""
+        plot_methods = [
+            ("price_series.png", self.analyzer.plot_price_series),
+            ("volume.png", self.analyzer.plot_volume),
+            ("spread.png", self.analyzer.plot_spread),
+        ]
+        for filename, plot_fn in plot_methods:
+            try:
+                fig = plot_fn(result)
+                content = AnalysisService.figure_to_bytes(fig)
+                self.repo.save_artifact(
+                    run_id=run_id,
+                    artifact_type=ArtifactType.IMAGE,
+                    path=filename,
+                    content=content,
+                )
+            except Exception:
+                logger.warning("Failed to save plot artifact %s for run %s", filename, run_id, exc_info=True)

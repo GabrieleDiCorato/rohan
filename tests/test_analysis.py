@@ -14,6 +14,7 @@ import pytest
 
 from rohan.config import SimulationSettings
 from rohan.framework import AnalysisService, ArtifactStore, DatabaseConnector
+from rohan.framework.database import ArtifactType
 from rohan.simulation import SimulationService
 
 
@@ -105,12 +106,12 @@ class TestAnalysisService:
         plt.close(fig)
 
         # Save as artifact
-        repo.save_artifact(run.run_id, "IMAGE", "price_series.png", buf.read())
+        repo.save_artifact(run.run_id, ArtifactType.IMAGE, "price_series.png", buf.read())
 
         # Retrieve and verify
         artifacts = repo.get_artifacts(run.run_id)
         assert len(artifacts) == 1
-        assert artifacts[0].type == "IMAGE"
+        assert artifacts[0].artifact_type == ArtifactType.IMAGE
         assert artifacts[0].path == "price_series.png"
         assert len(artifacts[0].content) > 0
 

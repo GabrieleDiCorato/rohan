@@ -117,22 +117,22 @@ Phase 1 (Data/Execution) and Phase 1.5 (Vertical Prototype) establish the core c
 **Status:** Complete and tested.
 *   `AnalysisService` in `src/rohan/framework/analysis_service.py` computes metrics and generates Matplotlib plots.
 
-#### Phase 1.4: Framework Hardening 🚧
-**Status:** TODO / In Progress.
+#### Phase 1.4: Framework Hardening ✅
+**Status:** Complete and tested.
 Technical debt verification and cleanup.
 
 **Tasks:**
-- [ ] **Session Management**: Use `scoped_session` and ensure proper cleanup.
-- [ ] **Schema Fixes**:
-    - [ ] `SimulationRun` status enum.
-    - [ ] Add `error_message`, `error_traceback` to `SimulationRun`.
-    - [ ] Add timestamps (`created_at`, `updated_at`).
-    - [ ] Add cascade delete to relationships.
-- [ ] **Missing Indexes**: Add indexes for frequently queried fields (agent_type, event_type, status).
-- [ ] **Artifact Storage**: Refactor to support file-system or S3 backed storage (currently DB-only).
-- [ ] **Logging**: Replace `print()` with `logging` module.
+- [x] **Session Management**: Use `scoped_session` and ensure proper cleanup. — `DatabaseConnector` now uses `scoped_session` with `remove_session()` for thread-safe, leak-free session management.
+- [x] **Schema Fixes**:
+    - [x] `SimulationRun` status enum. — `RunStatus` enum (`PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`).
+    - [x] Add `error_message`, `error_traceback` to `SimulationRun`. — Both `Text` columns, populated on failure.
+    - [x] Add timestamps (`created_at`, `updated_at`). — `server_default=func.now()`, `onupdate=func.now()` on all relevant tables.
+    - [x] Add cascade delete to relationships. — `cascade="all, delete-orphan"` + `ondelete="CASCADE"` on all FK relationships.
+- [x] **Missing Indexes**: Add indexes for frequently queried fields (`agent_type`, `event_type`, `status`). — `ix_agent_logs_agent_type`, `ix_agent_logs_event_type`, `ix_simulation_runs_status`.
+- [x] **Artifact Storage**: Refactor to support file-system or S3 backed storage (currently DB-only). — `ArtifactStore` accepts `artifact_root` for filesystem backend; `Artifact` model has `storage_backend` and `ArtifactType` enum.
+- [x] **Logging**: Replace `print()` with `logging` module. — All `print()` calls replaced with `logging.getLogger(__name__)` across `init_db.py`, `database_connector.py`, `simulation_engine.py`, `repository.py`.
 - [x] **Metrics**: Improve handling of missing metrics (None vs 0.0). — All metric fields are now `float | None`; `None` = "not computed".
-- [ ] **Plot Pipeline**: Implement `figure_to_bytes` and ensure plots are saved as artifacts during runs.
+- [x] **Plot Pipeline**: Implement `figure_to_bytes` and ensure plots are saved as artifacts during runs. — `AnalysisService.figure_to_bytes()` returns raw PNG bytes; `SimulationEngine.run_local()` auto-saves price/volume/spread plots as artifacts.
 
 #### Phase 1.5: Minimal Vertical Prototype
 **Goal:** Validate key interfaces and interpreter loop.
@@ -162,9 +162,13 @@ Technical debt verification and cleanup.
     *   `RunSummary` model and `generate_summary` in `analysis_service.py`.
     *   Prompt templates in `src/rohan/framework/prompts.py`.
 
-*   **1.5.6 Single Iteration Pipeline** 🔴 (Todo)
-    *   Wire generation -> validation -> execution -> interpretation.
-    *   This is the entry point for the "Game Loop".
+*   **1.5.6 Single Iteration Pipeline** ✅
+    *   Implemented in [src/rohan/framework/iteration_pipeline.py](../src/rohan/framework/iteration_pipeline.py).
+    *   `IterationPipeline.run()` wires validate → execute (strategy + baseline) → analyse → persist → interpret.
+    *   `PipelineConfig` for knobs (settings, baseline overrides, persistence toggle, goal description).
+    *   `IterationResult` Pydantic model with `validation`, `comparison`, `summary`, `interpreter_prompt`, and `.success` property.
+    *   Optional DB persistence of iterations, runs, and chart artifacts.
+    *   Entry point for the "Game Loop" (Phase 2).
 
 ### 🚧 TODO: Phase 2 - LangGraph Orchestration
 
