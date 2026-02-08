@@ -37,13 +37,14 @@ class DatabaseConnector:
         """Return the SQLAlchemy Engine."""
         if self._engine is None:
             self._initialize()
+        assert self._engine is not None
         return self._engine
 
     def get_session(self) -> Session:
         """Return a new Session instance."""
         if self._session_maker is None:
             self._initialize()
-        assert self._session_maker is not None  # For mypy
+        assert self._session_maker is not None
         return self._session_maker()
 
     def create_tables(self) -> None:

@@ -20,11 +20,12 @@ This framework provides an autonomous loop for generating, testing, and refining
 The system follows a directed graph architecture where the Manager acts as the central orchestrator.
 
 **Communication Protocol:**
-*   **LangGraph Nodes:** Direct in-memory communication via **LangGraph State**.
-    *   `SimulationNode` calls `SimulationService.run_simulation()` directly, returning `SimulationResult` in-memory.
-    *   Results are passed to `InterpreterAgent`, `ComparatorAgent`, `SynthesizerAgent` via state.
-    *   No database polling — DB is used for **async persistence** only (fire-and-forget).
-*   **Database:** Historical storage and checkpointing, not inter-agent communication.
+*   **Control Flow (LangGraph):**
+    *   **Persistence:** Uses `PostgresSaver` to checkpoint agent state (messages, current code, decision processing) synchronously. This allows the UI to query the exact status of any session.
+    *   **Real-time Streaming:** The Manager API exposes a **WebSocket/SSE Endpoint**. It streams generic `LangGraph` events (Node Start/End) and custom application events (e.g., "Validation Error", "Simulation Progress 50%") directly to the UI.
+*   **Data Flow (Bulk Storage):**
+    *   **Simulation Artifacts:** Heavy data (ticks, order books) is handled via **Async Persistence**. The `SimulationNode` triggers a background write to PostgreSQL.
+    *   **Lazy Loading:** The UI/Agents receive a `SimulationResult` containing *aggregate metrics* (Pydantic) and a *RunID*. If they need detailed series data, they request it via the RunID (Lazy Load).
 
 ## 3. Data Models
 
@@ -35,7 +36,22 @@ It defines:
 *   `OrderAction`: The actions the agent can take (placing orders, cancelling).
 *   `StrategicAgent` Protocol: The interface (`initialize`, `on_market_data`, `on_order_update`) that generated strategies must implement.
 
-### 3.2 Database Schema (PostgreSQL/SQLite)
+### 3.2 Data Exchange Objects (DXOs)
+To balance type safety within the Agent Logic and performance for Simulation Data, we use a tiered approach:
+
+1.  **Metadata & Summaries (Pydantic):**
+    *   `SimulationSummary`: Lightweight object containing aggregate KPIs (PnL, Sharpe, Max Drawdown). Safe to serialize and pass to LLMs/UI.
+    *   `StrategyEvaluation`: Contains the code, the summary, and the LLM's reasoning.
+2.  **Bulk Data (Typed DataFrames via Pandera):**
+    *   `SimulationOutput` (DAO): An abstract interface (`ABC`) that provides access to bulk data (Order Books, Logs). Return types are annotated with `pandera.typing.DataFrame[Schema]`.
+    *   **Schema Definitions:** Defined in [src/rohan/simulation/models/schemas.py](../src/rohan/simulation/models/schemas.py) using `pandera.DataFrameModel`:
+        *   `OrderBookL1Schema`: `time`, `bid_price`, `bid_qty`, `ask_price`, `ask_qty`, `timestamp`. `strict=False` to allow downstream-computed columns (e.g. `mid_price`).
+        *   `OrderBookL2Schema`: `time`, `level`, `side`, `price`, `qty`, `timestamp`. `side` is constrained to `{"bid", "ask"}`, `level >= 1`.
+        *   `AgentLogsSchema`: `AgentID`, `AgentType`, `EventType`. `strict=False` because upstream `parse_logs_df` may add extra columns.
+    *   **Validation Strategy:** Schemas are validated at the *production boundary* — i.e. in `AbidesOutput` (concrete `SimulationOutput`) right after data is computed and before it is cached. Consumers (e.g. `AnalysisService`) rely on annotations for documentation without re-validating.
+    *   **Transport:** Internally passed as `pd.DataFrame`. Over network/API, served as **Parquet** or **Arrow** streams, referenced by `RunID`.
+
+### 3.3 Database Schema (PostgreSQL/SQLite)
 Defined in [src/rohan/framework/database/models.py](../src/rohan/framework/database/models.py).
 
 **Hierarchy:**
@@ -78,6 +94,7 @@ Phase 1 (Data/Execution) and Phase 1.5 (Vertical Prototype) establish the core c
 #### Phase 1.1: Database, Schemas, and Models ✅
 **Status:** Complete and tested.
 *   Pydantic schemas in `src/rohan/simulation/models/`.
+*   **Pandera DataFrame schemas** in `src/rohan/simulation/models/schemas.py` (`OrderBookL1Schema`, `OrderBookL2Schema`, `AgentLogsSchema`).
 *   SQLAlchemy models in `src/rohan/framework/database/models.py`.
 *   DB Connection in `src/rohan/framework/database/database_connector.py`.
 *   Repository Layer in `src/rohan/framework/repository.py`.

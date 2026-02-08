@@ -1,3 +1,4 @@
+from .schemas import AgentLogsSchema, OrderBookL1Schema, OrderBookL2Schema
 from .simulation_metrics import (
     AgentMetrics,
     ComparisonResult,
@@ -14,9 +15,12 @@ from .validation import ValidationResult
 SimulationResult.model_rebuild()
 
 __all__ = [
+    "AgentLogsSchema",
     "AgentMetrics",
     "ComparisonResult",
     "MarketMetrics",
+    "OrderBookL1Schema",
+    "OrderBookL2Schema",
     "RunSummary",
     "SimulationMetrics",
     "SimulationOutput",

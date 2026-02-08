@@ -19,8 +19,14 @@ import pandas as pd
 from abides_core.utils import parse_logs_df
 from abides_markets.agents import ExchangeAgent
 from abides_markets.order_book import OrderBook, ns_date
+from pandera.typing.pandas import DataFrame
 
 from rohan.simulation.models import SimulationOutput
+from rohan.simulation.models.schemas import (
+    AgentLogsSchema,
+    OrderBookL1Schema,
+    OrderBookL2Schema,
+)
 
 
 class AbidesOutput(SimulationOutput):
@@ -34,7 +40,7 @@ class AbidesOutput(SimulationOutput):
         self.end_state = end_state
 
     @override
-    def get_order_book_l1(self) -> pd.DataFrame:
+    def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
         """Returns the Level 1 order book data as a single DataFrame.
         Columns: time, bid_price, bid_qty, ask_price, ask_qty, timestamp
         """
@@ -45,12 +51,13 @@ class AbidesOutput(SimulationOutput):
         # readable `timestamp` column.
         if not hasattr(self, "_order_book_l1"):
             order_book = self.get_order_book()
-            self._order_book_l1 = AbidesOutput._compute_order_book_l1(order_book)
+            df = AbidesOutput._compute_order_book_l1(order_book)
+            self._order_book_l1 = OrderBookL1Schema.validate(df)
 
         return self._order_book_l1
 
     @override
-    def get_order_book_l2(self, n_levels: int) -> pd.DataFrame:
+    def get_order_book_l2(self, n_levels: int) -> DataFrame[OrderBookL2Schema]:
         """Returns the Level 2 order book as a single tidy DataFrame.
 
         Preferred representation: long (tidy) format with one row per (time, level, side).
@@ -58,27 +65,29 @@ class AbidesOutput(SimulationOutput):
                  side ('bid'|'ask'), price, qty
         """
         if not hasattr(self, "_order_book_l2_cache"):
-            self._order_book_l2_cache: dict[int, pd.DataFrame] = {}
+            self._order_book_l2_cache: dict[int, DataFrame[OrderBookL2Schema]] = {}
         if n_levels not in self._order_book_l2_cache:
             order_book = self.get_order_book()
-            self._order_book_l2_cache[n_levels] = AbidesOutput._compute_order_book_l2(order_book, n_levels)
+            df = AbidesOutput._compute_order_book_l2(order_book, n_levels)
+            self._order_book_l2_cache[n_levels] = OrderBookL2Schema.validate(df)
 
         return self._order_book_l2_cache[n_levels]
 
     @override
-    def get_logs_df(self) -> pd.DataFrame:
+    def get_logs_df(self) -> DataFrame[AgentLogsSchema]:
         """Returns a single DataFrame with the logs from all agents."""
 
         # Parsing all agent logs can be expensive; cache the result.
         # `parse_logs_df` returns a combined DataFrame suitable for
         # downstream analysis and plotting.
         if not hasattr(self, "_logs_df"):
-            self._logs_df = parse_logs_df(self.end_state)
+            df = parse_logs_df(self.end_state)
+            self._logs_df = AgentLogsSchema.validate(df)
 
         return self._logs_df
 
     @override
-    def get_logs_by_agent(self) -> dict:
+    def get_logs_by_agent(self) -> dict[int, Any]:
         """Returns a dictionary of agent logs."""
         if not hasattr(self, "_logs_dict"):
             self._logs_dict = {agent.id: agent.log for agent in self.end_state["agents"]}

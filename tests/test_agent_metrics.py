@@ -1,7 +1,9 @@
 import pandas as pd
+from pandera.typing import DataFrame
 
 from rohan.framework.analysis_service import AnalysisService
 from rohan.simulation import SimulationOutput
+from rohan.simulation.models.schemas import AgentLogsSchema, OrderBookL1Schema, OrderBookL2Schema
 
 
 class MockAgent:
@@ -16,16 +18,16 @@ class MockOutput(SimulationOutput):
         self.end_state = {"agents": agents}
         self.l1 = l1_df
 
-    def get_order_book_l1(self):
+    def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
         return self.l1
 
-    def get_order_book_l2(self, n_levels):
+    def get_order_book_l2(self, n_levels) -> DataFrame[OrderBookL2Schema]:
         raise NotImplementedError()
 
-    def get_logs_df(self):
+    def get_logs_df(self) -> DataFrame[AgentLogsSchema]:
         raise NotImplementedError()
 
-    def get_logs_by_agent(self):
+    def get_logs_by_agent(self) -> dict:
         raise NotImplementedError()
 
 
