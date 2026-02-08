@@ -170,43 +170,64 @@ Technical debt verification and cleanup.
     *   Optional DB persistence of iterations, runs, and chart artifacts.
     *   Entry point for the "Game Loop" (Phase 2).
 
-### 🚧 TODO: Phase 2 - LangGraph Orchestration
+### ✅ CHECKPOINT: Phase 2 - LangGraph Orchestration (Steps 2.1–2.4)
 
-Phase 2 implements the autonomous agent loop using LangGraph.
+Phase 2 implements the autonomous agent loop using LangGraph. Steps 2.1–2.4 (MVP scope) are complete and tested.
 
-#### Step 2.1: LLM Integration MVP
-**Status:** TODO.
+#### Step 2.1: LLM Integration MVP ✅
+**Status:** Complete and tested.
 **Goal:** Run a strategy, gather metrics, and have an LLM interpret the results.
 
 ##### 2.1.1 LangChain Model Setup
-Use **LangChain** for model abstraction.
+Uses **LangChain** for model abstraction with **OpenRouter** as default provider.
 
-*   **Add dependencies** to `pyproject.toml`:
-    ```toml
-    [project.optional-dependencies]
-    llm = [
-        "langchain>=0.3",
-        "langchain-openai>=0.2",
-        "langchain-google-genai>=2.0",
-        "langgraph>=0.2",
-    ]
-    ```
-*   **Create `src/rohan/llm/__init__.py`** — LLM module.
-*   **Create `src/rohan/llm/factory.py`** — Model factory using LangChain.
-*   **Create `src/rohan/config/llm_settings.py`** — Pydantic settings.
+*   **Dependencies** in `pyproject.toml`:
+    *   Core: `langchain>=0.3`, `langchain-openai>=0.2`, `langgraph>=1.0.8`
+    *   Optional: `[llm]` extra includes `langchain-google-genai>=2.0`
+*   **[src/rohan/llm/\_\_init\_\_.py](../src/rohan/llm/__init__.py)** — LLM module init.
+*   **[src/rohan/llm/factory.py](../src/rohan/llm/factory.py)** — Model factory with provider dispatch:
+    *   `create_chat_model(model_name, settings)` — Creates LangChain `BaseChatModel` for any provider.
+    *   `get_codegen_model()`, `get_analysis_model()`, `get_judge_model()` — Convenience getters with `_cached_settings()`.
+    *   Provider factories: `_create_openrouter_model` (OpenAI-compatible), `_create_openai_model`, `_create_google_model`.
+*   **[src/rohan/config/llm_settings.py](../src/rohan/config/llm_settings.py)** — Pydantic settings:
+    *   `LLMProvider` (StrEnum): `openrouter`, `openai`, `google`.
+    *   `LLMSettings` (BaseSettings): `env_prefix="LLM_"`, `.env` file support, `validation_alias` for API keys (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`), `populate_by_name=True`.
+    *   Default models: `anthropic/claude-sonnet-4` (codegen), `google/gemini-2.0-flash-001` (analysis/judge).
+*   **[src/rohan/llm/models.py](../src/rohan/llm/models.py)** — Pydantic structured output models:
+    *   `GeneratedStrategy` (class_name, code, reasoning), `ScenarioExplanation`, `JudgeVerdict` (score 1-10, comparison, recommendation), `AggregatedFeedback`, `ScenarioMetrics`, `IterationSummary`.
+*   **[src/rohan/llm/prompts.py](../src/rohan/llm/prompts.py)** — Prompt templates:
+    *   `WRITER_SYSTEM` (StrategicAgent protocol spec), `WRITER_HUMAN`, `WRITER_FEEDBACK_TEMPLATE`, `EXPLAINER_SYSTEM/HUMAN`, `AGGREGATOR_SYSTEM/HUMAN`, `HISTORY_TABLE_HEADER/ROW_TEMPLATE`.
 
 **File Structure:**
 ```
 src/rohan/llm/
 ├── __init__.py
+├── cli.py              # CLI entry point
 ├── factory.py          # LangChain model factory
+├── graph.py            # LangGraph state machine
 ├── models.py           # Pydantic response models
-└── prompts.py          # Prompt templates
+├── nodes.py            # LangGraph node functions
+├── prompts.py          # Prompt templates
+├── state.py            # RefinementState TypedDict
+└── tools.py            # Explainer agent tools
+
+src/rohan/config/
+└── llm_settings.py     # LLMProvider, LLMSettings
+
+tests/
+├── test_llm_factory.py
+├── test_llm_graph.py
+├── test_llm_models.py
+├── test_llm_nodes.py
+├── test_llm_prompts.py
+├── test_llm_state.py
+└── test_llm_tools.py
 ```
 
 ---
 
-#### Step 2.2: Multi-Agent Architecture
+#### Step 2.2: Multi-Agent Architecture ✅
+**Status:** Complete and tested.
 
 **Design Principle:** Each agent is a separate LangGraph node with a single responsibility. Agents communicate through state, not direct calls.
 
@@ -252,57 +273,61 @@ flowchart TD
     style AGG fill:#607D8B,color:white
 ```
 
-##### 2.2.1 Writer Agent
+##### 2.2.1 Writer Agent ✅
 **Role:** Generate strategy code from goal + feedback.
 
 *   **Input:** Goal description, previous feedback (if any).
-*   **Output:** Python strategy code.
-*   **LangGraph node:** `writer_node`.
+*   **Output:** Python strategy code (`GeneratedStrategy` via `with_structured_output`).
+*   **LangGraph node:** `writer_node` in [src/rohan/llm/nodes.py](../src/rohan/llm/nodes.py).
+*   **Implementation:** Uses `get_codegen_model()` with `WRITER_SYSTEM` / `WRITER_HUMAN` prompt templates. Incorporates iteration history and aggregated feedback on subsequent iterations.
 
-##### 2.2.2 Validator Agent
+##### 2.2.2 Validator Agent ✅
 **Role:** Validate strategy code (AST + sandbox execution).
 
-*   **Input:** Strategy code.
+*   **Input:** Strategy code from state.
 *   **Output:** Valid flag, error message (if any).
-*   **Loop:** If invalid, return error to Writer. **Failsafe:** Max 3 retries.
-*   **Implementation:** Uses existing `StrategyValidator` + optional LLM self-critique.
-*   **LangGraph node:** `validator_node`.
+*   **Loop:** If invalid, return error to Writer. **Failsafe:** Max 3 retries (`MAX_VALIDATION_RETRIES`).
+*   **Implementation:** Uses existing `StrategyValidator` from Phase 1.5 + instantiation check via `exec()` in restricted environment.
+*   **LangGraph node:** `validator_node` in [src/rohan/llm/nodes.py](../src/rohan/llm/nodes.py).
 
-##### 2.2.3 Scenario Executor
+##### 2.2.3 Scenario Executor ✅
 **Role:** Run validated strategy across multiple scenarios.
 
 *   **Input:** Validated strategy code, list of scenario configs.
-*   **Output:** List of `SimulationOutput` + `SimulationMetrics` per scenario.
-*   **Scalability:** Currently runs single pre-defined scenario, but architecture supports:
-    - Pre-defined scenario list
-    - Dynamic scenario selection (future: agent-driven)
-*   **LangGraph node:** `scenario_executor_node`.
+*   **Output:** List of `ScenarioResult` (metrics + output per scenario).
+*   **Implementation:** Uses `execute_strategy_safely()` from `simulation.utils` for both strategy and baseline runs per scenario. Computes comparison metrics via `AnalysisService`.
+*   **LangGraph node:** `scenario_executor_node` in [src/rohan/llm/nodes.py](../src/rohan/llm/nodes.py).
 
-##### 2.2.4 Explainer Agent (per scenario)
+##### 2.2.4 Explainer Agent (per scenario) ✅
 **Role:** Analyze simulation results with tool access.
 
 *   **Input:** `SimulationOutput`, `SimulationMetrics`, `RunSummary`.
-*   **Tools available:**
-    - `get_order_book_snapshot(timestamp)` — Query L1 data.
-    - `get_agent_trades(agent_id)` — Get trade history.
-    - `compute_pnl_curve()` — Generate PnL over time.
-    - `plot_price_series()` — Generate chart.
-    - `query_dataframe(query)` — Pandas query on logs.
-*   **Output:** `ScenarioExplanation` with insights, charts, recommendations.
-*   **LangGraph node:** `explainer_node` (runs per scenario, can parallelize).
+*   **Tools available** (7 tools via `make_explainer_tools(output)` in [src/rohan/llm/tools.py](../src/rohan/llm/tools.py)):
+    - `get_order_book_snapshot(timestamp)` — Query L1 data at a point in time.
+    - `get_agent_trades(agent_id)` — Get trade history for an agent.
+    - `compute_pnl_curve()` — Generate PnL series over time.
+    - `get_price_stats()` — Price statistics (mean, std, min, max, return).
+    - `get_spread_stats()` — Spread statistics at configurable percentiles.
+    - `query_logs(event_type)` — Filter agent logs by event type.
+    - `get_volume_profile(n_bins)` — Volume distribution across price bins.
+*   **Output:** `ScenarioExplanation` with strengths, weaknesses, recommendations, key observations.
+*   **LangGraph node:** `explainer_node` in [src/rohan/llm/nodes.py](../src/rohan/llm/nodes.py). Uses `get_analysis_model()` with `with_structured_output(ScenarioExplanation)`.
 
-##### 2.2.5 Aggregator
-**Role:** Combine all scenario explanations into unified feedback.
+##### 2.2.5 Aggregator ✅
+**Role:** Combine all scenario explanations into unified feedback + convergence assessment.
 
-*   **Input:** List of `ScenarioExplanation`.
-*   **Output:** Aggregated feedback for Writer (cross-scenario patterns, overall assessment).
-*   **LangGraph node:** `aggregator_node`.
+*   **Input:** List of `ScenarioExplanation`, iteration history.
+*   **Output:** `JudgeVerdict` (score 1-10, comparison vs. previous, recommendation) + `IterationSummary` for history.
+*   **Implementation:** Uses `get_judge_model()` with `with_structured_output(JudgeVerdict)`. Builds formatted iteration history table via `_build_history_table()` and `_format_explanations()`.
+*   **LangGraph node:** `aggregator_node` in [src/rohan/llm/nodes.py](../src/rohan/llm/nodes.py).
 
 ---
 
-#### Step 2.3: LangGraph State & Graph
+#### Step 2.3: LangGraph State & Graph ✅
+**Status:** Complete and tested.
 
 ##### State Schema
+Implemented in [src/rohan/llm/state.py](../src/rohan/llm/state.py):
 ```python
 class IterationSummary(BaseModel):
     """Summary of a single iteration for history tracking."""
@@ -368,6 +393,8 @@ class JudgeVerdict(BaseModel):
 - `continue`: Otherwise, keep refining
 
 ##### Graph Definition
+Implemented in [src/rohan/llm/graph.py](../src/rohan/llm/graph.py) with `build_refinement_graph()` and `run_refinement()` convenience runner.
+CLI entry point in [src/rohan/llm/cli.py](../src/rohan/llm/cli.py) (`python -m rohan.llm.cli --goal "..." --max-iterations 3`).
 ```python
 from langgraph.graph import StateGraph, END
 
@@ -401,41 +428,52 @@ def build_refinement_graph():
 
 ---
 
-#### Step 2.4: Tool-Equipped Explainer
+#### Step 2.4: Tool-Equipped Explainer ✅
+**Status:** Complete and tested.
 
-The Explainer agent needs **tool calling** to deeply analyze simulation results.
+The Explainer agent uses **tool calling** to deeply analyze simulation results.
 
 ##### Tool Definitions
-*   **Create `src/rohan/llm/tools.py`** — LangChain tools wrapping analysis functions:
+*   **[src/rohan/llm/tools.py](../src/rohan/llm/tools.py)** — `make_explainer_tools(output)` factory function that creates 7 LangChain tools closed over a `SimulationOutput` instance:
     ```python
-    from langchain_core.tools import tool
+    def make_explainer_tools(output: SimulationOutput) -> list[BaseTool]:
+        """Create LangChain tools bound to a specific simulation output."""
 
-    @tool
-    def get_agent_trades(agent_id: int, output: SimulationOutput) -> list[dict]:
-        """Get all trades executed by a specific agent."""
-        ...
+        @tool
+        def get_order_book_snapshot(timestamp: int) -> dict: ...
 
-    @tool
-    def compute_volatility_window(start_ts: int, end_ts: int) -> float:
-        """Compute price volatility in a time window."""
-        ...
+        @tool
+        def get_agent_trades(agent_id: int) -> list[dict]: ...
 
-    @tool
-    def plot_metric(metric: str) -> str:
-        """Generate a chart for a metric. Returns base64 PNG."""
-        ...
+        @tool
+        def compute_pnl_curve() -> list[dict]: ...
+
+        @tool
+        def get_price_stats() -> dict: ...
+
+        @tool
+        def get_spread_stats() -> dict: ...
+
+        @tool
+        def query_logs(event_type: str) -> list[dict]: ...
+
+        @tool
+        def get_volume_profile(n_bins: int = 20) -> list[dict]: ...
+
+        return [get_order_book_snapshot, get_agent_trades, ...]
     ```
 
-##### Explainer as ReAct Agent
-```python
-from langgraph.prebuilt import create_react_agent
+##### Explainer as Structured Output Agent
+The Explainer uses `with_structured_output(ScenarioExplanation)` rather than a full ReAct agent for deterministic, structured analysis output. Tool results are injected into the prompt context directly.
 
-def create_explainer_agent(model: BaseChatModel):
-    tools = [get_agent_trades, compute_volatility_window, plot_metric, ...]
-    return create_react_agent(model, tools, state_schema=ExplainerState)
+```python
+# In explainer_node (src/rohan/llm/nodes.py)
+model = get_analysis_model().with_structured_output(ScenarioExplanation)
 ```
 
 ---
+
+### 🚧 TODO: Phase 2 Remaining (Steps 2.5–2.6)
 
 #### Step 2.5: UI & Notebook for Local Testing
 **Status:** TODO.
@@ -463,12 +501,14 @@ notebook = "jupyter lab notebooks/"
 
 ---
 
-**MVP Scope (Step 2.1-2.4):**
-1. Writer + Validator loop (3 retries)
-2. Single pre-defined scenario
-3. Single Explainer agent with basic tools
-4. Aggregator returns feedback to Writer
-5. 1-3 refinement iterations
+**MVP Scope (Step 2.1-2.4):** ✅ Complete
+1. ✅ Writer + Validator loop (3 retries)
+2. ✅ Single pre-defined scenario (architecture supports multiple)
+3. ✅ Single Explainer agent with 7 analysis tools
+4. ✅ Aggregator with LLM-as-Judge convergence assessment
+5. ✅ Configurable 1–N refinement iterations
+6. ✅ CLI entry point (`python -m rohan.llm.cli`)
+7. ✅ 92 tests covering all LLM modules (253 total across project)
 
 **Future Extensions:**
 - Multiple scenarios in parallel
@@ -496,6 +536,8 @@ graph LR
 | 2.4 | 2-3 days | Tools + ReAct explainer |
 | 2.5 | 1-2 days | UI updates |
 | 2.6 | 2-3 days | Benchmarking |
+
+---
 
 ### 🚧 TODO: Phase 3 - Docker Sandbox
 **Status:** Deferred.
