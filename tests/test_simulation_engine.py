@@ -73,7 +73,7 @@ class TestSimulationEngine:
         # Verify metrics contain expected fields
         metrics = updated_run.metrics_summary
         assert "volatility" in metrics
-        assert "custom_metrics" in metrics
+        assert "mean_spread" in metrics
 
     def test_simulation_failure_handling(self, setup_db):
         """Test that the engine properly handles and records simulation failures."""

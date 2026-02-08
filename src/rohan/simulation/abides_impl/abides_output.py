@@ -114,6 +114,10 @@ class AbidesOutput(SimulationOutput):
     @staticmethod
     def _compute_order_book_l1(order_book: OrderBook) -> pd.DataFrame:
         """Returns the Level 1 order book data as a single DataFrame.
+
+        Prices are in integer cents, matching ABIDES conventions.  They are
+        stored as ``float64`` in the DataFrame for NaN compatibility.
+
         Columns: time, bid_price, bid_qty, ask_price, ask_qty, timestamp
         """
         # `get_L1_snapshots()` returns lists of tuples like (time_ns, price,
@@ -146,7 +150,9 @@ class AbidesOutput(SimulationOutput):
     def _compute_order_book_l2(order_book: OrderBook, n_levels: int) -> pd.DataFrame:
         """Returns the Level 2 order book as a single tidy DataFrame.
 
-        Preferred representation: long (tidy) format with one row per (time, level, side).
+        Prices are in integer cents, matching ABIDES conventions.  They are
+        stored as ``float64`` in the DataFrame for NaN compatibility.
+
         Columns: time (ns from midnight), timestamp (pd.Timestamp), level (1-indexed),
                  side ('bid'|'ask'), price, qty
         """
@@ -159,8 +165,8 @@ class AbidesOutput(SimulationOutput):
         # `bids` and `asks` are expected as arrays shaped (T, levels, 2)
         # where the final axis is (price, qty). We use `np.asarray` to
         # tolerate list inputs and then flatten into a long/tidy format.
-        bids = np.asarray(l2["bids"])  # shape (T, levels, 2) price, qty
-        asks = np.asarray(l2["asks"])  # shape (T, levels, 2)
+        bids = np.asarray(l2["bids"], dtype=float)  # shape (T, levels, 2) price, qty
+        asks = np.asarray(l2["asks"], dtype=float)  # shape (T, levels, 2)
 
         # Repeat/time and level indices to match flattened price/qty arrays
         time_rep = np.repeat(times, n_levels)

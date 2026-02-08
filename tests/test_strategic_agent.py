@@ -63,7 +63,7 @@ class SimpleBuyStrategy:
                 OrderAction(
                     side=Side.BID,
                     quantity=100,
-                    price=state.best_ask - 1,  # Just below ask
+                    price=state.best_ask - 1,  # 1 cent below ask
                     order_type=OrderType.LIMIT,
                 )
             ]

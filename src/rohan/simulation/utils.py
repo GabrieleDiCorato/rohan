@@ -4,12 +4,35 @@ from rohan.config import SimulationSettings
 from rohan.framework.analysis_service import AnalysisService
 from rohan.simulation import (
     ComparisonResult,
+    MarketImpact,
     MarketMetrics,
 )
+from rohan.simulation.models import SimulationMetrics
 from rohan.simulation.simulation_service import SimulationService
 from rohan.simulation.strategy_validator import (
     execute_strategy_safely,
 )
+
+
+def _to_market_metrics(sim: "SimulationMetrics") -> MarketMetrics:
+    """Convert a SimulationMetrics to MarketMetrics (same shape, 1-to-1)."""
+    return MarketMetrics(
+        volatility=sim.volatility,
+        mean_spread=sim.mean_spread,
+        effective_spread=sim.effective_spread,
+        avg_bid_liquidity=sim.avg_bid_liquidity,
+        avg_ask_liquidity=sim.avg_ask_liquidity,
+        traded_volume=sim.traded_volume,
+    )
+
+
+def _pct_change(a: float | None, b: float | None) -> float | None:
+    """Percentage change (a − b) / b.  Returns None when undefined."""
+    if a is None or b is None:
+        return None
+    if b == 0:
+        return 0.0 if a == 0 else float("inf")
+    return (a - b) / b
 
 
 def run_with_baseline(
@@ -18,88 +41,49 @@ def run_with_baseline(
     baseline_override: dict[str, Any] | None = None,
     timeout_seconds: int = 300,
 ) -> ComparisonResult:
-    """
-    Runs two simulations:
-    1. With the provided strategy code injected via execute_strategy_safely.
-    2. A baseline run (strategy disabled/default).
-
-    Returns a ComparisonResult containing metrics for both runs and the delta.
-    """
+    """Run strategy + baseline simulations and return a typed ComparisonResult."""
 
     # 1. Run Strategy
-    # execute_strategy_safely handles validation, compilation, and execution with timeout
     res1 = execute_strategy_safely(strategy_code, settings, timeout_seconds)
     if res1.error:
         raise RuntimeError(f"Strategy run failed: {res1.error}")
-
     if not res1.result:
         raise RuntimeError("Strategy run returned no result")
 
-    # Compute agent metrics (Assumes strategy agent is agent_id=1)
-    # TODO: Dynamically find the strategic agent ID if not 1
     metrics1 = AnalysisService.compute_agent_metrics(res1.result, 1)
-
-    # Compute market metrics for strategy run (for impact comparison)
     metrics1_sim = AnalysisService.compute_metrics(res1.result)
 
     # 2. Run Baseline
-    # Copy settings and modify for baseline
     baseline_settings = settings.model_copy(deep=True)
     if baseline_override:
-        # Simple override of top-level fields or nested dict update
         for k, v in baseline_override.items():
             if hasattr(baseline_settings, k):
                 setattr(baseline_settings, k, v)
 
     service = SimulationService()
-
-    # Baseline run with no strategy (uses default configuration)
     res2 = service.run_simulation(baseline_settings, strategy=None)
     if res2.error:
         raise RuntimeError(f"Baseline run failed: {res2.error}")
-
     if not res2.result:
         raise RuntimeError("Baseline run returned no result")
 
-    # Compute market metrics for baseline
     metrics2_sim = AnalysisService.compute_metrics(res2.result)
 
-    metrics2 = MarketMetrics(
-        volatility=metrics2_sim.volatility,
-        mean_spread=metrics2_sim.custom_metrics.get("mean_spread", 0.0),
-        avg_bid_liquidity=metrics2_sim.custom_metrics.get("avg_bid_liquidity", 0.0),
-        avg_ask_liquidity=metrics2_sim.custom_metrics.get("avg_ask_liquidity", 0.0),
-        traded_volume=metrics2_sim.traded_volume,
+    # Convert to MarketMetrics
+    strat_market = _to_market_metrics(metrics1_sim)
+    base_market = _to_market_metrics(metrics2_sim)
+
+    # Compute typed market impact
+    impact = MarketImpact(
+        spread_delta_pct=_pct_change(strat_market.mean_spread, base_market.mean_spread),
+        volatility_delta_pct=_pct_change(strat_market.volatility, base_market.volatility),
+        bid_liquidity_delta_pct=_pct_change(strat_market.avg_bid_liquidity, base_market.avg_bid_liquidity),
+        ask_liquidity_delta_pct=_pct_change(strat_market.avg_ask_liquidity, base_market.avg_ask_liquidity),
     )
-
-    # Compare
-    metrics1_market = MarketMetrics(
-        volatility=metrics1_sim.volatility,
-        mean_spread=metrics1_sim.custom_metrics.get("mean_spread", 0.0),
-        avg_bid_liquidity=metrics1_sim.custom_metrics.get("avg_bid_liquidity", 0.0),
-        avg_ask_liquidity=metrics1_sim.custom_metrics.get("avg_ask_liquidity", 0.0),
-        traded_volume=metrics1_sim.traded_volume,
-    )
-
-    # Compare
-    # Market Impact: Percentage Change (Strategy vs Baseline)
-    # Formula: (Strategy - Baseline) / Baseline
-    def pct_change(a: float, b: float) -> float:
-        if b == 0:
-            return 0.0 if a == 0 else float("inf")
-        return (a - b) / b
-
-    impact = {
-        "volatility_pct_change": pct_change(metrics1_market.volatility, metrics2.volatility),
-        "spread_pct_change": pct_change(metrics1_market.mean_spread, metrics2.mean_spread),
-        "liquidity_bid_pct_change": pct_change(metrics1_market.avg_bid_liquidity, metrics2.avg_bid_liquidity),
-        "liquidity_ask_pct_change": pct_change(metrics1_market.avg_ask_liquidity, metrics2.avg_ask_liquidity),
-        "volume_pct_change": pct_change(float(metrics1_market.traded_volume), float(metrics2.traded_volume)),
-    }
 
     return ComparisonResult(
         strategy_metrics=metrics1,
-        strategy_market_metrics=metrics1_market,
-        baseline_metrics=metrics2,
+        strategy_market_metrics=strat_market,
+        baseline_metrics=base_market,
         market_impact=impact,
     )

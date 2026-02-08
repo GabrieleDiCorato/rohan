@@ -2,6 +2,7 @@ from .schemas import AgentLogsSchema, OrderBookL1Schema, OrderBookL2Schema
 from .simulation_metrics import (
     AgentMetrics,
     ComparisonResult,
+    MarketImpact,
     MarketMetrics,
     RunSummary,
     SimulationMetrics,
@@ -18,6 +19,7 @@ __all__ = [
     "AgentLogsSchema",
     "AgentMetrics",
     "ComparisonResult",
+    "MarketImpact",
     "MarketMetrics",
     "OrderBookL1Schema",
     "OrderBookL2Schema",

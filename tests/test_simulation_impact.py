@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from rohan.simulation.models import AgentMetrics, ComparisonResult
+from rohan.simulation.models import AgentMetrics, ComparisonResult, SimulationMetrics
 
 
 def test_run_with_baseline_impact_calculation():
@@ -12,24 +12,22 @@ def test_run_with_baseline_impact_calculation():
     agent_metrics = AgentMetrics(agent_id=1)
 
     # Strategy Run: High Volatility
-    metrics1_sim = MagicMock()
-    metrics1_sim.volatility = 0.15  # 15%
-    metrics1_sim.custom_metrics = {
-        "mean_spread": 0.02,
-        "avg_bid_liquidity": 100.0,
-        "avg_ask_liquidity": 100.0,
-    }
-    metrics1_sim.traded_volume = 1000
+    metrics1_sim = SimulationMetrics(
+        volatility=0.15,
+        mean_spread=2.0,  # 2 cents
+        avg_bid_liquidity=100.0,
+        avg_ask_liquidity=100.0,
+        traded_volume=1000,
+    )
 
     # Baseline Run: Lower Volatility
-    metrics2_sim = MagicMock()
-    metrics2_sim.volatility = 0.10  # 10%
-    metrics2_sim.custom_metrics = {
-        "mean_spread": 0.01,
-        "avg_bid_liquidity": 200.0,
-        "avg_ask_liquidity": 200.0,
-    }
-    metrics2_sim.traded_volume = 500
+    metrics2_sim = SimulationMetrics(
+        volatility=0.10,
+        mean_spread=1.0,  # 1 cent
+        avg_bid_liquidity=200.0,
+        avg_ask_liquidity=200.0,
+        traded_volume=500,
+    )
 
     # Mock settings
     mock_settings = MagicMock()
@@ -66,21 +64,21 @@ def test_run_with_baseline_impact_calculation():
     # 1. Verify Strategy Market Metrics (Raw Values) are present
     assert hasattr(result, "strategy_market_metrics")
     assert result.strategy_market_metrics.volatility == 0.15
-    assert result.strategy_market_metrics.mean_spread == 0.02
+    assert result.strategy_market_metrics.mean_spread == 2.0
 
     # 2. Verify Baseline Metrics (Raw Values) are present
     assert result.baseline_metrics.volatility == 0.10
-    assert result.baseline_metrics.mean_spread == 0.01
+    assert result.baseline_metrics.mean_spread == 1.0
 
-    # 3. Verify Percentage Changes
+    # 3. Verify Percentage Changes (MarketImpact typed model)
     # Volatility: (0.15 - 0.10) / 0.10 = 0.50 (+50%)
-    assert result.market_impact["volatility_pct_change"] == pytest.approx(0.50)
+    assert result.market_impact.volatility_delta_pct == pytest.approx(0.50)
 
     # Spread: (0.02 - 0.01) / 0.01 = 1.00 (+100%)
-    assert result.market_impact["spread_pct_change"] == pytest.approx(1.00)
+    assert result.market_impact.spread_delta_pct == pytest.approx(1.00)
 
     # Liquidity Bid: (100 - 200) / 200 = -0.50 (-50%)
-    assert result.market_impact["liquidity_bid_pct_change"] == pytest.approx(-0.50)
+    assert result.market_impact.bid_liquidity_delta_pct == pytest.approx(-0.50)
 
-    # Volume: (1000 - 500) / 500 = 1.00 (+100%)
-    assert result.market_impact["volume_pct_change"] == pytest.approx(1.00)
+    # Liquidity Ask: (100 - 200) / 200 = -0.50 (-50%)
+    assert result.market_impact.ask_liquidity_delta_pct == pytest.approx(-0.50)

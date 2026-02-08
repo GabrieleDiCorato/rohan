@@ -16,111 +16,117 @@ matplotlib.use("Agg")
 
 
 class AnalysisService:
-    """Service to analyze simulation results."""
+    """Service to analyze simulation results.
+
+    All monetary values are in **integer cents**, matching ABIDES conventions.
+    """
 
     @staticmethod
     def compute_metrics(result: SimulationOutput) -> SimulationMetrics:
-        """Computes summary metrics from the simulation output."""
+        """Compute market-wide metrics from L1 order-book snapshots."""
         l1 = result.get_order_book_l1()
 
-        # Basic PnL Calculation (assuming we track a specific agent, e.g. the strategic one)
-        # For Phase 1 (Observer), we might look at the aggregate market stats or a specific agent type.
-        # Let's calculate market-wide stats for now.
-
         if l1.empty:
-            return SimulationMetrics(
-                total_pnl=0.0,
-                sharpe_ratio=0.0,
-                max_drawdown=0.0,
-                win_rate=0.0,
-                volatility=0.0,
-                traded_volume=0,
-                custom_metrics={},
-            )
+            return SimulationMetrics()
 
-        # Volatility (Std Dev of Mid Price returns)
+        # --- Mid price & returns ---
+        l1 = l1.copy()
         l1["mid_price"] = (l1["bid_price"] + l1["ask_price"]) / 2
         l1["returns"] = l1["mid_price"].pct_change().fillna(0)
-        volatility = l1["returns"].std() * np.sqrt(252 * 390 * 60)  # Annualized approx (assuming 1 sec samples) - rough
 
-        # Spread
-        mean_spread = (l1["ask_price"] - l1["bid_price"]).mean()
+        # --- Volatility (annualised) ---
+        # Derive annualisation factor from actual observation frequency,
+        # not a hard-coded assumption of 1-second bars.
+        time_col = l1["time"]
+        if len(time_col) > 1:
+            median_dt_ns = float(time_col.diff().dropna().median())
+            if median_dt_ns > 0:
+                trading_day_ns = 6.5 * 3600 * 1e9  # 6.5 h
+                obs_per_day = trading_day_ns / median_dt_ns
+                obs_per_year = obs_per_day * 252
+                vol = float(l1["returns"].std()) * np.sqrt(obs_per_year)
+            else:
+                vol = None
+        else:
+            vol = None
 
-        # Market Impact / Liquidity (Avg Volume at Best)
-        avg_bid_liq = l1["bid_qty"].mean()
-        avg_ask_liq = l1["ask_qty"].mean()
+        volatility = vol if vol is not None and not pd.isna(vol) else None
+
+        # --- Quoted spread ---
+        mean_spread = float((l1["ask_price"] - l1["bid_price"]).mean())
+
+        # --- Liquidity ---
+        avg_bid_liq = float(l1["bid_qty"].mean())
+        avg_ask_liq = float(l1["ask_qty"].mean())
 
         return SimulationMetrics(
-            total_pnl=0.0,  # Placeholder until we target a specific agent
-            sharpe_ratio=0.0,  # Placeholder
-            max_drawdown=0.0,  # Placeholder
-            win_rate=0.0,  # Placeholder
-            volatility=float(volatility) if not pd.isna(volatility) else 0.0,
-            traded_volume=0,  # Placeholder
-            custom_metrics={
-                "mean_spread": float(mean_spread),
-                "avg_bid_liquidity": float(avg_bid_liq),
-                "avg_ask_liquidity": float(avg_ask_liq),
-            },
+            volatility=volatility,
+            mean_spread=mean_spread if not pd.isna(mean_spread) else None,
+            avg_bid_liquidity=avg_bid_liq if not pd.isna(avg_bid_liq) else None,
+            avg_ask_liquidity=avg_ask_liq if not pd.isna(avg_ask_liq) else None,
         )
 
     @staticmethod
-    def compute_agent_metrics(result: SimulationOutput, agent_id: int) -> AgentMetrics:
-        """Computes metrics for a specific agent."""
-        # Note: This functionality requires end_state to be available in SimulationOutput
-        # Currently returning placeholder metrics
-        if not hasattr(result, "end_state"):
-            return AgentMetrics(agent_id=agent_id)
+    def compute_agent_metrics(
+        result: SimulationOutput,
+        agent_id: int,
+        initial_cash: int = 0,
+    ) -> AgentMetrics:
+        """Compute performance metrics for a specific agent.
 
-        agents = {a.id: a for a in result.end_state["agents"]}  # noqa: PGH003
+        Args:
+            result: Simulation output containing end_state.
+            agent_id: Numeric ID of the agent to analyse.
+            initial_cash: The agent's starting cash (integer cents).  Required
+                for correct PnL computation.
+        """
+        if not hasattr(result, "end_state"):
+            return AgentMetrics(agent_id=agent_id, initial_cash=initial_cash)
+
+        agents = {a.id: a for a in result.end_state["agents"]}
         if agent_id not in agents:
             raise ValueError(f"Agent {agent_id} not found in simulation output")
 
         agent = agents[agent_id]
 
-        # Extract holdings
-        cash = agent.holdings.get("CASH", 0)
+        # --- Holdings ---
+        ending_cash = agent.holdings.get("CASH", 0)
         inventory = 0
         for k, v in agent.holdings.items():
             if k != "CASH":
                 inventory = v
                 break
 
-        # Get last mid price for Mark-to-Market
+        # --- Mark-to-market ---
         l1 = result.get_order_book_l1()
         if not l1.empty:
             last_row = l1.iloc[-1]
-            last_mid = (last_row["bid_price"] + last_row["ask_price"]) / 2
+            last_mid = float((last_row["bid_price"] + last_row["ask_price"]) / 2)
         else:
-            last_mid = 0
+            last_mid = 0.0
 
-        total_pnl = cash + (inventory * last_mid)
+        ending_value = ending_cash + (inventory * last_mid)
+        total_pnl = ending_value - initial_cash
 
-        # Parse logs for trade stats
-        # Agent logs structure: list of (time, type, payload) usually?
-        # ABIDES EventType is an enum, usually logged as string name or enum object.
-        # We need to robustly check event type.
+        # --- Execution stats ---
         log = getattr(agent, "log", [])
 
-        executed_orders = [e for e in log if hasattr(e, "event_type") and str(e.event_type) == "ORDER_EXECUTED" or (isinstance(e, tuple) and e[1] == "ORDER_EXECUTED")]
-        submitted_orders = [e for e in log if hasattr(e, "event_type") and str(e.event_type) == "ORDER_SUBMITTED" or (isinstance(e, tuple) and e[1] == "ORDER_SUBMITTED")]
-
-        # Note: ABIDES Kernel log format varies. Assuming tuple (time, type, ...) or object with event_type.
-        # My StrategicAgentAdapter inherits TradingAgent which uses self.log_event(EventType, Msg).
-        # We'll need to verify this against actual ABIDES log format.
+        executed_orders = [e for e in log if (hasattr(e, "event_type") and str(e.event_type) == "ORDER_EXECUTED") or (isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED")]
+        submitted_orders = [e for e in log if (hasattr(e, "event_type") and str(e.event_type) == "ORDER_SUBMITTED") or (isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_SUBMITTED")]
 
         trade_count = len(executed_orders)
-        fill_rate = trade_count / len(submitted_orders) if submitted_orders else 0.0
+        n_submitted = len(submitted_orders)
+        fill_rate = trade_count / n_submitted if n_submitted else None
+        otr = n_submitted / trade_count if trade_count else None
 
         return AgentMetrics(
             agent_id=agent_id,
-            realized_pnl=float(cash),
-            unrealized_pnl=float(inventory * last_mid),
-            total_pnl=float(total_pnl),
-            sharpe_ratio=0.0,  # Placeholder
-            max_drawdown=0.0,  # Placeholder
+            initial_cash=initial_cash,
+            ending_cash=ending_cash,
+            total_pnl=total_pnl,
             trade_count=trade_count,
-            fill_rate=float(fill_rate),
+            fill_rate=fill_rate,
+            order_to_trade_ratio=otr,
             end_inventory=inventory,
         )
 

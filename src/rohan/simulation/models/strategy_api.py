@@ -1,7 +1,19 @@
+"""Strategic Agent API — the contract between LLM-generated strategies and the simulator.
+
+This is the **ONLY** interface that generated strategy code interacts with.
+All other simulation internals (ABIDES kernel, order book, etc.) are hidden.
+
+Units & conventions (matching ABIDES):
+    * **Prices:** ``int``, in cents (e.g. ``18550`` = $185.50).
+    * **Quantities:** ``int``, in shares.
+    * **Cash:** ``int``, in cents.
+    * **Timestamps:** ``int``, nanoseconds since epoch.
+"""
+
 from enum import Enum
 from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class Side(str, Enum):
@@ -23,38 +35,61 @@ class OrderStatus(str, Enum):
 
 
 class Order(BaseModel):
+    """A live or historical order visible to the strategy."""
+
     order_id: int
     symbol: str
     side: Side
-    quantity: int
-    price: int  # Price in cents
+    quantity: int = Field(ge=1, description="Number of shares")
+    price: int = Field(description="Limit price in cents (0 for market orders)")
     order_type: OrderType
     status: OrderStatus
-    filled_quantity: int = 0
+    filled_quantity: int = Field(default=0, ge=0, description="Shares filled so far")
 
 
 class MarketState(BaseModel):
-    timestamp_ns: int
-    best_bid: int | None
-    best_ask: int | None
-    last_trade: int | None
-    inventory: int  # Signed position
-    cash: int  # Cash in cents
+    """Snapshot of the market visible to the strategy at a given instant.
+
+    Passed to ``StrategicAgent.on_market_data`` on every L1 update.
+    """
+
+    timestamp_ns: int = Field(description="Nanoseconds since epoch")
+    best_bid: int | None = Field(default=None, description="Best bid price in cents")
+    best_ask: int | None = Field(default=None, description="Best ask price in cents")
+    last_trade: int | None = Field(default=None, description="Last trade price in cents")
+    inventory: int = Field(description="Signed position in shares")
+    cash: int = Field(description="Available cash in cents")
     open_orders: list[Order]
 
 
 class OrderAction(BaseModel):
+    """An order instruction returned by the strategy.
+
+    For ``LIMIT`` orders, ``price`` is mandatory.
+    For ``MARKET`` orders, ``price`` must be ``None``.
+    """
+
     side: Side
-    quantity: int
-    price: int | None  # Required for LIMIT
+    quantity: int = Field(ge=1, description="Number of shares")
+    price: int | None = Field(default=None, description="Limit price in cents (required for LIMIT)")
     order_type: OrderType
-    cancel_order_id: int | None = None  # If set, this is a cancel request
+    cancel_order_id: int | None = Field(default=None, description="If set, cancel this order instead of placing a new one")
+
+    @model_validator(mode="after")
+    def _validate_price_for_order_type(self) -> "OrderAction":
+        if self.order_type == OrderType.LIMIT and self.price is None:
+            raise ValueError("price is required for LIMIT orders")
+        if self.order_type == OrderType.MARKET and self.price is not None:
+            raise ValueError("price must be None for MARKET orders")
+        return self
 
 
 class AgentConfig(BaseModel):
-    starting_cash: int
-    symbol: str
-    latency_ns: int
+    """Configuration passed to ``StrategicAgent.initialize`` at simulation start."""
+
+    starting_cash: int = Field(description="Initial cash in cents")
+    symbol: str = Field(description="Ticker symbol to trade")
+    latency_ns: int = Field(description="Simulated network latency in nanoseconds")
 
 
 class StrategicAgent(Protocol):

@@ -40,18 +40,20 @@ class MockEvent:
 
 
 def test_compute_agent_metrics_pnl():
-    # Setup mock data
-    # Agent 1: 1000 CASH, 10 NVDA
-    # Price: Bid 100, Ask 102 => Mid 101
+    # Setup mock data — all monetary values in integer cents.
+    # Agent 1: 100000 cents CASH ($1000), 10 NVDA shares
+    # Price: Bid 10000¢ ($100), Ask 10200¢ ($102) => Mid 10100¢
+    # initial_cash = 50000¢ ($500)
+    # PnL = (100000 + 10*10100) - 50000 = 151000¢ ($1510)
 
-    agent = MockAgent(id=1, holdings={"CASH": 1000, "NVDA": 10}, log=[])
+    agent = MockAgent(id=1, holdings={"CASH": 100000, "NVDA": 10}, log=[])
 
     l1_df = pd.DataFrame(
         {
-            "bid_price": [100],
-            "ask_price": [102],
-            "bid_qty": [10],
-            "ask_qty": [10],
+            "bid_price": [10000.0],
+            "ask_price": [10200.0],
+            "bid_qty": [10.0],
+            "ask_qty": [10.0],
             "time": [0],
             "timestamp": [pd.Timestamp("2021-01-01")],
         }
@@ -59,12 +61,12 @@ def test_compute_agent_metrics_pnl():
 
     output = MockOutput([agent], l1_df)
 
-    metrics = AnalysisService.compute_agent_metrics(output, 1)
+    metrics = AnalysisService.compute_agent_metrics(output, 1, initial_cash=50000)
 
     assert metrics.agent_id == 1
-    assert metrics.realized_pnl == 1000.0  # Cash
-    assert metrics.unrealized_pnl == 10 * 101.0  # 1010.0
-    assert metrics.total_pnl == 2010.0
+    assert metrics.initial_cash == 50000
+    assert metrics.ending_cash == 100000
+    assert metrics.total_pnl == 100000 + 10 * 10100.0 - 50000  # 151000.0
     assert metrics.end_inventory == 10
 
 
@@ -95,3 +97,4 @@ def test_compute_agent_metrics_trades():
 
     assert metrics.trade_count == 1
     assert metrics.fill_rate == 0.5  # 1 exec / 2 sub
+    assert metrics.order_to_trade_ratio == 2.0  # 2 sub / 1 exec

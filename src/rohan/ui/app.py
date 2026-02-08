@@ -810,26 +810,24 @@ def render_execute_tab():
 
             col1, col2, col3, col4 = st.columns(4)
 
+            def _m(v: float | None, fmt: str = ".6f") -> str:
+                return f"{v:{fmt}}" if v is not None else "N/A"
+
+            def _m_dollar(v: float | None) -> str:
+                """Format a cents value as dollars."""
+                return f"${v / 100:,.4f}" if v is not None else "N/A"
+
             with col1:
-                st.metric("Volatility", f"{metrics.volatility:.6f}")
+                st.metric("Volatility", _m(metrics.volatility))
 
             with col2:
-                st.metric(
-                    "Mean Spread",
-                    f"{metrics.custom_metrics.get('mean_spread', 0):.2f}",
-                )
+                st.metric("Mean Spread", _m_dollar(metrics.mean_spread))
 
             with col3:
-                st.metric(
-                    "Avg Bid Liquidity",
-                    f"{metrics.custom_metrics.get('avg_bid_liquidity', 0):.2f}",
-                )
+                st.metric("Avg Bid Liquidity", _m(metrics.avg_bid_liquidity, ".2f"))
 
             with col4:
-                st.metric(
-                    "Avg Ask Liquidity",
-                    f"{metrics.custom_metrics.get('avg_ask_liquidity', 0):.2f}",
-                )
+                st.metric("Avg Ask Liquidity", _m(metrics.avg_ask_liquidity, ".2f"))
 
         except Exception as e:
             status_container.update(label="❌ Simulation Failed", state="error", expanded=True)
@@ -910,33 +908,27 @@ with tab2:
             """Render metrics tab as a fragment."""
             st.markdown("### 📊 Key Metrics")
 
+            def _mv(v: float | None, fmt: str = ".6f") -> str:
+                return f"{v:{fmt}}" if v is not None else "N/A"
+
+            def _mv_dollar(v: float | None) -> str:
+                """Format a cents value as dollars."""
+                return f"${v / 100:,.4f}" if v is not None else "N/A"
+
             col1, col2, col3 = st.columns(3)
 
             with col1:
-                st.metric("Volatility", f"{metrics.volatility:.6f}")
-                st.metric("Total PnL", f"${metrics.total_pnl:,.2f}")
+                st.metric("Volatility", _mv(metrics.volatility))
+                st.metric("Mean Spread", _mv_dollar(metrics.mean_spread))
 
             with col2:
-                st.metric("Sharpe Ratio", f"{metrics.sharpe_ratio:.4f}")
-                st.metric("Max Drawdown", f"{metrics.max_drawdown:.4f}")
+                st.metric("Effective Spread", _mv_dollar(metrics.effective_spread))
+                st.metric("Avg Bid Liquidity", _mv(metrics.avg_bid_liquidity, ".2f"))
 
             with col3:
-                st.metric("Win Rate", f"{metrics.win_rate:.2%}")
-                st.metric("Traded Volume", f"{metrics.traded_volume:,}")
-
-            st.markdown("---")
-
-            # Custom metrics
-            if metrics.custom_metrics:
-                st.markdown("### 🔧 Custom Metrics")
-
-                custom_cols = st.columns(len(metrics.custom_metrics))
-
-                for i, (key, value) in enumerate(metrics.custom_metrics.items()):
-                    with custom_cols[i]:
-                        display_key = key.replace("_", " ").title()
-                        display_value = f"{value:.4f}" if isinstance(value, float) else str(value)
-                        st.metric(display_key, display_value)
+                st.metric("Avg Ask Liquidity", _mv(metrics.avg_ask_liquidity, ".2f"))
+                vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
+                st.metric("Traded Volume", vol_str)
 
             st.markdown("---")
 

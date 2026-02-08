@@ -36,11 +36,11 @@ class TestDatabaseAndRepository:
         # Test MarketState (uses strategy_api fields)
         market_state = MarketState(
             timestamp_ns=1000000000,
-            best_bid=10000,  # Prices in cents
-            best_ask=10100,
-            last_trade=10050,
+            best_bid=10000,  # Prices in cents ($100.00)
+            best_ask=10100,  # $101.00
+            last_trade=10050,  # $100.50
             inventory=10,
-            cash=1000000,  # Cash in cents
+            cash=1000000,  # Cash in cents ($10,000)
             open_orders=[],
         )
         assert market_state.timestamp_ns == 1000000000
@@ -55,15 +55,14 @@ class TestDatabaseAndRepository:
 
         # Test SimulationMetrics
         metrics = SimulationMetrics(
-            total_pnl=1000.0,
-            sharpe_ratio=1.5,
-            max_drawdown=0.1,
-            win_rate=0.6,
             volatility=0.2,
+            mean_spread=50.0,  # 50 cents
+            avg_bid_liquidity=150.0,
+            avg_ask_liquidity=140.0,
             traded_volume=500,
         )
-        assert metrics.total_pnl == 1000.0
-        assert metrics.sharpe_ratio == 1.5
+        assert metrics.volatility == 0.2
+        assert metrics.mean_spread == 50.0
 
     def test_create_session_and_scenarios(self, setup_db):
         """Test creating strategy sessions, scenarios, iterations, and simulation runs."""

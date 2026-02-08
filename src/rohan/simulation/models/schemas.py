@@ -47,9 +47,9 @@ class OrderBookL1Schema(pa.DataFrameModel):
     """
 
     time: Series[int] = pa.Field(description="Nanoseconds since midnight")
-    bid_price: Series[float] = pa.Field(nullable=True, description="Best bid price")
+    bid_price: Series[float] = pa.Field(nullable=True, description="Best bid price in cents (float64 for NaN compat)")
     bid_qty: Series[float] = pa.Field(nullable=True, description="Quantity at best bid")
-    ask_price: Series[float] = pa.Field(nullable=True, description="Best ask price")
+    ask_price: Series[float] = pa.Field(nullable=True, description="Best ask price in cents (float64 for NaN compat)")
     ask_qty: Series[float] = pa.Field(nullable=True, description="Quantity at best ask")
     timestamp: Series[pa.DateTime] = pa.Field(description="Wall-clock timestamp")
 
@@ -85,7 +85,7 @@ class OrderBookL2Schema(pa.DataFrameModel):
     time: Series[int] = pa.Field(description="Nanoseconds since midnight")
     level: Series[int] = pa.Field(ge=1, description="1-indexed depth level")
     side: Series[str] = pa.Field(isin=["bid", "ask"], description="Order side")
-    price: Series[float] = pa.Field(description="Price at level")
+    price: Series[float] = pa.Field(description="Price at level in cents (float64 for NaN compat)")
     qty: Series[float] = pa.Field(description="Quantity at level")
     timestamp: Series[pa.DateTime] = pa.Field(description="Wall-clock timestamp")
 

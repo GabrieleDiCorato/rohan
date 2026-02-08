@@ -31,9 +31,18 @@ The system follows a directed graph architecture where the Manager acts as the c
 
 ### 3.1 Strategic Agent Protocol (Framework Agnostic)
 Defined in [src/rohan/simulation/models/strategy_api.py](../src/rohan/simulation/models/strategy_api.py). This is the **ONLY** interface the LLM interacts with.
+
+**Units & Conventions (matching ABIDES):**
+*   **Prices:** `int`, in **cents** (e.g. `18550` = $185.50).
+*   **Quantities:** `int`, in **shares**.
+*   **Cash:** `int`, in **cents**.
+*   **Timestamps:** `int`, nanoseconds since epoch.
+
 It defines:
-*   `MarketState`: The agent's view of the market (prices, inventory, orders).
-*   `OrderAction`: The actions the agent can take (placing orders, cancelling).
+*   `MarketState`: The agent's view of the market (prices, inventory, orders). All monetary fields are `int` cents.
+*   `OrderAction`: The actions the agent can take. Includes a `@model_validator` enforcing:
+    *   `LIMIT` orders **must** specify a `price`.
+    *   `MARKET` orders **must not** specify a `price`.
 *   `StrategicAgent` Protocol: The interface (`initialize`, `on_market_data`, `on_order_update`) that generated strategies must implement.
 
 ### 3.2 Data Exchange Objects (DXOs)
@@ -122,7 +131,7 @@ Technical debt verification and cleanup.
 - [ ] **Missing Indexes**: Add indexes for frequently queried fields (agent_type, event_type, status).
 - [ ] **Artifact Storage**: Refactor to support file-system or S3 backed storage (currently DB-only).
 - [ ] **Logging**: Replace `print()` with `logging` module.
-- [ ] **Metrics**: Improve handling of missing metrics (None vs 0.0).
+- [x] **Metrics**: Improve handling of missing metrics (None vs 0.0). — All metric fields are now `float | None`; `None` = "not computed".
 - [ ] **Plot Pipeline**: Implement `figure_to_bytes` and ensure plots are saved as artifacts during runs.
 
 #### Phase 1.5: Minimal Vertical Prototype
@@ -142,7 +151,12 @@ Technical debt verification and cleanup.
 
 *   **1.5.4 Agent-Specific KPIs** ✅
     *   Implemented in `src/rohan/simulation/models/simulation_metrics.py`.
-    *   Metrics: PnL, Fill Rate, Inventory, Comparison against baseline.
+    *   **`SimulationMetrics`:** Market-wide metrics — `volatility` (annualised), `mean_spread`, `effective_spread`, `avg_bid_liquidity`, `avg_ask_liquidity`, `traded_volume`. Monetary averages are `float | None` in cents (None = not yet computed).
+    *   **`AgentMetrics`:** Per-agent — `initial_cash` (`int`, cents), `ending_cash` (`int`, cents), `total_pnl` (`float | None`, cents — fractional from mid-price), `sharpe_ratio`, `max_drawdown`, `inventory_std`, `trade_count`, `fill_rate`, `order_to_trade_ratio`, inventory fields.
+    *   **`MarketMetrics`:** Same shape as `SimulationMetrics` for baseline comparison.
+    *   **`MarketImpact`:** Typed Pydantic model (not `dict`) with `spread_delta_pct`, `volatility_delta_pct`, `bid_liquidity_delta_pct`, `ask_liquidity_delta_pct`.
+    *   **`ComparisonResult`:** Uses `MarketImpact` (typed) for `market_impact` field.
+    *   Volatility annualisation derives observation frequency from actual median timestamp intervals, not a hard-coded assumption.
 
 *   **1.5.5 Structured Summary for LLM** ✅
     *   `RunSummary` model and `generate_summary` in `analysis_service.py`.

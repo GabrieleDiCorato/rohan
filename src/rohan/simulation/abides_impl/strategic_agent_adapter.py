@@ -3,6 +3,9 @@
 This module provides `StrategicAgentAdapter`, which wraps a user-provided
 `StrategicAgent` implementation and translates ABIDES events into the
 simplified protocol callbacks.
+
+All prices and cash values are in **integer cents**, matching ABIDES internals.
+No unit conversion is performed by this adapter.
 """
 
 from abides_core.utils import str_to_ns
@@ -122,13 +125,12 @@ class StrategicAgentAdapter(TradingAgent):
         self._previous_holdings = dict(self.holdings)
 
     def _build_market_state(self, current_time: int) -> MarketState:
-        """Build a MarketState from current TradingAgent state."""
+        """Build a MarketState from current TradingAgent state.
+
+        All values are passed through directly in ABIDES integer-cents units.
+        """
         # get_known_bid_ask returns (bid_price, bid_size, ask_price, ask_size)
         bid, _, ask, _ = self.get_known_bid_ask(self.symbol)
-
-        # Convert float prices to int (cents)
-        bid_int = int(bid) if bid is not None else None
-        ask_int = int(ask) if ask is not None else None
 
         # Build open orders list
         open_orders = [
@@ -137,7 +139,7 @@ class StrategicAgentAdapter(TradingAgent):
                 symbol=order.symbol,
                 side=Side.BID if order.side == AbidesSide.BID else Side.ASK,
                 quantity=order.quantity,
-                price=int(getattr(order, "limit_price", 0)),
+                price=getattr(order, "limit_price", 0),
                 order_type=OrderType.LIMIT,
                 status=OrderStatus.NEW,  # Active orders are "NEW" from strategy perspective
                 filled_quantity=0,
@@ -147,8 +149,8 @@ class StrategicAgentAdapter(TradingAgent):
 
         return MarketState(
             timestamp_ns=current_time,
-            best_bid=bid_int,
-            best_ask=ask_int,
+            best_bid=bid,
+            best_ask=ask,
             last_trade=None,  # Would require additional tracking
             inventory=self.holdings.get(self.symbol, 0),
             cash=self.holdings.get("CASH", 0),
@@ -156,20 +158,22 @@ class StrategicAgentAdapter(TradingAgent):
         )
 
     def _execute_actions(self, actions: list[OrderAction]) -> None:
-        """Execute a list of OrderActions by placing/cancelling orders."""
+        """Execute a list of OrderActions by placing/cancelling orders.
+
+        Prices are already in integer cents, matching ABIDES convention.
+        """
         for action in actions:
             if action.cancel_order_id is not None:
                 # Cancel existing order
                 order_to_cancel = self.orders.get(action.cancel_order_id)
                 if order_to_cancel is not None:
-                    # Cancel order by order ID (ABIDES LimitOrder object)
                     self.cancel_order(order_to_cancel)  # type: ignore[arg-type]
             elif action.order_type == OrderType.MARKET:
                 # Place market order
                 side = AbidesSide.BID if action.side == Side.BID else AbidesSide.ASK
                 self.place_market_order(self.symbol, action.quantity, side)
             else:
-                # Place limit order
+                # Place limit order — price is already in integer cents
                 if action.price is None:
                     continue  # Skip invalid limit orders without price
                 side = AbidesSide.BID if action.side == Side.BID else AbidesSide.ASK

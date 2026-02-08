@@ -48,18 +48,15 @@ class TestAnalysisService:
         return result.result
 
     def test_compute_simulation_metrics(self, sample_simulation_output):
-        """Test computing summary metrics (PnL, Sharpe, volatility) from simulation output."""
+        """Test computing summary metrics (volatility, spread, liquidity) from simulation output."""
         analyzer = AnalysisService()
         metrics = analyzer.compute_metrics(sample_simulation_output)
 
-        # Verify metrics structure
-        assert metrics.total_pnl is not None
-        assert metrics.sharpe_ratio is not None
-        assert metrics.max_drawdown is not None
-        assert metrics.win_rate is not None
+        # Verify core metrics are computed (not None)
         assert metrics.volatility is not None
-        assert metrics.traded_volume is not None
-        assert isinstance(metrics.custom_metrics, dict)
+        assert metrics.mean_spread is not None
+        assert metrics.avg_bid_liquidity is not None
+        assert metrics.avg_ask_liquidity is not None
 
         # Verify volatility is non-negative
         assert metrics.volatility >= 0
