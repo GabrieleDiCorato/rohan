@@ -174,33 +174,136 @@ Technical debt verification and cleanup.
 
 Phase 2 implements the autonomous agent loop using LangGraph.
 
-#### Phase 2.1: Execution Model
-**Status:** Planning.
-*   In-memory execution via `SimulationService`.
-*   Parallel execution with `ThreadPoolExecutor`.
-*   Async persistence via background thread.
-*   Multimodal analysis (text + images).
+#### Step 2.1: LLM Integration MVP
+**Status:** TODO.
+**Goal:** Run a strategy, gather metrics, and have an LLM interpret the results.
 
-#### Phase 2.2: Analysis Agent Topology
-**Status:** Planning.
-*   `InterpreterAgent`: Analyzes single run.
-*   `ComparatorAgent`: Compares two runs (A vs B).
-*   `SynthesizerAgent`: Generates final report.
+##### 2.1.1 LangChain Model Setup
+Use **LangChain** for model abstraction.
 
-#### Phase 2.3: LangGraph State & Nodes
-**Status:** Planning.
-*   Define `AgentState` schema.
-*   Implement state persistence.
-*   Implement LangGraph nodes.
+*   **Add dependencies** to `pyproject.toml`:
+    ```toml
+    [project.optional-dependencies]
+    llm = [
+        "langchain>=0.3",
+        "langchain-openai>=0.2",
+        "langchain-google-genai>=2.0",
+    ]
+    ```
+*   **Create `src/rohan/llm/__init__.py`** — LLM module.
+*   **Create `src/rohan/llm/factory.py`** — Model factory using LangChain:
+    ```python
+    from langchain_openai import ChatOpenAI
+    from langchain_google_genai import ChatGoogleGenerativeAI
 
-#### Phase 2.4: The "Observer" Workflow
-**Status:** Planning.
-*   Workflow for baseline analysis.
+    def get_chat_model(settings: LLMSettings) -> BaseChatModel:
+        match settings.provider:
+            case "openai": return ChatOpenAI(model=settings.model, ...)
+            case "google": return ChatGoogleGenerativeAI(model=settings.model, ...)
+            case "mock": return FakeChatModel(responses=[...])
+    ```
+*   **Create `src/rohan/config/llm_settings.py`** — Pydantic settings.
 
-#### Phase 2.5: The "Strategist" Workflow
-**Status:** Planning.
-*   Iterative code generation loop.
-*   Connection to `StrategyValidator`.
+**File Structure:**
+```
+src/rohan/llm/
+├── __init__.py
+├── factory.py          # LangChain model factory
+├── interpreter.py      # InterpreterService
+├── models.py           # Pydantic response models
+└── prompts.py          # Prompt templates
+```
+
+##### 2.1.2 Interpreter Service
+*   **Create `src/rohan/llm/interpreter.py`** — `InterpreterService` class.
+*   **Create `src/rohan/llm/models.py`** — Pydantic models (`InterpretationResult`, `StrategyGenerationResult`).
+*   **Use LangChain's `with_structured_output()`** for JSON parsing.
+
+##### 2.1.3 Integrate with IterationPipeline
+*   **Update `PipelineConfig`** — Add `llm_settings: LLMSettings | None`.
+*   **Update `IterationPipeline.run()`** — Call interpreter after simulation.
+*   **Update `IterationResult`** — Add `interpretation: InterpretationResult | None`.
+
+##### 2.1.4 Entry Point Script
+*   **Create `src/rohan/cli/`** — CLI module using `click` or `typer`.
+*   **Update `pyproject.toml`** — UV scripts.
+
+##### 2.1.5 Testing
+*   **Create `tests/test_interpreter.py`** — Test with `FakeChatModel`.
+
+---
+
+#### Step 2.2: UI & Notebook for Local Testing
+**Status:** TODO.
+**Goal:** Interactive interface for testing strategies and viewing results.
+
+*   **Create `notebooks/quickstart.ipynb`** — Interactive demo.
+*   **Add "Strategy" tab** — Code editor for strategy input.
+*   **Add "Interpretation" panel** — Display LLM feedback.
+*   **Integrate `IterationPipeline`** — Replace direct `SimulationService` calls.
+
+**UV Scripts:**
+```toml
+[tool.uv.scripts]
+ui = "streamlit run src/rohan/ui/app.py"
+notebook = "jupyter lab notebooks/"
+```
+
+---
+
+#### Step 2.3: LLM Feedback Benchmarking
+**Status:** TODO.
+**Goal:** Evaluate and improve LLM interpretation quality.
+
+*   **Create `src/rohan/llm/eval/`** — Evaluation module.
+*   **Create `notebooks/llm_benchmark.ipynb`** — Compare providers.
+*   **Create `src/rohan/llm/prompts/`** — Multiple prompt templates.
+*   **Document findings** in `docs/llm_evaluation.md`.
+
+---
+
+#### Step 2.4: Strategy Refinement Cycle
+**Status:** TODO.
+**Goal:** Full autonomous loop — interpret → generate → validate → execute → interpret.
+
+##### 2.4.1 LangGraph State Machine
+*   **Create `src/rohan/orchestration/__init__.py`** — Orchestration module.
+*   **Create `src/rohan/orchestration/state.py`** — `RefinementState` TypedDict.
+
+##### 2.4.2 LangGraph Nodes
+*   **Create `src/rohan/orchestration/nodes.py`**:
+    - `generate_node` — Generate strategy code
+    - `validate_node` — AST validation
+    - `execute_node` — Run simulation
+    - `interpret_node` — LLM analysis
+    - `should_continue` — Conditional edge
+
+##### 2.4.3 Graph Definition
+*   **Create `src/rohan/orchestration/graph.py`** — Build LangGraph with `StateGraph`.
+
+##### 2.4.4 CLI & UI Integration
+*   **Add `rohan refine` command** — Run full cycle from CLI.
+*   **Add "Auto-Refine" button** to UI.
+
+---
+
+**Dependencies & Order:**
+```mermaid
+graph LR
+    A[Phase 1.5 IterationPipeline] --> B[2.1 LLM MVP]
+    B --> C[2.2 UI/Notebook]
+    B --> D[2.3 LLM Benchmarking]
+    C --> E[2.4 Refinement Cycle]
+    D --> E
+```
+
+**Estimated Timeline:**
+| Step | Effort | Notes |
+|------|--------|-------|
+| 2.1 | 2-3 days | LangChain integration, interpreter service |
+| 2.2 | 1-2 days | UI updates, notebook |
+| 2.3 | 2-3 days | Prompt engineering, benchmarking |
+| 2.4 | 3-5 days | LangGraph, full cycle |
 
 ### 🚧 TODO: Phase 3 - Docker Sandbox
 **Status:** Deferred.
