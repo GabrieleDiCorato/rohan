@@ -501,6 +501,227 @@ notebook = "jupyter lab notebooks/"
 
 ---
 
+#### Step 2.7: Code Quality & Hardening
+**Status:** TODO.
+
+A cross-cutting pass to address technical debt, strengthen safety guarantees, improve testability, and bring the codebase closer to production-grade standards. Items are prioritized from most critical (safety/correctness) to least (thesis polish).
+
+##### 2.7.1 Enforce Strategy Execution Timeout (Safety — Critical)
+
+The `_timeout_seconds` parameter in `execute_strategy_safely()` ([src/rohan/simulation/strategy_validator.py](../src/rohan/simulation/strategy_validator.py)) is currently **accepted but not enforced** (note the leading underscore). An LLM-generated strategy containing an infinite loop in `__init__`, `on_market_data`, or `on_order_update` would hang the entire process indefinitely.
+
+**Implementation:**
+- Replace the current in-process `exec()` invocation with a **`multiprocessing.Process`** wrapper.
+- The parent process calls `.join(timeout)` on the child and `.terminate()` + `.kill()` if it exceeds the deadline.
+- This approach is cross-platform (works on both Windows and Unix), unlike `signal.alarm`.
+- Capture the child's return value via `multiprocessing.Queue` or a shared `Value`.
+- On timeout, raise a new `SimulationTimeoutError` (see §2.7.4) with a descriptive message including the elapsed time and the timeout limit.
+- Update `execute_strategy_safely()` to remove the underscore prefix from `_timeout_seconds`, marking it as an enforced parameter.
+
+**Test coverage:**
+- Unit test with a strategy containing `while True: pass` in `on_market_data` — assert timeout is raised within tolerance of the configured limit.
+- Unit test confirming normal strategies complete well within the timeout.
+
+##### 2.7.2 Replace `hasattr`-Based Caching with `@cached_property` (Correctness)
+
+`AbidesOutput` ([src/rohan/simulation/abides_impl/abides_output.py](../src/rohan/simulation/abides_impl/abides_output.py)) uses two inconsistent caching patterns:
+- **L1 data:** `hasattr(self, "_order_book_l1")` check followed by manual attribute assignment.
+- **L2 data:** `dict`-based cache keyed by depth level.
+
+Both patterns are fragile — `hasattr` cannot distinguish "not computed" from "computed and returned `None`", and the `dict` cache scatters state management across multiple methods.
+
+**Implementation:**
+- Convert all cacheable computed properties to **`@functools.cached_property`** where possible (single-argument, no parameters).
+- For the L2 depth-parameterized cache, initialize a `dict[int, DataFrame]` sentinel in `__init__` and check against it explicitly, or use a helper method with `@lru_cache` scoped to the instance (via `__hash__` + `__eq__` if needed, or a standalone inner function).
+- Ensure all cache entries are populated **after** Pandera validation, preserving the current "validate at production boundary" contract.
+
+**Why not `@lru_cache` on methods?** `@lru_cache` on instance methods pins `self` in the function-level cache, preventing garbage collection of the instance. Since `AbidesOutput` holds large DataFrames (order books, agent logs), this would be a **memory leak** in any workflow that processes multiple simulation runs. `@cached_property` stores the result in the instance's `__dict__`, so it is garbage-collected with the instance.
+
+##### 2.7.3 Review Pandera Schema Strictness (Correctness)
+
+The order book schemas (`OrderBookL1Schema`, `OrderBookL2Schema` in [src/rohan/simulation/models/schemas.py](../src/rohan/simulation/models/schemas.py)) are validated via `SchemaModel.validate()`. By default, Pandera may silently **coerce** column types (e.g., `float64` → `int64`), masking upstream data quality issues from ABIDES.
+
+**Implementation:**
+- Audit each schema and explicitly set `strict=True` or `coerce=False` in the `Config` class, depending on intent:
+  - `OrderBookL1Schema`: Currently `strict=False` to allow downstream-computed columns (`mid_price`). This is intentional — **document it** with a comment explaining why.
+  - `OrderBookL2Schema`: Should be `strict=True` since no downstream columns are expected.
+  - `AgentLogsSchema`: Currently `strict=False` because `parse_logs_df` may add extra columns. This is intentional — **document it**.
+- Add a comment block at the top of `schemas.py` explaining the validation philosophy (validate at production boundary, consumers trust annotations).
+
+##### 2.7.4 Introduce Domain-Specific Exception Hierarchy (Architecture)
+
+The codebase currently relies on generic `Exception` and `ValueError` for all error paths. This makes it difficult to implement targeted error recovery in the LangGraph nodes (e.g., retry on validation failure but abort on timeout).
+
+**Implementation:**
+- Create `src/rohan/exceptions.py` with:
+  ```python
+  class RohanError(Exception):
+      """Base exception for all ROHAN errors."""
+
+  class StrategyValidationError(RohanError):
+      """Raised when strategy code fails AST or sandbox validation."""
+
+  class SimulationTimeoutError(RohanError):
+      """Raised when a simulation exceeds the configured timeout."""
+
+  class BaselineComparisonError(RohanError):
+      """Raised when baseline simulation fails, preventing comparison."""
+
+  class StrategyExecutionError(RohanError):
+      """Raised when strategy code fails during simulation execution."""
+  ```
+- Update `strategy_validator.py` to raise `StrategyValidationError` instead of `ValueError`.
+- Update `execute_strategy_safely()` to raise `SimulationTimeoutError` (from §2.7.1) and `StrategyExecutionError`.
+- Update `iteration_pipeline.py` to raise `BaselineComparisonError` when the baseline run fails.
+- Update LangGraph nodes in `nodes.py` to catch specific exceptions and produce targeted error messages in state.
+
+##### 2.7.5 Replace Database Singleton with Factory Function (Architecture)
+
+`DatabaseConnector` ([src/rohan/framework/database/database_connector.py](../src/rohan/framework/database/database_connector.py)) uses a `__new__`-based singleton pattern that is:
+- **Not thread-safe:** Concurrent calls to `__new__` can race on `_instance is None`.
+- **Hard to test:** Singletons are global state — test isolation requires manual `_instance = None` resets.
+- **Unconventional:** `_initialize()` is called inside `__new__`, which is surprising.
+
+**Implementation:**
+- Remove the `__new__` override from `DatabaseConnector`.
+- Move initialization logic into a standard `__init__`.
+- Add a module-level factory function:
+  ```python
+  @lru_cache(maxsize=1)
+  def get_database_connector() -> DatabaseConnector:
+      return DatabaseConnector()
+  ```
+  `@lru_cache` is safe here because the connector is a lightweight, intentionally long-lived global (no large data payloads — unlike `AbidesOutput`).
+- Update all call sites to use `get_database_connector()` instead of `DatabaseConnector()`.
+- For tests, either clear the cache via `get_database_connector.cache_clear()` or accept a `connector` parameter via dependency injection.
+
+##### 2.7.6 Consolidate Dollar Formatting Utilities (Code Organization)
+
+Monetary formatting logic is currently scattered across three locations:
+- `_fmt_dollar()` in [src/rohan/framework/prompts.py](../src/rohan/framework/prompts.py) (for LLM prompt rendering).
+- `_m_dollar()` and `_mv_dollar()` in [src/rohan/ui/app.py](../src/rohan/ui/app.py) (for Streamlit metrics).
+- `dollarize()` from ABIDES itself (third-party, different conventions).
+
+**Implementation:**
+- Create `src/rohan/utils/formatting.py` with canonical formatting functions:
+  ```python
+  def fmt_dollar(cents: int | float, precision: int = 2) -> str:
+      """Format a value in cents as a dollar string. E.g. 18550 → '$185.50'."""
+
+  def fmt_dollar_metric(cents: int | float) -> str:
+      """Format for Streamlit st.metric() — no currency symbol, signed."""
+
+  def fmt_dollar_delta(cents: int | float) -> str:
+      """Format a delta value for st.metric(delta=...) display."""
+  ```
+- Replace all inline formatting functions with imports from the shared module.
+- Add unit tests for edge cases: zero, negative, None, very large values.
+
+##### 2.7.7 Split UI Monolith (Code Organization)
+
+[src/rohan/ui/app.py](../src/rohan/ui/app.py) is a ~1300+ line file handling all tabs, charts, configuration, and callbacks. This makes it difficult to navigate, test, and maintain.
+
+**Implementation:**
+- Extract into a component-based structure:
+  ```
+  src/rohan/ui/
+  ├── app.py                      # Main entry: layout, tab routing, session state init
+  ├── components/
+  │   ├── __init__.py
+  │   ├── sidebar.py              # render_sidebar_config()
+  │   ├── execute_tab.py          # render_execute_tab()
+  │   ├── metrics_tab.py          # render_metrics_tab()
+  │   ├── refinement_tab.py       # render_refinement_tab()
+  │   └── charts/
+  │       ├── __init__.py
+  │       ├── price_charts.py     # plot_price_series(), plot_mid_price()
+  │       ├── volume_charts.py    # plot_volume_profile()
+  │       └── spread_charts.py    # plot_spread_analysis()
+  └── utils/
+      ├── presets.py              # (existing)
+      └── formatting.py           # → shared from src/rohan/utils/formatting.py
+  ```
+- Each component receives its dependencies via function parameters (not global state).
+- `app.py` remains the Streamlit entry point, reduced to ~100 lines of layout and routing.
+
+##### 2.7.8 Test Hardening (Testing)
+
+Current test coverage is solid for the happy path but has gaps in failure scenarios, edge cases, and integration.
+
+**2.7.8a Failure-Path Tests for `IterationPipeline`:**
+- Baseline simulation failure → assert `BaselineComparisonError` is raised (or graceful degradation).
+- Strategy timeout → assert `SimulationTimeoutError` propagates correctly.
+- Invalid code surviving AST validation but failing at runtime → assert proper error capture in `IterationResult`.
+
+**2.7.8b Edge-Case Tests for `AbidesOutput`:**
+- Empty order book (no snapshots) → assert empty DataFrame with correct schema, not an exception.
+- Single snapshot → assert L1/L2 computation handles edge cases (no spread change, no volume delta).
+- Missing columns in raw ABIDES output → assert `SchemaError` is raised at the Pandera validation boundary.
+
+**2.7.8c Property-Based Testing with `hypothesis`:**
+- Add `hypothesis` to `[dev]` dependencies in `pyproject.toml`.
+- Apply `@given(...)` strategies to agent settings validators:
+  ```python
+  from hypothesis import given, strategies as st
+
+  @given(max_size=st.integers(min_value=-1000, max_value=10000))
+  def test_momentum_agent_max_size_bounds(max_size: int):
+      if max_size > 1000 or max_size < 1:
+          with pytest.raises(ValidationError):
+              MomentumAgentSettings(max_size=max_size)
+      else:
+          settings = MomentumAgentSettings(max_size=max_size)
+          assert settings.max_size == max_size
+  ```
+- Fuzz `OrderAction` model validators (LIMIT must have price, MARKET must not) with random combinations.
+- Fuzz `SimulationSettings` validators (minimum duration, seed bounds, agent count limits).
+
+**2.7.8d Minimal Integration Test:**
+- Generate a trivial strategy string (e.g., a no-op that returns `[]` from `on_market_data`).
+- Pass through `StrategyValidator` → `execute_strategy_safely()` with a short simulation (100 timesteps).
+- Assert: `SimulationResult` is populated, metrics are non-None, no exceptions raised.
+- This validates the full vertical slice without LLM involvement.
+
+##### 2.7.9 Seed Logging for Reproducibility (Thesis Polish)
+
+The random seed in `SimulationSettings` is generated from `datetime.now().timestamp()`, which is appropriate for exploration but makes reproduction difficult unless the seed is captured.
+
+**Implementation:**
+- Log the seed at `INFO` level at the start of every simulation run in `IterationPipeline.run()` and `SimulationEngine`.
+- Include the seed in `IterationResult` and `SimulationRun` DB records (already stored via settings, but not prominently surfaced).
+- Display the seed in the Streamlit UI sidebar when a run completes.
+- In the LangGraph refinement loop, log the seed for each scenario execution in the CLI output.
+
+##### 2.7.10 Document Model Role Rationale (Thesis Polish)
+
+`LLMSettings` ([src/rohan/config/llm_settings.py](../src/rohan/config/llm_settings.py)) assigns different models to different roles (codegen, analysis, judge) but does not explain why.
+
+**Implementation:**
+- Add docstring comments to each model field explaining the selection criteria:
+  ```python
+  codegen_model: str = Field(
+      default="anthropic/claude-sonnet-4",
+      description="Model for strategy code generation. Claude Sonnet is chosen for its "
+      "strong code generation capabilities, structured output adherence, and ability to "
+      "follow complex protocol specifications (StrategicAgent API)."
+  )
+  ```
+- Optionally, add a section in `docs/` documenting model comparison results and trade-offs (cost, latency, quality) to strengthen the thesis evaluation chapter.
+
+##### 2.7.11 Add Security Boundary Documentation (Thesis Polish)
+
+The `exec()` call in `strategy_validator.py` is the primary security boundary for LLM-generated code. While Docker isolation (Phase 3) is deferred, the current MVP approach should be clearly documented for thesis reviewers.
+
+**Implementation:**
+- Add a `# SECURITY` comment block above `execute_strategy()` explaining:
+  - The threat model: LLM-generated code may contain infinite loops, excessive memory allocation, or attempts to access the filesystem/network.
+  - Current mitigations: AST-level import whitelist, builtin restriction, restricted `exec()` namespace.
+  - Known gaps: No CPU/memory limits, no filesystem isolation, no network isolation.
+  - Planned mitigation: Docker sandbox (Phase 3).
+- Reference this in the thesis writeup as a conscious trade-off between development velocity and security hardening.
+
+---
+
 **MVP Scope (Step 2.1-2.4):** ✅ Complete
 1. ✅ Writer + Validator loop (3 retries)
 2. ✅ Single pre-defined scenario (architecture supports multiple)
