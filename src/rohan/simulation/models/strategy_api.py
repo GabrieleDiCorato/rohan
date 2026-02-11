@@ -10,6 +10,8 @@ Units & conventions (matching ABIDES):
     * **Timestamps:** ``int``, nanoseconds since epoch.
 """
 
+from __future__ import annotations
+
 from enum import Enum
 from typing import Protocol
 
@@ -45,6 +47,7 @@ class Order(BaseModel):
     order_type: OrderType
     status: OrderStatus
     filled_quantity: int = Field(default=0, ge=0, description="Shares filled so far")
+    fill_price: int | None = Field(default=None, description="Price at which the last fill occurred (cents)")
 
 
 class MarketState(BaseModel):
@@ -62,26 +65,58 @@ class MarketState(BaseModel):
     open_orders: list[Order]
 
 
+# ---------------------------------------------------------------------------
+# Cancellation sentinel: cancel_order_id = CANCEL_ALL cancels every open order.
+# ---------------------------------------------------------------------------
+CANCEL_ALL: int = -1
+
+
 class OrderAction(BaseModel):
     """An order instruction returned by the strategy.
 
     For ``LIMIT`` orders, ``price`` is mandatory.
     For ``MARKET`` orders, ``price`` must be ``None``.
+
+    To cancel a specific order::
+
+        OrderAction.cancel(order_id=123)
+
+    To cancel **all** open orders::
+
+        OrderAction.cancel_all()
     """
 
-    side: Side
-    quantity: int = Field(ge=1, description="Number of shares")
+    side: Side = Field(default=Side.BID, description="Order side (ignored for cancellations)")
+    quantity: int = Field(default=1, ge=1, description="Number of shares (ignored for cancellations)")
     price: int | None = Field(default=None, description="Limit price in cents (required for LIMIT)")
-    order_type: OrderType
-    cancel_order_id: int | None = Field(default=None, description="If set, cancel this order instead of placing a new one")
+    order_type: OrderType = Field(default=OrderType.LIMIT, description="Order type (ignored for cancellations)")
+    cancel_order_id: int | None = Field(
+        default=None,
+        description="If set, cancel this order instead of placing a new one. Use -1 to cancel all.",
+    )
 
     @model_validator(mode="after")
-    def _validate_price_for_order_type(self) -> "OrderAction":
+    def _validate_price_for_order_type(self) -> OrderAction:
+        # Skip price validation for cancellation actions
+        if self.cancel_order_id is not None:
+            return self
         if self.order_type == OrderType.LIMIT and self.price is None:
             raise ValueError("price is required for LIMIT orders")
         if self.order_type == OrderType.MARKET and self.price is not None:
             raise ValueError("price must be None for MARKET orders")
         return self
+
+    # ── Convenience factories ────────────────────────────────────────────
+
+    @classmethod
+    def cancel(cls, order_id: int) -> OrderAction:
+        """Create a cancellation action for the given *order_id*."""
+        return cls(cancel_order_id=order_id)
+
+    @classmethod
+    def cancel_all(cls) -> OrderAction:
+        """Create a cancellation action that cancels **every** open order."""
+        return cls(cancel_order_id=CANCEL_ALL)
 
 
 class AgentConfig(BaseModel):
@@ -104,5 +139,5 @@ class StrategicAgent(Protocol):
         ...
 
     def on_order_update(self, update: Order) -> list[OrderAction]:
-        """Called when an order status changes."""
+        """Called when an order is filled, partially filled, or cancelled."""
         ...

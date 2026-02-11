@@ -736,6 +736,10 @@ The `exec()` call in `strategy_validator.py` is the primary security boundary fo
 - Agent-driven scenario selection
 - Advanced tool suite for Explainer
 - Persistent checkpointing
+- **Advanced Order Management API:**
+  - `modify_order()` — Change price/quantity of existing orders without canceling
+  - `partial_cancel_order()` — Reduce order quantity while keeping remainder active
+  - Note: Not exposing these from ABIDES in current implementation to avoid complexity. Can be added later without breaking changes to the StrategicAgent protocol.
 
 **Dependencies & Order:**
 ```mermaid

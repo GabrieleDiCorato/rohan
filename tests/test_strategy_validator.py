@@ -7,7 +7,9 @@ class TestStrategyValidator:
     def test_valid_strategy_code(self):
         validator = StrategyValidator()
         code = """
-from rohan.simulation.models.strategy_api import StrategicAgent, AgentConfig, MarketState, Order, OrderAction
+from rohan.simulation.models.strategy_api import (
+    StrategicAgent, AgentConfig, MarketState, Order, OrderAction, OrderStatus, Side
+)
 import math
 
 class MyStrategy:
@@ -15,9 +17,13 @@ class MyStrategy:
         self.config = config
 
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
-        return []
+        # Cancel all stale orders before placing new ones
+        actions = [OrderAction.cancel(o.order_id) for o in state.open_orders]
+        return actions
 
     def on_order_update(self, update: Order) -> list[OrderAction]:
+        if update.status in (OrderStatus.FILLED, OrderStatus.PARTIAL):
+            pass  # track inventory
         return []
 """
         result = validator.validate(code)

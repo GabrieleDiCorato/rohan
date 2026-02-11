@@ -34,12 +34,20 @@ class MyStrategy:
 ```
 
 ## Types (all prices in **integer cents**, quantities in **shares**)
-- ``MarketState``: timestamp_ns, best_bid, best_ask, last_trade_price,
+- ``MarketState``: timestamp_ns, best_bid, best_ask, last_trade,
   inventory, cash, open_orders (list[Order])
-- ``OrderAction``: side (BUY/SELL), quantity, price (required for LIMIT,
+- ``OrderAction``: side (BID/ASK), quantity, price (required for LIMIT,
   forbidden for MARKET), order_type (LIMIT/MARKET), cancel_order_id (optional)
-- ``AgentConfig``: starting_cash, symbol, agent_id
-- ``Order``: order_id, side, quantity, price, order_type, status, filled_quantity
+- ``AgentConfig``: starting_cash, symbol, latency_ns
+- ``Order``: order_id, side, quantity, price, order_type, status,
+  filled_quantity, fill_price
+
+## Order Cancellation
+- Cancel a specific order: ``OrderAction.cancel(order_id=123)``
+- Cancel ALL open orders: ``OrderAction.cancel_all()``
+- ``on_order_update(update)`` is called when an order is filled,
+  partially filled, or cancelled. Use ``update.fill_price`` and
+  ``update.status`` to track inventory changes.
 
 ## Allowed imports
 Only: math, random, statistics, numpy, pandas, datetime, typing,
@@ -50,7 +58,10 @@ rohan.simulation.models.strategy_api, rohan.config
 2. Use type hints.
 3. Handle edge cases (empty order book, zero inventory).
 4. Avoid excessive order submission (keep order-to-trade ratio reasonable).
-5. Do NOT use private/dunder attributes on external objects.
+5. **Always cancel stale orders** before placing new ones to avoid flooding
+   the order book. Use ``OrderAction.cancel_all()`` at the start of
+   ``on_market_data`` if you are replacing your entire quote.
+6. Do NOT use private/dunder attributes on external objects.
 """
 
 WRITER_HUMAN = """\

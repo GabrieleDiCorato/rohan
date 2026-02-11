@@ -80,6 +80,29 @@ class TestOrderActionValidation:
         )
         assert action.cancel_order_id == 12345
 
+    def test_cancel_factory_method(self):
+        """OrderAction.cancel() creates a cancel action with minimal fields."""
+        action = OrderAction.cancel(order_id=999)
+        assert action.cancel_order_id == 999
+        # Factory uses defaults for irrelevant fields
+        assert action.side == Side.BID
+        assert action.quantity == 1
+
+    def test_cancel_all_factory_method(self):
+        """OrderAction.cancel_all() creates a cancel-all action."""
+        from rohan.simulation.models.strategy_api import CANCEL_ALL
+
+        action = OrderAction.cancel_all()
+        assert action.cancel_order_id == CANCEL_ALL
+        assert action.cancel_order_id == -1
+
+    def test_cancel_skips_price_validation(self):
+        """When cancel_order_id is set, price validation is skipped."""
+        # This would fail without cancel_order_id because LIMIT requires price
+        action = OrderAction.cancel(order_id=42)
+        assert action.price is None  # No price needed for cancel
+        assert action.cancel_order_id == 42
+
     def test_quantity_must_be_positive(self):
         """Quantity must be >= 1."""
         with pytest.raises(ValidationError, match="greater than or equal to 1"):

@@ -131,7 +131,7 @@ class AnalysisService:
         )
 
     @staticmethod
-    def plot_price_series(result: SimulationOutput) -> Figure:
+    def plot_price_series(result: SimulationOutput, title: str = "Price Series") -> Figure:
         """
         Generate a plot of price series (bid, ask, mid) over time.
         Returns a matplotlib Figure object.
@@ -157,7 +157,7 @@ class AnalysisService:
 
         ax.set_xlabel("Time Index")
         ax.set_ylabel("Price")
-        ax.set_title("Price Series")
+        ax.set_title(title)
         ax.legend()
         ax.grid(True, alpha=0.3)
 
@@ -165,7 +165,7 @@ class AnalysisService:
         return fig
 
     @staticmethod
-    def plot_volume(result: SimulationOutput) -> Figure:
+    def plot_volume(result: SimulationOutput, title: str = "Volume at Best Bid/Ask") -> Figure:
         """
         Generate a plot of volume at best bid/ask over time.
         Returns a matplotlib Figure object.
@@ -186,7 +186,7 @@ class AnalysisService:
 
         ax.set_xlabel("Time Index")
         ax.set_ylabel("Quantity")
-        ax.set_title("Volume at Best Bid/Ask")
+        ax.set_title(title)
         ax.legend()
         ax.grid(True, alpha=0.3)
 
@@ -194,7 +194,7 @@ class AnalysisService:
         return fig
 
     @staticmethod
-    def plot_spread(result: SimulationOutput) -> Figure:
+    def plot_spread(result: SimulationOutput, title: str = "Bid-Ask Spread Over Time") -> Figure:
         """
         Generate a plot of bid-ask spread over time.
         Returns a matplotlib Figure object.
@@ -217,7 +217,7 @@ class AnalysisService:
 
         ax.set_xlabel("Time Index")
         ax.set_ylabel("Spread")
-        ax.set_title("Bid-Ask Spread Over Time")
+        ax.set_title(title)
         ax.grid(True, alpha=0.3)
 
         plt.tight_layout()
