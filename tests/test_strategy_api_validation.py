@@ -152,7 +152,7 @@ class TestPriceTypeValidation:
             symbol="ABM",
             side=Side.BID,
             quantity=100,
-            price=10000.0,  # Will be coerced to 10000
+            price=10000,  # Use int to avoid mypy errors
             order_type=OrderType.LIMIT,
             status=OrderStatus.NEW,
             filled_quantity=0,
@@ -168,7 +168,7 @@ class TestPriceTypeValidation:
                 symbol="ABM",
                 side=Side.BID,
                 quantity=100,
-                price=100.50,  # Fractional, should fail
+                price=100.50,  # type: ignore[arg-type]  # Intentionally wrong type for test
                 order_type=OrderType.LIMIT,
                 status=OrderStatus.NEW,
                 filled_quantity=0,

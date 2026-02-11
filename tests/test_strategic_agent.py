@@ -172,7 +172,7 @@ TEST_SETTINGS = SimulationSettings(
     seed=42,
     start_time="09:30:00",
     end_time="09:35:00",  # 5 minute duration - minimum required by validator
-    _env_file=None,  # Don't read .env in tests
+    _env_file=None,  # type: ignore[call-arg]  # Pydantic-settings parameter not visible to mypy
 )
 
 

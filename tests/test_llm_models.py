@@ -74,15 +74,15 @@ class TestJudgeVerdict:
 
     def test_invalid_comparison(self):
         with pytest.raises(ValidationError):
-            JudgeVerdict(score=5, comparison="unknown", reasoning="x", recommendation="continue")
+            JudgeVerdict(score=5, comparison="unknown", reasoning="x", recommendation="continue")  # type: ignore[arg-type]
 
     def test_invalid_recommendation(self):
         with pytest.raises(ValidationError):
-            JudgeVerdict(score=5, comparison="better", reasoning="x", recommendation="invalid")
+            JudgeVerdict(score=5, comparison="better", reasoning="x", recommendation="invalid")  # type: ignore[arg-type]
 
     def test_all_recommendations(self):
         for rec in ("continue", "stop_converged", "stop_plateau"):
-            v = JudgeVerdict(score=5, comparison="similar", reasoning="ok", recommendation=rec)
+            v = JudgeVerdict(score=5, comparison="similar", reasoning="ok", recommendation=rec)  # type: ignore[arg-type]
             assert v.recommendation == rec
 
 

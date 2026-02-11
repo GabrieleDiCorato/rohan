@@ -20,7 +20,7 @@ class TestLLMSettings:
     def test_defaults(self):
         """Settings should load with sensible defaults even without env vars."""
         settings = LLMSettings(
-            _env_file=None,  # don't read a real .env
+            _env_file=None,  # type: ignore[call-arg]  # Pydantic-settings parameter
         )
         assert settings.provider == LLMProvider.OPENROUTER
         assert "gemini" in settings.analysis_model
@@ -35,7 +35,7 @@ class TestLLMSettings:
         monkeypatch.setenv("LLM_MAX_TOKENS", "8192")
         monkeypatch.setenv("LLM_ANALYSIS_MODEL", "gpt-4o")
 
-        settings = LLMSettings(_env_file=None)
+        settings = LLMSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.provider == LLMProvider.OPENAI
         assert settings.temperature == 0.8
         assert settings.max_tokens == 8192
@@ -43,28 +43,28 @@ class TestLLMSettings:
 
     def test_api_key_from_env(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-key")
-        settings = LLMSettings(_env_file=None)
+        settings = LLMSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.openrouter_api_key is not None
         assert settings.openrouter_api_key.get_secret_value() == "sk-test-key"
 
     def test_api_key_is_secret(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret-123")
-        settings = LLMSettings(_env_file=None)
+        settings = LLMSettings(_env_file=None)  # type: ignore[call-arg]
         # SecretStr should not expose the key in repr/str
         assert "sk-secret-123" not in repr(settings)
 
     def test_temperature_bounds(self):
         with pytest.raises(ValidationError):
-            LLMSettings(temperature=-0.1, _env_file=None)
+            LLMSettings(temperature=-0.1, _env_file=None)  # type: ignore[call-arg]
         with pytest.raises(ValidationError):
-            LLMSettings(temperature=2.5, _env_file=None)
+            LLMSettings(temperature=2.5, _env_file=None)  # type: ignore[call-arg]
 
     def test_max_tokens_bounds(self):
         with pytest.raises(ValidationError):
-            LLMSettings(max_tokens=100, _env_file=None)  # below 256
+            LLMSettings(max_tokens=100, _env_file=None)  # type: ignore[call-arg]  # below 256
 
     def test_no_api_keys_by_default(self):
-        settings = LLMSettings(_env_file=None)
+        settings = LLMSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.openrouter_api_key is None
         assert settings.openai_api_key is None
         assert settings.google_api_key is None

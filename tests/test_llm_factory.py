@@ -18,10 +18,10 @@ from rohan.llm.factory import (
 def _settings(provider: str = "openrouter", **overrides) -> LLMSettings:
     """Create test settings without reading .env."""
     return LLMSettings(
-        provider=provider,
+        provider=provider,  # type: ignore[arg-type]  # String will be coerced to enum
         openrouter_api_key=SecretStr("sk-test"),
         openai_api_key=SecretStr("sk-test-openai"),
-        _env_file=None,
+        _env_file=None,  # type: ignore[call-arg]
         **overrides,
     )
 
@@ -53,27 +53,27 @@ class TestCreateChatModel:
 
     def test_missing_openrouter_key_raises(self):
         settings = LLMSettings(
-            provider="openrouter",
+            provider="openrouter",  # type: ignore[arg-type]
             openrouter_api_key=None,
-            _env_file=None,
+            _env_file=None,  # type: ignore[call-arg]
         )
         with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
             create_chat_model("model", settings)
 
     def test_missing_openai_key_raises(self):
         settings = LLMSettings(
-            provider="openai",
+            provider="openai",  # type: ignore[arg-type]
             openai_api_key=None,
-            _env_file=None,
+            _env_file=None,  # type: ignore[call-arg]
         )
         with pytest.raises(ValueError, match="OPENAI_API_KEY"):
             create_chat_model("model", settings)
 
     def test_missing_google_key_raises(self):
         settings = LLMSettings(
-            provider="google",
+            provider="google",  # type: ignore[arg-type]
             google_api_key=None,
-            _env_file=None,
+            _env_file=None,  # type: ignore[call-arg]
         )
         # May raise ImportError (no langchain-google-genai) or ValueError
         with pytest.raises((ValueError, ImportError)):

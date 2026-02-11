@@ -1,7 +1,7 @@
 """Quick debug script to trace order placement."""
 
 from rohan.config import SimulationSettings
-from rohan.simulation.models.strategy_api import *
+from rohan.simulation.models.strategy_api import OrderAction, OrderType, Side
 from rohan.simulation.simulation_service import SimulationService
 
 
@@ -32,7 +32,7 @@ if __name__ == "__main__":
         seed=42,
         start_time="09:30:00",
         end_time="09:35:00",  # 5 min minimum
-        _env_file=None,
+        _env_file=None,  # type: ignore[call-arg]  # Pydantic-settings parameter
     )
     result = SimulationService().run_simulation(settings, strategy=s)
     print(f"\n[DONE] error={result.error}")
