@@ -223,7 +223,7 @@ class IterationPipeline:
 
         strategy_output = strategy_result.result
         strategy_sim_metrics = self._analyzer.compute_metrics(strategy_output)
-        strategy_agent_metrics = self._analyzer.compute_agent_metrics(strategy_output, agent_id=1)
+        strategy_agent_metrics = self._analyzer.compute_agent_metrics(strategy_output)
 
         # --- Run baseline ---
         baseline_settings = config.settings.model_copy(deep=True)

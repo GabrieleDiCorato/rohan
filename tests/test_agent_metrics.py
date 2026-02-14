@@ -3,14 +3,17 @@ from pandera.typing import DataFrame
 
 from rohan.framework.analysis_service import AnalysisService
 from rohan.simulation import SimulationOutput
+from rohan.simulation.abides_impl.abides_output import AbidesOutput
 from rohan.simulation.models.schemas import AgentLogsSchema, OrderBookL1Schema, OrderBookL2Schema
 
 
 class MockAgent:
-    def __init__(self, id, holdings, log):
+    def __init__(self, id, holdings, log, type=None, starting_cash=0):
         self.id = id
         self.holdings = holdings
         self.log = log
+        self.type = type
+        self.starting_cash = starting_cash
 
 
 class MockOutput(SimulationOutput):
@@ -20,6 +23,27 @@ class MockOutput(SimulationOutput):
 
     def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
         return self.l1
+
+    def get_order_book_l2(self, n_levels) -> DataFrame[OrderBookL2Schema]:
+        raise NotImplementedError()
+
+    def get_logs_df(self) -> DataFrame[AgentLogsSchema]:
+        raise NotImplementedError()
+
+    def get_logs_by_agent(self) -> dict:
+        raise NotImplementedError()
+
+
+class MockAbidesOutput(AbidesOutput):
+    """Extends AbidesOutput so isinstance checks pass for auto-detection."""
+
+    def __init__(self, agents, l1_df):
+        # Skip AbidesOutput.__init__ to avoid full ABIDES setup
+        self.end_state = {"agents": agents}
+        self._l1_df = l1_df
+
+    def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
+        return self._l1_df
 
     def get_order_book_l2(self, n_levels) -> DataFrame[OrderBookL2Schema]:
         raise NotImplementedError()
@@ -98,3 +122,54 @@ def test_compute_agent_metrics_trades():
     assert metrics.trade_count == 1
     assert metrics.fill_rate == 0.5  # 1 exec / 2 sub
     assert metrics.order_to_trade_ratio == 2.0  # 2 sub / 1 exec
+
+
+def test_compute_agent_metrics_auto_detection():
+    """Auto-detect strategic agent when agent_id is omitted."""
+    strategic = MockAgent(
+        id=10,
+        holdings={"CASH": 60000, "NVDA": 5},
+        log=[
+            (100, "ORDER_SUBMITTED", {}),
+            (101, "ORDER_EXECUTED", {}),
+        ],
+        type="StrategicAgent",
+        starting_cash=50000,
+    )
+    noise = MockAgent(id=1, holdings={"CASH": 100000}, log=[])
+
+    l1_df = pd.DataFrame(
+        {
+            "bid_price": [10000.0],
+            "ask_price": [10200.0],
+            "bid_qty": [10.0],
+            "ask_qty": [10.0],
+            "time": [0],
+            "timestamp": [pd.Timestamp("2021-01-01")],
+        }
+    )
+
+    output = MockAbidesOutput([noise, strategic], l1_df)
+
+    # Call without agent_id — should auto-detect the strategic agent
+    metrics = AnalysisService.compute_agent_metrics(output)
+
+    assert metrics.agent_id == 10
+    assert metrics.initial_cash == 50000  # from agent.starting_cash
+    assert metrics.ending_cash == 60000
+    assert metrics.end_inventory == 5
+    # PnL = (60000 + 5 * 10100) - 50000 = 60500
+    assert metrics.total_pnl == 60000 + 5 * 10100.0 - 50000
+    assert metrics.trade_count == 1
+    assert metrics.fill_rate == 1.0  # 1 exec / 1 sub
+
+
+def test_compute_agent_metrics_auto_detection_no_strategic():
+    """Return sentinel AgentMetrics when no strategic agent is found."""
+    noise = MockAgent(id=1, holdings={"CASH": 100000}, log=[])
+
+    output = MockAbidesOutput([noise], pd.DataFrame())
+
+    metrics = AnalysisService.compute_agent_metrics(output)
+
+    assert metrics.agent_id == -1

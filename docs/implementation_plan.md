@@ -157,6 +157,7 @@ Technical debt verification and cleanup.
     *   **`MarketImpact`:** Typed Pydantic model (not `dict`) with `spread_delta_pct`, `volatility_delta_pct`, `bid_liquidity_delta_pct`, `ask_liquidity_delta_pct`.
     *   **`ComparisonResult`:** Uses `MarketImpact` (typed) for `market_impact` field.
     *   Volatility annualisation derives observation frequency from actual median timestamp intervals, not a hard-coded assumption.
+    *   **Agent auto-detection:** `compute_agent_metrics()` accepts an optional `agent_id`. When omitted (or `None`), the strategic agent is located automatically via `AbidesOutput.get_strategic_agent_id()` which matches on `agent.type == "StrategicAgent"`. When auto-detected, `initial_cash` is read from the agent's `starting_cash` attribute so PnL is computed correctly without callers needing to know the agent ID or starting capital.
 
 *   **1.5.5 Structured Summary for LLM** ✅
     *   `RunSummary` model and `generate_summary` in `analysis_service.py`.

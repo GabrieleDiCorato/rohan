@@ -213,7 +213,7 @@ def scenario_executor_node(state: RefinementState) -> dict:
 
             strategy_output = sim_result.result
             strategy_sim_metrics = analyzer.compute_metrics(strategy_output)
-            strategy_agent_metrics = analyzer.compute_agent_metrics(strategy_output, agent_id=1)
+            strategy_agent_metrics = analyzer.compute_agent_metrics(strategy_output)
 
             # Run baseline
             baseline_result = service.run_simulation(settings, strategy=None)

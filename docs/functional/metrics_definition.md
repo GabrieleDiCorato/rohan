@@ -10,13 +10,15 @@ These metrics assess the standalone performance of the strategic agent.
 
 We decompose Total PnL into realized and unrealized components to understand the source of returns.
 
-*   **Realized PnL**: The accumulated cash balance resulting from closed trades. In our simulation, this is tracked via the agent's cash holdings, assuming a starting cash balance of zero (or normalized to zero).
+*   **Realized PnL**: The accumulated cash balance resulting from closed trades. In our simulation, this is tracked via the agent's cash holdings relative to its configured starting capital.
     *   *Formula:* $PnL_{realized} = Cash_{end} - Cash_{start}$
 *   **Unrealized PnL**: The mark-to-market value of the remaining inventory at the end of the simulation.
     *   *Valuation Price:* Mid-Price at simulation end ($P_{mid} = \frac{P_{bid} + P_{ask}}{2}$).
     *   *Formula:* $PnL_{unrealized} = Inventory_{end} \times P_{mid, end}$
 *   **Total PnL**: The sum of realized and unrealized components.
     *   *Formula:* $PnL_{total} = PnL_{realized} + PnL_{unrealized}$
+
+> **Implementation note:** `compute_agent_metrics()` auto-detects the strategic agent via `AbidesOutput.get_strategic_agent_id()` (matching on `agent.type == "StrategicAgent"`) and reads `starting_cash` from the agent object. Callers do not need to supply `agent_id` or `initial_cash` explicitly.
 
 ### 1.2 Execution Quality
 
