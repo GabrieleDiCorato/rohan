@@ -59,7 +59,7 @@ class AbidesConfigMapper:
         noise_mkt_close = date + str_to_ns("16:00:00")  # default "16:00:00"
         kernel_stop_time = mkt_close + str_to_ns("1s")  # default "10:00:01"
 
-        agents = self._build_agents(
+        agents, strategic_agent_id = self._build_agents(
             settings,
             mkt_open,
             mkt_close,
@@ -68,6 +68,7 @@ class AbidesConfigMapper:
             random_state_handler,
             self.strategy,
         )
+        self.strategic_agent_id = strategic_agent_id
         n_agents = len(agents)
         oracle = self._build_oracle(settings, mkt_open, noise_mkt_close, random_state_handler)
         latency_model = self._build_latency_model(n_agents, settings.latency, random_state_handler)
@@ -93,7 +94,7 @@ class AbidesConfigMapper:
         noise_mkt_close: int,
         random_state_handler: RandomStateHandler,
         strategy: StrategicAgent | None = None,
-    ) -> list[FinancialAgent]:
+    ) -> tuple[list[FinancialAgent], int | None]:
         """Uses AgentSettings to create a list of ABIDES FinancialAgent instances.
 
         Arguments:
@@ -237,7 +238,9 @@ class AbidesConfigMapper:
         agent_count += agent_settings.momentum.num_agents
 
         # 6) Strategic Agent (if provided)
+        strategic_agent_id: int | None = None
         if strategy is not None:
+            strategic_agent_id = agent_count
             agents.append(
                 StrategicAgentAdapter(
                     id=agent_count,
@@ -251,7 +254,7 @@ class AbidesConfigMapper:
             )
             agent_count += 1
 
-        return agents
+        return agents, strategic_agent_id
 
     @staticmethod
     def _build_oracle(

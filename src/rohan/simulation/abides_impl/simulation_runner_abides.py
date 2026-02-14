@@ -33,7 +33,10 @@ class SimulationRunnerAbides(SimulationRunner):
             kernel_random_state=random_state_handler.random_state_kernel,
         )
 
-        return AbidesOutput(end_state)
+        return AbidesOutput(
+            end_state,
+            strategic_agent_id=self.abides_wrapper.strategic_agent_id,
+        )
 
     @override
     def cleanup(self) -> None:

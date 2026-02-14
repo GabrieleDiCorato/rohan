@@ -26,6 +26,11 @@ class SimulationOutput(ABC):
     reference implementation.
     """
 
+    strategic_agent_id: int | None = None
+    """Numeric ID of the user-injected strategic agent, or ``None`` for
+    baseline runs (no strategy).  Set at construction time by the
+    simulation runner so callers never need to search for it."""
+
     @abstractmethod
     def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
         """Return Level 1 order-book snapshots.

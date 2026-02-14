@@ -223,7 +223,14 @@ class IterationPipeline:
 
         strategy_output = strategy_result.result
         strategy_sim_metrics = self._analyzer.compute_metrics(strategy_output)
-        strategy_agent_metrics = self._analyzer.compute_agent_metrics(strategy_output)
+
+        if strategy_output.strategic_agent_id is None:
+            raise RuntimeError("No strategic agent found in simulation output")
+        strategy_agent_metrics = self._analyzer.compute_agent_metrics(
+            strategy_output,
+            strategy_output.strategic_agent_id,
+            initial_cash=config.settings.starting_cash,
+        )
 
         # --- Run baseline ---
         baseline_settings = config.settings.model_copy(deep=True)

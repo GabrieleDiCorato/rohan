@@ -1,24 +1,23 @@
 import pandas as pd
+import pytest
 from pandera.typing import DataFrame
 
 from rohan.framework.analysis_service import AnalysisService
 from rohan.simulation import SimulationOutput
-from rohan.simulation.abides_impl.abides_output import AbidesOutput
 from rohan.simulation.models.schemas import AgentLogsSchema, OrderBookL1Schema, OrderBookL2Schema
 
 
 class MockAgent:
-    def __init__(self, id, holdings, log, type=None, starting_cash=0):
+    def __init__(self, id, holdings, log):
         self.id = id
         self.holdings = holdings
         self.log = log
-        self.type = type
-        self.starting_cash = starting_cash
 
 
 class MockOutput(SimulationOutput):
-    def __init__(self, agents, l1_df):
+    def __init__(self, agents, l1_df, *, strategic_agent_id=None):
         self.end_state = {"agents": agents}
+        self.strategic_agent_id = strategic_agent_id
         self.l1 = l1_df
 
     def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
@@ -34,41 +33,12 @@ class MockOutput(SimulationOutput):
         raise NotImplementedError()
 
 
-class MockAbidesOutput(AbidesOutput):
-    """Extends AbidesOutput so isinstance checks pass for auto-detection."""
-
-    def __init__(self, agents, l1_df):
-        # Skip AbidesOutput.__init__ to avoid full ABIDES setup
-        self.end_state = {"agents": agents}
-        self._l1_df = l1_df
-
-    def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
-        return self._l1_df
-
-    def get_order_book_l2(self, n_levels) -> DataFrame[OrderBookL2Schema]:
-        raise NotImplementedError()
-
-    def get_logs_df(self) -> DataFrame[AgentLogsSchema]:
-        raise NotImplementedError()
-
-    def get_logs_by_agent(self) -> dict:
-        raise NotImplementedError()
-
-
-class MockEvent:
-    def __init__(self, event_type):
-        self.event_type = event_type
-
-    def __str__(self):
-        return str(self.event_type)
-
-
 def test_compute_agent_metrics_pnl():
-    # Setup mock data — all monetary values in integer cents.
-    # Agent 1: 100000 cents CASH ($1000), 10 NVDA shares
-    # Price: Bid 10000¢ ($100), Ask 10200¢ ($102) => Mid 10100¢
-    # initial_cash = 50000¢ ($500)
-    # PnL = (100000 + 10*10100) - 50000 = 151000¢ ($1510)
+    # All monetary values in integer cents.
+    # Agent 1: 100 000¢ CASH ($1 000), 10 NVDA shares
+    # Price: Bid 10 000¢ ($100), Ask 10 200¢ ($102) => Mid 10 100¢
+    # initial_cash = 50 000¢ ($500)
+    # PnL = (100 000 + 10 * 10 100) - 50 000 = 151 000¢
 
     agent = MockAgent(id=1, holdings={"CASH": 100000, "NVDA": 10}, log=[])
 
@@ -83,38 +53,24 @@ def test_compute_agent_metrics_pnl():
         }
     )
 
-    output = MockOutput([agent], l1_df)
-
+    output = MockOutput([agent], l1_df, strategic_agent_id=1)
     metrics = AnalysisService.compute_agent_metrics(output, 1, initial_cash=50000)
 
     assert metrics.agent_id == 1
     assert metrics.initial_cash == 50000
     assert metrics.ending_cash == 100000
-    assert metrics.total_pnl == 100000 + 10 * 10100.0 - 50000  # 151000.0
+    assert metrics.total_pnl == 100000 + 10 * 10100.0 - 50000  # 151 000
     assert metrics.end_inventory == 10
 
 
 def test_compute_agent_metrics_trades():
-    # Setup logs with events
-    # We simulate events as objects with event_type attribute (like ABIDES)
-    # or tuples if your code handles it. My code handles both.
-
-    class EventType:
-        ORDER_SUBMITTED = "ORDER_SUBMITTED"
-        ORDER_EXECUTED = "ORDER_EXECUTED"
-
-    log: list[tuple[int, str, dict] | tuple[int, str]] = [
+    log: list[tuple[int, str, dict]] = [
         (100, "ORDER_SUBMITTED", {}),
         (101, "ORDER_SUBMITTED", {}),
         (102, "ORDER_EXECUTED", {}),  # 1 fill
     ]
 
-    # Using tuple format for simplicity as my code checks string equality
-    # Wait, my code: str(e.event_type) == "..." OR e[1] == "..."
-    # So tuples are supported.
-
     agent = MockAgent(id=2, holdings={"CASH": 0}, log=log)
-
     output = MockOutput([agent], pd.DataFrame())
 
     metrics = AnalysisService.compute_agent_metrics(output, 2)
@@ -124,8 +80,8 @@ def test_compute_agent_metrics_trades():
     assert metrics.order_to_trade_ratio == 2.0  # 2 sub / 1 exec
 
 
-def test_compute_agent_metrics_auto_detection():
-    """Auto-detect strategic agent when agent_id is omitted."""
+def test_compute_agent_metrics_via_strategic_id():
+    """Typical caller pattern: read strategic_agent_id from output, then pass it."""
     strategic = MockAgent(
         id=10,
         holdings={"CASH": 60000, "NVDA": 5},
@@ -133,8 +89,6 @@ def test_compute_agent_metrics_auto_detection():
             (100, "ORDER_SUBMITTED", {}),
             (101, "ORDER_EXECUTED", {}),
         ],
-        type="StrategicAgent",
-        starting_cash=50000,
     )
     noise = MockAgent(id=1, holdings={"CASH": 100000}, log=[])
 
@@ -149,27 +103,29 @@ def test_compute_agent_metrics_auto_detection():
         }
     )
 
-    output = MockAbidesOutput([noise, strategic], l1_df)
+    output = MockOutput([noise, strategic], l1_df, strategic_agent_id=10)
 
-    # Call without agent_id — should auto-detect the strategic agent
-    metrics = AnalysisService.compute_agent_metrics(output)
+    # Caller retrieves ID from output, passes it explicitly
+    assert output.strategic_agent_id is not None
+    metrics = AnalysisService.compute_agent_metrics(
+        output,
+        output.strategic_agent_id,
+        initial_cash=50000,
+    )
 
     assert metrics.agent_id == 10
-    assert metrics.initial_cash == 50000  # from agent.starting_cash
+    assert metrics.initial_cash == 50000
     assert metrics.ending_cash == 60000
     assert metrics.end_inventory == 5
-    # PnL = (60000 + 5 * 10100) - 50000 = 60500
     assert metrics.total_pnl == 60000 + 5 * 10100.0 - 50000
     assert metrics.trade_count == 1
-    assert metrics.fill_rate == 1.0  # 1 exec / 1 sub
+    assert metrics.fill_rate == 1.0
 
 
-def test_compute_agent_metrics_auto_detection_no_strategic():
-    """Return sentinel AgentMetrics when no strategic agent is found."""
-    noise = MockAgent(id=1, holdings={"CASH": 100000}, log=[])
+def test_compute_agent_metrics_missing_agent_raises():
+    """ValueError when the requested agent_id is not in the output."""
+    agent = MockAgent(id=1, holdings={"CASH": 0}, log=[])
+    output = MockOutput([agent], pd.DataFrame())
 
-    output = MockAbidesOutput([noise], pd.DataFrame())
-
-    metrics = AnalysisService.compute_agent_metrics(output)
-
-    assert metrics.agent_id == -1
+    with pytest.raises(ValueError, match="Agent 999 not found"):
+        AnalysisService.compute_agent_metrics(output, 999)

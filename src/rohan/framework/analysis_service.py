@@ -69,30 +69,17 @@ class AnalysisService:
     @staticmethod
     def compute_agent_metrics(
         result: SimulationOutput,
-        agent_id: int | None = None,
+        agent_id: int,
         initial_cash: int = 0,
     ) -> AgentMetrics:
         """Compute performance metrics for a specific agent.
 
         Args:
             result: Simulation output containing end_state.
-            agent_id: Numeric ID of the agent to analyse.  If ``None``,
-                the strategic agent is detected automatically via
-                :meth:`AbidesOutput.get_strategic_agent_id`.
-            initial_cash: The agent's starting cash (integer cents).  When
-                *agent_id* is auto-detected the ``starting_cash`` attribute
-                from the agent object is used instead.
+            agent_id: Numeric ID of the agent to analyse.
+            initial_cash: The agent's starting cash (integer cents).
+                Required for correct PnL computation.
         """
-        # --- Auto-detect strategic agent when no explicit ID given --------
-        from rohan.simulation.abides_impl.abides_output import AbidesOutput
-
-        auto_detected = False
-        if agent_id is None and isinstance(result, AbidesOutput):
-            agent_id = result.get_strategic_agent_id()
-            auto_detected = True
-        if agent_id is None:
-            return AgentMetrics(agent_id=-1)
-
         if not hasattr(result, "end_state"):
             return AgentMetrics(agent_id=agent_id, initial_cash=initial_cash)
 
@@ -101,10 +88,6 @@ class AnalysisService:
             raise ValueError(f"Agent {agent_id} not found in simulation output")
 
         agent = agents[agent_id]
-
-        # When auto-detected, pull initial_cash from the agent itself
-        if auto_detected:
-            initial_cash = getattr(agent, "starting_cash", initial_cash)
 
         # --- Holdings ---
         ending_cash = agent.holdings.get("CASH", 0)

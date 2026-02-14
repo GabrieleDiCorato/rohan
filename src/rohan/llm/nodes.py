@@ -213,7 +213,14 @@ def scenario_executor_node(state: RefinementState) -> dict:
 
             strategy_output = sim_result.result
             strategy_sim_metrics = analyzer.compute_metrics(strategy_output)
-            strategy_agent_metrics = analyzer.compute_agent_metrics(strategy_output)
+
+            if strategy_output.strategic_agent_id is None:
+                raise RuntimeError("No strategic agent in simulation output")
+            strategy_agent_metrics = analyzer.compute_agent_metrics(
+                strategy_output,
+                strategy_output.strategic_agent_id,
+                initial_cash=settings.starting_cash,
+            )
 
             # Run baseline
             baseline_result = service.run_simulation(settings, strategy=None)

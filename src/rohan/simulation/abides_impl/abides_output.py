@@ -35,9 +35,15 @@ class AbidesOutput(SimulationOutput):
     so they are cached for efficiency.
     """
 
-    def __init__(self, end_state: dict[str, Any]):
+    def __init__(
+        self,
+        end_state: dict[str, Any],
+        *,
+        strategic_agent_id: int | None = None,
+    ):
         super().__init__()
         self.end_state = end_state
+        self.strategic_agent_id = strategic_agent_id
 
     @override
     def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
@@ -100,18 +106,6 @@ class AbidesOutput(SimulationOutput):
         # By convention in ABIDES setups used here, the exchange agent
         # appears as the first agent in the `end_state['agents']` list.
         return self.end_state["agents"][0]
-
-    def get_strategic_agent_id(self) -> int | None:
-        """Return the ID of the StrategicAgentAdapter, or None if absent.
-
-        The strategic agent is identified by its ``type`` attribute being
-        set to ``'StrategicAgent'`` (assigned in
-        :class:`StrategicAgentAdapter.__init__`).
-        """
-        for agent in self.end_state["agents"]:
-            if getattr(agent, "type", None) == "StrategicAgent":
-                return agent.id  # type: ignore[no-any-return]
-        return None
 
     def get_order_book(self) -> OrderBook:
         """Returns the order book data from the end state."""
