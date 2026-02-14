@@ -24,6 +24,9 @@ from rohan.llm.nodes import (
 )
 from rohan.llm.state import RefinementState, ScenarioConfig, ScenarioResult
 
+# Patch target for every test that invokes an LLM
+_PATCH_STRUCTURED = "rohan.llm.nodes.get_structured_model"
+
 # -- Valid strategy code for tests (mirrors test_iteration_pipeline.py) -----
 VALID_STRATEGY = """\
 from rohan.simulation.models.strategy_api import (
@@ -85,17 +88,17 @@ def _base_state(**overrides) -> RefinementState:
 
 
 class TestWriterNode:
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_codegen_model")
-    def test_produces_code(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_produces_code(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = GeneratedStrategy(
             class_name="MyStrategy",
             code=VALID_STRATEGY,
             reasoning="Simple passive strategy",
         )
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state()
         result = writer_node(state)
@@ -105,17 +108,17 @@ class TestWriterNode:
         assert result["status"] == "validating"
         assert result["validation_errors"] == []
 
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_codegen_model")
-    def test_includes_validation_errors_as_feedback(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_includes_validation_errors_as_feedback(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = GeneratedStrategy(
             class_name="Fixed",
             code="class Fixed: pass",
             reasoning="Fixed the errors",
         )
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state(
             current_code="class Broken: pass",
@@ -124,17 +127,17 @@ class TestWriterNode:
         result = writer_node(state)
         assert result["current_code"] == "class Fixed: pass"
 
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_codegen_model")
-    def test_includes_aggregated_feedback(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_includes_aggregated_feedback(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = GeneratedStrategy(
             class_name="V2",
             code="class V2: pass",
             reasoning="Improved version",
         )
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         verdict = JudgeVerdict(
             score=5.0,
@@ -206,8 +209,7 @@ class TestExplainerNode:
     @patch("rohan.llm.nodes.get_analysis_model")
     def test_error_scenario_produces_explanation(self, mock_get_model):
         # Even error scenarios need the model imported (it's at top of function)
-        mock_model = MagicMock()
-        mock_get_model.return_value = mock_model
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state(
             scenario_results=[
@@ -219,9 +221,9 @@ class TestExplainerNode:
         assert "Scenario failed" in result["explanations"][0].weaknesses[0]
         assert result["status"] == "aggregating"
 
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_analysis_model")
-    def test_successful_scenario(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_successful_scenario(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = ScenarioExplanation(
             scenario_name="default",
@@ -229,8 +231,8 @@ class TestExplainerNode:
             weaknesses=["High impact"],
             recommendations=["Reduce size"],
         )
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state(
             scenario_results=[
@@ -245,13 +247,13 @@ class TestExplainerNode:
         assert len(result["explanations"]) == 1
         assert result["explanations"][0].strengths == ["Good PnL"]
 
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_analysis_model")
-    def test_llm_failure_produces_fallback(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_llm_failure_produces_fallback(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.side_effect = RuntimeError("API down")
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state(
             scenario_results=[
@@ -269,9 +271,9 @@ class TestExplainerNode:
 
 
 class TestAggregatorNode:
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_judge_model")
-    def test_produces_feedback_and_history(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_produces_feedback_and_history(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = JudgeVerdict(
             score=6.0,
@@ -279,8 +281,8 @@ class TestAggregatorNode:
             reasoning="Some improvement",
             recommendation="continue",
         )
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state(
             current_code="class X: pass",
@@ -306,9 +308,9 @@ class TestAggregatorNode:
         assert result["iteration_number"] == 2
         assert result["status"] == "writing"  # continue
 
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_judge_model")
-    def test_stop_converged(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_stop_converged(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = JudgeVerdict(
             score=9.0,
@@ -316,8 +318,8 @@ class TestAggregatorNode:
             reasoning="Converged",
             recommendation="stop_converged",
         )
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state(
             current_code="class X: pass",
@@ -328,9 +330,9 @@ class TestAggregatorNode:
         result = aggregator_node(state)
         assert result["status"] == "done"
 
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_judge_model")
-    def test_max_iterations_reached(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_max_iterations_reached(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.return_value = JudgeVerdict(
             score=5.0,
@@ -338,8 +340,8 @@ class TestAggregatorNode:
             reasoning="Still improving",
             recommendation="continue",
         )
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state(
             current_code="class X: pass",
@@ -351,13 +353,13 @@ class TestAggregatorNode:
         result = aggregator_node(state)
         assert result["status"] == "done"  # max reached
 
+    @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_judge_model")
-    def test_llm_failure_defaults_to_continue(self, mock_get_model):
-        mock_model = MagicMock()
+    def test_llm_failure_defaults_to_continue(self, mock_get_model, mock_get_structured):
         mock_structured = MagicMock()
         mock_structured.invoke.side_effect = RuntimeError("API error")
-        mock_model.with_structured_output.return_value = mock_structured
-        mock_get_model.return_value = mock_model
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
 
         state = _base_state(
             current_code="class X: pass",

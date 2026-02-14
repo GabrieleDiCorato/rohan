@@ -15,7 +15,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from rohan.config import SimulationSettings
 from rohan.framework.analysis_service import AnalysisService
 from rohan.framework.prompts import format_interpreter_prompt
-from rohan.llm.factory import get_analysis_model, get_codegen_model, get_judge_model
+from rohan.llm.factory import (
+    get_analysis_model,
+    get_codegen_model,
+    get_judge_model,
+    get_structured_model,
+)
 from rohan.llm.models import (
     AggregatedFeedback,
     GeneratedStrategy,
@@ -82,14 +87,13 @@ def writer_node(state: RefinementState) -> dict:
     )
 
     model = get_codegen_model()
-    structured = model.with_structured_output(GeneratedStrategy)
-    raw_result = structured.invoke(
+    structured = get_structured_model(model, GeneratedStrategy)
+    result = structured.invoke(
         [
             SystemMessage(content=WRITER_SYSTEM),
             HumanMessage(content=human_msg),
         ]
     )
-    result = raw_result if isinstance(raw_result, GeneratedStrategy) else GeneratedStrategy(**raw_result)  # type: ignore[arg-type]
 
     logger.info("Writer produced class %r (%d chars)", result.class_name, len(result.code))
 
@@ -319,7 +323,6 @@ def explainer_node(state: RefinementState) -> dict:
     logger.info("Explainer node — %d scenario(s)", len(scenario_results))
 
     model = get_analysis_model()
-    structured = model.with_structured_output(ScenarioExplanation)
     explanations: list[ScenarioExplanation] = []
 
     for sr in scenario_results:
@@ -339,13 +342,13 @@ def explainer_node(state: RefinementState) -> dict:
         )
 
         try:
-            raw_result = structured.invoke(
+            structured = get_structured_model(model, ScenarioExplanation)
+            result = structured.invoke(
                 [
                     SystemMessage(content=EXPLAINER_SYSTEM),
                     HumanMessage(content=human_msg),
                 ]
             )
-            result = raw_result if isinstance(raw_result, ScenarioExplanation) else ScenarioExplanation(**raw_result)  # type: ignore[arg-type]
             result.scenario_name = sr.scenario_name
             explanations.append(result)
         except Exception as exc:
@@ -428,16 +431,15 @@ def aggregator_node(state: RefinementState) -> dict:
     )
 
     model = get_judge_model()
-    structured = model.with_structured_output(JudgeVerdict)
+    structured = get_structured_model(model, JudgeVerdict)
 
     try:
-        raw_verdict = structured.invoke(
+        verdict = structured.invoke(
             [
                 SystemMessage(content=AGGREGATOR_SYSTEM),
                 HumanMessage(content=human_msg),
             ]
         )
-        verdict = raw_verdict if isinstance(raw_verdict, JudgeVerdict) else JudgeVerdict(**raw_verdict)  # type: ignore[arg-type]
     except Exception as exc:
         logger.error("Judge failed: %s", exc)
         verdict = JudgeVerdict(
@@ -452,9 +454,7 @@ def aggregator_node(state: RefinementState) -> dict:
         verdict=verdict,
         cross_scenario_patterns=[obs for exp in explanations for obs in exp.key_observations],
         unified_feedback=(
-            f"Score: {verdict.score}/10 ({verdict.comparison}). "
-            f"{verdict.reasoning}\n\n"
-            "Consolidated recommendations:\n" + "\n".join(f"- {r}" for exp in explanations for r in exp.recommendations)
+            f"Score: {verdict.score}/10 ({verdict.comparison}). {verdict.reasoning}\n\nConsolidated recommendations:\n" + "\n".join(f"- {r}" for exp in explanations for r in exp.recommendations)
         ),
     )
 

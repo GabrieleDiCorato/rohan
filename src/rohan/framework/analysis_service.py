@@ -99,13 +99,16 @@ class AnalysisService:
 
         # --- Mark-to-market ---
         l1 = result.get_order_book_l1()
+        last_mid = 0.0
         if not l1.empty:
-            last_row = l1.iloc[-1]
-            last_mid = float((last_row["bid_price"] + last_row["ask_price"]) / 2)
-        else:
-            last_mid = 0.0
+            # Outer-merged L1 may have NaN bid/ask at the tail; use
+            # the last row where BOTH sides are present.
+            clean = l1.dropna(subset=["bid_price", "ask_price"])
+            if not clean.empty:
+                last_row = clean.iloc[-1]
+                last_mid = float((last_row["bid_price"] + last_row["ask_price"]) / 2)
 
-        ending_value = ending_cash + (inventory * last_mid)
+        ending_value = ending_cash + inventory * last_mid
         total_pnl = ending_value - initial_cash
 
         # --- Execution stats ---
