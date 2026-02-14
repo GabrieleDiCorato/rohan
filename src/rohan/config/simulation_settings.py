@@ -77,7 +77,7 @@ class SimulationSettings(BaseSettings):
         env_ignore_empty=False,  # do not ignore empty environment variables
         enable_decoding=False,  # disable JSON parsing of all fields
         # alias_generator=AliasChoices.SNAKE_CASE,
-        extra="forbid",  # forbid extra fields not defined in the model,
+        extra="ignore",  # ignore extra fields from shared .env file (LLM, DB keys)
         use_enum_values=True,  # use enum values instead of names
         env_parse_enums=True,  # parse enums from environment variables
     )
