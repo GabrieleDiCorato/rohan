@@ -9,8 +9,8 @@ keywords = ["trading", "llm", "agents", "reinforcement-learning", "risk-optimiza
 
 dependencies = [
     "abides-rohan",
-    "numpy>=2.4.1",
-    "pandas>=3.0.0",
+    "numpy>=1.26.0",
+    "pandas>=2.2.0,<3.0.0",
     "pandera>=0.22.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
@@ -46,6 +46,11 @@ dev = [
 test = [
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
+]
+ui = [
+    "streamlit>=1.42.0",
+    "altair>=5.0.0",
+    "plotly>=6.5.2",
 ]
 
 [build-system]
@@ -127,4 +132,4 @@ show_missing = true
 skip_covered = false
 
 [tool.uv.sources]
-abides-rohan = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git", rev = "v1.2.5-rohan" }
+abides-rohan = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git", rev = "v1.2.6-rohan" }
