@@ -248,6 +248,7 @@ class AbidesConfigMapper:
                     symbol=ticker,
                     starting_cash=starting_cash,
                     wake_up_freq="1S",
+                    order_book_depth=10,
                     log_orders=log_orders,
                     random_state=random_state_handler.get_random_state(),
                 )

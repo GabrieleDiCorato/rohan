@@ -35,15 +35,18 @@ class StrategicAgentAdapter(TradingAgent):
     """ABIDES TradingAgent that wraps a StrategicAgent protocol implementation.
 
     This adapter:
-    1. Subscribes to L1 market data during kernel_starting
+    1. Requests market data (with configurable depth) on every wakeup
     2. Translates ABIDES messages to StrategicAgent callbacks
     3. Executes OrderActions returned by the strategy
     4. Fires ``on_order_update`` on fills / cancellations
+    5. Tracks cumulative ``filled_quantity`` for partial fills
 
     Lifecycle mapping:
         kernel_starting()                        → strategy.initialize()
+        wakeup()                                 → strategy.on_tick()
         receive_message(QuerySpreadResponseMsg)  → strategy.on_market_data()
         order_executed() / order_cancelled()      → strategy.on_order_update()
+        kernel_stopping()                        → strategy.on_simulation_end()
 
     Performance:
         An incremental ``_open_orders_cache`` avoids rebuilding the full
@@ -59,6 +62,7 @@ class StrategicAgentAdapter(TradingAgent):
         symbol: str,
         starting_cash: int,
         wake_up_freq: str = "1S",
+        order_book_depth: int = 10,
         log_orders: bool = True,
         random_state=None,
     ):
@@ -73,10 +77,14 @@ class StrategicAgentAdapter(TradingAgent):
         self.strategy: StrategicAgent = strategy
         self.symbol: str = symbol
         self.wake_up_freq_ns: int = str_to_ns(wake_up_freq)
+        self.order_book_depth: int = order_book_depth
         self._initialized: bool = False
 
         # Incremental cache: order_id → protocol Order
         self._open_orders_cache: dict[int, Order] = {}
+
+        # Cumulative fill tracking: order_id → total shares filled so far
+        self._filled_quantities: dict[int, int] = {}
 
     def get_wake_frequency(self) -> int:
         """Return the wake-up frequency in nanoseconds (required by TradingAgent)."""
@@ -98,12 +106,39 @@ class StrategicAgentAdapter(TradingAgent):
 
         self.set_wakeup(start_time + self.wake_up_freq_ns)
 
+    def kernel_stopping(self) -> None:
+        """Called when the kernel stops. Notify strategy and log final state."""
+        # Build final snapshot and notify the strategy
+        if self._initialized:
+            final_state = self._build_market_state(self.current_time)
+            self.strategy.on_simulation_end(final_state)
+
+            # Log structured final metrics for post-simulation analysis
+            self.logEvent(
+                "STRATEGY_FINAL_STATE",
+                {
+                    "final_cash": self.holdings.get("CASH", 0),
+                    "final_inventory": self.holdings.get(self.symbol, 0),
+                    "total_fills_tracked": len(self._filled_quantities),
+                },
+            )
+
+        # Base class logs FINAL_HOLDINGS, FINAL_CASH_POSITION, ENDING_CASH
+        super().kernel_stopping()
+
     # ── Wakeup / message handling ─────────────────────────────────────────
 
     def wakeup(self, current_time: int) -> None:
-        """Called periodically. Request market data update."""
+        """Called periodically. Fire on_tick, then request a market data update."""
         super().wakeup(current_time)
-        self.get_current_spread(self.symbol)
+
+        # Time-driven callback: strategy can act on periodic schedule
+        if self._initialized:
+            state = self._build_market_state(current_time)
+            actions = self.strategy.on_tick(state)
+            self._execute_actions(actions)
+
+        self.get_current_spread(self.symbol, depth=self.order_book_depth)
         self.set_wakeup(current_time + self.wake_up_freq_ns)
 
     def receive_message(self, current_time: int, sender_id: int, message) -> None:
@@ -128,22 +163,45 @@ class StrategicAgentAdapter(TradingAgent):
 
         Translates into ``strategy.on_order_update()`` with FILLED / PARTIAL
         status so the strategy can track inventory changes.
+
+        Tracks cumulative ``filled_quantity`` across partial fills.
         """
-        # Determine fill info *before* super() removes the order from self.orders
-        is_full_fill = order.quantity == 0  # ABIDES decrements quantity on partial fills
+        # The incoming `order.quantity` is the number of shares filled *this*
+        # execution.  ABIDES base class then decrements the remaining quantity
+        # on the stored order.  We compute the cumulative fill before super().
+        this_fill_qty = order.quantity
         fill_price = getattr(order, "fill_price", getattr(order, "limit_price", 0))
+
+        # Update cumulative fill count
+        prev_filled = self._filled_quantities.get(order.order_id, 0)
+        cumulative_filled = prev_filled + this_fill_qty
+        self._filled_quantities[order.order_id] = cumulative_filled
 
         super().order_executed(order)
 
+        # After super(), order is removed from self.orders if fully filled,
+        # or its quantity is decremented.  Check if it was a full fill.
+        is_full_fill = order.order_id not in self.orders
+
         # Build protocol Order for strategy callback
         status = OrderStatus.FILLED if is_full_fill else OrderStatus.PARTIAL
-        proto_order = self._abides_to_proto(order, status=status, fill_price=fill_price)
+        proto_order = self._abides_to_proto(
+            order,
+            status=status,
+            fill_price=fill_price,
+            filled_quantity=cumulative_filled,
+        )
 
         if is_full_fill:
             self._open_orders_cache.pop(order.order_id, None)
+            self._filled_quantities.pop(order.order_id, None)
         else:
             # Update cached entry for partial fill
-            self._open_orders_cache[order.order_id] = self._abides_to_proto(order, status=OrderStatus.NEW)
+            self._open_orders_cache[order.order_id] = self._abides_to_proto(
+                order,
+                status=OrderStatus.NEW,
+                filled_quantity=cumulative_filled,
+            )
 
         actions = self.strategy.on_order_update(proto_order)
         self._execute_actions(actions)
@@ -152,9 +210,10 @@ class StrategicAgentAdapter(TradingAgent):
         """Called when an order is cancelled by the exchange."""
         super().order_cancelled(order)
 
+        filled = self._filled_quantities.pop(order.order_id, 0)
         self._open_orders_cache.pop(order.order_id, None)
 
-        proto_order = self._abides_to_proto(order, status=OrderStatus.CANCELLED)
+        proto_order = self._abides_to_proto(order, status=OrderStatus.CANCELLED, filled_quantity=filled)
         actions = self.strategy.on_order_update(proto_order)
         self._execute_actions(actions)
 
@@ -170,9 +229,25 @@ class StrategicAgentAdapter(TradingAgent):
         """Build a MarketState from current TradingAgent state.
 
         Uses the incremental ``_open_orders_cache`` instead of rebuilding
-        the entire list each tick.
+        the entire list each tick.  Includes full order book depth from
+        ``known_bids`` / ``known_asks``.
         """
-        bid, _, ask, _ = self.get_known_bid_ask(self.symbol)
+        # get_known_bid_ask raises KeyError if no data has arrived yet
+        bid: int | None = None
+        ask: int | None = None
+        if self.symbol in self.known_bids:
+            bid, _, ask, _ = self.get_known_bid_ask(self.symbol)
+
+        # Full depth from ABIDES caches (populated by get_current_spread)
+        bid_depth: list[tuple[int, int]] = []
+        raw_bids = self.known_bids.get(self.symbol)
+        if raw_bids:
+            bid_depth = list(raw_bids)
+
+        ask_depth: list[tuple[int, int]] = []
+        raw_asks = self.known_asks.get(self.symbol)
+        if raw_asks:
+            ask_depth = list(raw_asks)
 
         # Populate last_trade from ABIDES TradingAgent tracking dict
         last_trade_price: int | None = None
@@ -185,6 +260,8 @@ class StrategicAgentAdapter(TradingAgent):
             timestamp_ns=current_time,
             best_bid=bid,
             best_ask=ask,
+            bid_depth=bid_depth,
+            ask_depth=ask_depth,
             last_trade=last_trade_price,
             inventory=self.holdings.get(self.symbol, 0),
             cash=self.holdings.get("CASH", 0),
@@ -229,6 +306,7 @@ class StrategicAgentAdapter(TradingAgent):
         *,
         status: OrderStatus = OrderStatus.NEW,
         fill_price: int | None = None,
+        filled_quantity: int = 0,
     ) -> Order:
         """Convert an ABIDES order object to a protocol ``Order``."""
         return Order(
@@ -239,6 +317,6 @@ class StrategicAgentAdapter(TradingAgent):
             price=getattr(abides_order, "limit_price", 0),
             order_type=OrderType.LIMIT,
             status=status,
-            filled_quantity=0,
+            filled_quantity=filled_quantity,
             fill_price=fill_price,
         )

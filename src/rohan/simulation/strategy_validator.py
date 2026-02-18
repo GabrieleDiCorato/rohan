@@ -152,7 +152,13 @@ class StrategyValidator:
             raise TypeError(f"'{class_name}' is not a class")
 
         # Verify it implements the protocol
-        required_methods = ["initialize", "on_market_data", "on_order_update"]
+        required_methods = [
+            "initialize",
+            "on_tick",
+            "on_market_data",
+            "on_order_update",
+            "on_simulation_end",
+        ]
         for method in required_methods:
             if not hasattr(strategy_class, method):
                 raise TypeError(f"Strategy class '{class_name}' missing required method: '{method}'")

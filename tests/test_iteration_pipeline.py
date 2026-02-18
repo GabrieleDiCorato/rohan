@@ -21,6 +21,9 @@ class SimpleStrategy:
     def initialize(self, config: AgentConfig) -> None:
         self.symbol = config.symbol
 
+    def on_tick(self, state: MarketState) -> list[OrderAction]:
+        return []
+
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         if state.best_bid is not None:
             return [
@@ -35,6 +38,9 @@ class SimpleStrategy:
 
     def on_order_update(self, update) -> list[OrderAction]:
         return []
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        pass
 """
 
 # Strategy code with a forbidden import.
@@ -42,8 +48,10 @@ BAD_STRATEGY = """\
 import os
 class EvilStrategy:
     def initialize(self, config): pass
+    def on_tick(self, state): return []
     def on_market_data(self, state): return []
     def on_order_update(self, update): return []
+    def on_simulation_end(self, final_state): pass
 """
 
 

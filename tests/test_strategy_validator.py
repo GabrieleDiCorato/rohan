@@ -16,6 +16,9 @@ class MyStrategy:
     def initialize(self, config: AgentConfig) -> None:
         self.config = config
 
+    def on_tick(self, state: MarketState) -> list[OrderAction]:
+        return []
+
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         # Cancel all stale orders before placing new ones
         actions = [OrderAction.cancel(o.order_id) for o in state.open_orders]
@@ -25,6 +28,9 @@ class MyStrategy:
         if update.status in (OrderStatus.FILLED, OrderStatus.PARTIAL):
             pass  # track inventory
         return []
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        pass
 """
         result = validator.validate(code)
         assert result.is_valid
@@ -99,10 +105,14 @@ class CrashingStrategy:
 class MathStrategy:
     def initialize(self, config):
         pass
+    def on_tick(self, state):
+        return []
     def on_market_data(self, state):
         return []
     def on_order_update(self, update):
         return []
+    def on_simulation_end(self, final_state):
+        pass
     def calc(self):
         return max(1, 2) + min(3, 4)
 """
@@ -118,8 +128,10 @@ class HackerStrategy:
     open('hack.txt', 'w')
 
     def initialize(self, config): pass
+    def on_tick(self, state): return []
     def on_market_data(self, state): return []
     def on_order_update(self, update): return []
+    def on_simulation_end(self, final_state): pass
 """
         # It passes validation (no forbidden imports/attributes),
         # but fails at runtime because 'open' is not in SAFE_BUILTINS

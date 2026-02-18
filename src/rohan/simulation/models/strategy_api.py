@@ -53,12 +53,25 @@ class Order(BaseModel):
 class MarketState(BaseModel):
     """Snapshot of the market visible to the strategy at a given instant.
 
-    Passed to ``StrategicAgent.on_market_data`` on every L1 update.
+    Passed to ``StrategicAgent.on_market_data`` on every market data update
+    and to ``StrategicAgent.on_tick`` on every periodic wakeup.
+
+    ``best_bid`` / ``best_ask`` are the L1 top-of-book.  ``bid_depth`` /
+    ``ask_depth`` expose multi-level order book data (best first, as
+    ``(price_cents, quantity)`` tuples).  Strategies can use either.
     """
 
     timestamp_ns: int = Field(description="Nanoseconds since epoch")
     best_bid: int | None = Field(default=None, description="Best bid price in cents")
     best_ask: int | None = Field(default=None, description="Best ask price in cents")
+    bid_depth: list[tuple[int, int]] = Field(
+        default_factory=list,
+        description="Order book bid levels: [(price_cents, qty), ...], best first",
+    )
+    ask_depth: list[tuple[int, int]] = Field(
+        default_factory=list,
+        description="Order book ask levels: [(price_cents, qty), ...], best first",
+    )
     last_trade: int | None = Field(default=None, description="Last trade price in cents")
     inventory: int = Field(description="Signed position in shares")
     cash: int = Field(description="Available cash in cents")
@@ -134,10 +147,26 @@ class StrategicAgent(Protocol):
         """Called once at the start of the simulation."""
         ...
 
+    def on_tick(self, state: MarketState) -> list[OrderAction]:
+        """Called on every periodic wakeup (time-driven).
+
+        Use this for rebalancing or other time-scheduled logic,
+        independent of market data arrivals.
+        """
+        ...
+
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         """Called when new market data (L1/L2) is received."""
         ...
 
     def on_order_update(self, update: Order) -> list[OrderAction]:
         """Called when an order is filled, partially filled, or cancelled."""
+        ...
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        """Called once at the end of the simulation for cleanup and logging.
+
+        The market is closed at this point — no orders can be placed.
+        Use this to compute final metrics or log strategy state.
+        """
         ...

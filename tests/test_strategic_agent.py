@@ -3,9 +3,12 @@
 These tests verify that:
 1. A StrategicAgent implementation can be injected into the simulation
 2. The strategy receives on_market_data callbacks
-3. OrderActions are executed correctly
-4. Order cancellations work (individual and cancel-all)
-5. on_order_update is called on fills and cancellations
+3. The strategy receives on_tick callbacks (time-driven)
+4. OrderActions are executed correctly
+5. Order cancellations work (individual and cancel-all)
+6. on_order_update is called on fills and cancellations
+7. MarketState includes L2 depth data (bid_depth, ask_depth)
+8. on_simulation_end is called at kernel stop
 
 Performance optimization: Uses shared fixtures to run simulations once per test class,
 reducing from 5 separate simulations to 3 shared ones (~40% faster).
@@ -33,12 +36,19 @@ class CountingStrategy:
     def __init__(self):
         self.initialize_called = False
         self.market_data_count = 0
+        self.tick_count = 0
+        self.simulation_ended = False
+        self.final_state: MarketState | None = None
         self.config: AgentConfig | None = None
         self.last_state: MarketState | None = None
 
     def initialize(self, config: AgentConfig) -> None:
         self.initialize_called = True
         self.config = config
+
+    def on_tick(self, _state: MarketState) -> list[OrderAction]:
+        self.tick_count += 1
+        return []
 
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         self.market_data_count += 1
@@ -47,6 +57,10 @@ class CountingStrategy:
 
     def on_order_update(self, _update: Order) -> list[OrderAction]:
         return []
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        self.simulation_ended = True
+        self.final_state = final_state
 
 
 class SimpleBuyStrategy:
@@ -58,6 +72,9 @@ class SimpleBuyStrategy:
 
     def initialize(self, config: AgentConfig) -> None:
         pass
+
+    def on_tick(self, _state: MarketState) -> list[OrderAction]:
+        return []
 
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         # Only place one order
@@ -77,6 +94,9 @@ class SimpleBuyStrategy:
         self.order_updates.append(update)
         return []
 
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        pass
+
 
 class CancellingStrategy:
     """A strategy that places an order, then cancels it on the next tick.
@@ -95,6 +115,9 @@ class CancellingStrategy:
 
     def initialize(self, config: AgentConfig) -> None:
         pass
+
+    def on_tick(self, _state: MarketState) -> list[OrderAction]:
+        return []
 
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         self.ticks += 1
@@ -124,6 +147,9 @@ class CancellingStrategy:
             self.cancelled_ids.append(update.order_id)
         return []
 
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        pass
+
 
 class CancelAllStrategy:
     """A strategy that places orders then uses cancel_all() to clear them."""
@@ -138,6 +164,9 @@ class CancelAllStrategy:
     def initialize(self, config: AgentConfig) -> None:
         pass
 
+    def on_tick(self, _state: MarketState) -> list[OrderAction]:
+        return []
+
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         self.ticks += 1
 
@@ -145,9 +174,24 @@ class CancelAllStrategy:
             # Place 3 orders, each 1 cent below ask
             self.orders_placed = True
             return [
-                OrderAction(side=Side.BID, quantity=1, price=state.best_ask - 1, order_type=OrderType.LIMIT),
-                OrderAction(side=Side.BID, quantity=1, price=state.best_ask - 2, order_type=OrderType.LIMIT),
-                OrderAction(side=Side.BID, quantity=1, price=state.best_ask - 3, order_type=OrderType.LIMIT),
+                OrderAction(
+                    side=Side.BID,
+                    quantity=1,
+                    price=state.best_ask - 1,
+                    order_type=OrderType.LIMIT,
+                ),
+                OrderAction(
+                    side=Side.BID,
+                    quantity=1,
+                    price=state.best_ask - 2,
+                    order_type=OrderType.LIMIT,
+                ),
+                OrderAction(
+                    side=Side.BID,
+                    quantity=1,
+                    price=state.best_ask - 3,
+                    order_type=OrderType.LIMIT,
+                ),
             ]
 
         if self.orders_placed and not self.cancel_sent and len(state.open_orders) >= 3:
@@ -165,6 +209,9 @@ class CancelAllStrategy:
         if update.status == OrderStatus.CANCELLED:
             self.cancel_updates.append(update)
         return []
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        pass
 
 
 # Shared simulation settings for tests (5 minutes - minimum required)
@@ -306,6 +353,41 @@ class TestStrategyInjection:
         # Note: open_order_count_after_cancel is checked immediately after sending cancel_all,
         # so it may still show orders (async). The important test is the cancel callbacks.
 
+    def test_on_tick_called_on_wakeup(self, counting_strategy_result):
+        """Test that on_tick is called at least once (wakeup-driven)."""
+        result, strategy = counting_strategy_result
+
+        assert result.error is None, f"Simulation failed: {result.error}"
+        assert strategy.tick_count > 0, "Strategy did not receive any on_tick callbacks"
+
+    def test_market_state_includes_l2_depth(self, counting_strategy_result):
+        """Test that MarketState includes bid_depth and ask_depth."""
+        result, strategy = counting_strategy_result
+
+        assert result.error is None, f"Simulation failed: {result.error}"
+        state = strategy.last_state
+        assert state is not None
+
+        # After a 5-minute sim, there should be order book depth
+        assert isinstance(state.bid_depth, list), "bid_depth should be a list"
+        assert isinstance(state.ask_depth, list), "ask_depth should be a list"
+
+        # At least some ticks should have had depth
+        # (early ticks may not have any data yet)
+        if state.best_bid is not None:
+            assert len(state.bid_depth) > 0, "bid_depth should not be empty when best_bid is set"
+        if state.best_ask is not None:
+            assert len(state.ask_depth) > 0, "ask_depth should not be empty when best_ask is set"
+
+    def test_on_simulation_end_called(self, counting_strategy_result):
+        """Test that on_simulation_end is called at kernel stop."""
+        result, strategy = counting_strategy_result
+
+        assert result.error is None, f"Simulation failed: {result.error}"
+        assert strategy.simulation_ended, "on_simulation_end was not called"
+        assert strategy.final_state is not None, "Final state was not passed"
+        assert strategy.final_state.cash > 0, "Final cash should be positive"
+
 
 class TestStrategicAgentAdapter:
     """Unit tests for the StrategicAgentAdapter class (no simulation needed)."""
@@ -322,6 +404,7 @@ class TestStrategicAgentAdapter:
             strategy=strategy,
             symbol="ABM",
             starting_cash=10_000_000,
+            order_book_depth=10,
             random_state=np.random.RandomState(42),  # Required by TradingAgent
         )
 
@@ -329,3 +412,5 @@ class TestStrategicAgentAdapter:
         assert adapter.starting_cash == 10_000_000
         assert adapter.strategy is strategy
         assert adapter._open_orders_cache == {}
+        assert adapter._filled_quantities == {}
+        assert adapter.order_book_depth == 10

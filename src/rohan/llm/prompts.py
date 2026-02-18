@@ -24,6 +24,11 @@ class MyStrategy:
         \"\"\"Called once before the simulation starts.\"\"\"
         ...
 
+    def on_tick(self, state: MarketState) -> list[OrderAction]:
+        \"\"\"Called on every periodic wakeup (time-driven).
+        Use for rebalancing or scheduled logic.\"\"\"
+        ...
+
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         \"\"\"Called on every market data update. Return a list of order actions.\"\"\"
         ...
@@ -31,11 +36,16 @@ class MyStrategy:
     def on_order_update(self, update: Order) -> list[OrderAction]:
         \"\"\"Called when an existing order is filled, partially filled, or cancelled.\"\"\"
         ...
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        \"\"\"Called once at end of simulation. No orders can be placed.\"\"\"
+        ...
 ```
 
 ## Types (all prices in **integer cents**, quantities in **shares**)
-- ``MarketState``: timestamp_ns, best_bid, best_ask, last_trade,
-  inventory, cash, open_orders (list[Order])
+- ``MarketState``: timestamp_ns, best_bid, best_ask, bid_depth (list of
+  (price, qty) tuples), ask_depth (list of (price, qty) tuples),
+  last_trade, inventory, cash, open_orders (list[Order])
 - ``OrderAction``: side (BID/ASK), quantity, price (required for LIMIT,
   forbidden for MARKET), order_type (LIMIT/MARKET), cancel_order_id (optional)
 - ``AgentConfig``: starting_cash, symbol, latency_ns

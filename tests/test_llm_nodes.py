@@ -37,11 +37,17 @@ class TestStrategy:
     def initialize(self, config: AgentConfig) -> None:
         self.config = config
 
+    def on_tick(self, state: MarketState) -> list[OrderAction]:
+        return []
+
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         return []
 
     def on_order_update(self, update: Order) -> list[OrderAction]:
         return []
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        pass
 """
 
 INVALID_STRATEGY = """\
