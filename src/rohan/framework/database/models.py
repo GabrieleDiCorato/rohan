@@ -161,3 +161,90 @@ class Artifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     run: Mapped["SimulationRun"] = relationship(back_populates="artifacts")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Saved Scenarios  (standalone, reusable across Terminal & Refinement Lab)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class SavedScenario(Base):
+    """A reusable simulation configuration saved by the user."""
+
+    __tablename__ = "saved_scenarios"
+
+    scenario_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    full_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Refinement Lab Persistence  (decoupled from agentic workflow internals)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class RefinementSession(Base):
+    """A complete Refinement Lab run — goal, config, and outcome metadata."""
+
+    __tablename__ = "refinement_sessions"
+
+    session_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    max_iterations: Mapped[int] = mapped_column(Integer, nullable=False)
+    scenario_configs: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)  # list[ScenarioConfig] serialised
+    status: Mapped[str] = mapped_column(String, nullable=False, default="done")
+    final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    progress_log: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=[])  # list[str]
+    final_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    final_class_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    final_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    iterations: Mapped[list["RefinementIteration"]] = relationship(back_populates="session", cascade="all, delete-orphan", passive_deletes=True, order_by="RefinementIteration.iteration_number")
+
+
+class RefinementIteration(Base):
+    """One iteration of a refinement loop — code, score, reasoning."""
+
+    __tablename__ = "refinement_iterations"
+
+    iteration_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("refinement_sessions.session_id", ondelete="CASCADE"), nullable=False)
+    iteration_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    strategy_code: Mapped[str] = mapped_column(Text, nullable=False)
+    class_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    judge_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    judge_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    aggregated_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    session: Mapped["RefinementSession"] = relationship(back_populates="iterations")
+    scenario_results: Mapped[list["RefinementScenarioResult"]] = relationship(back_populates="iteration", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class RefinementScenarioResult(Base):
+    """Per-scenario metrics and charts for a refinement iteration."""
+
+    __tablename__ = "refinement_scenario_results"
+
+    result_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    iteration_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("refinement_iterations.iteration_id", ondelete="CASCADE"), nullable=False)
+    scenario_name: Mapped[str] = mapped_column(String, nullable=False)
+    total_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sharpe_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_drawdown: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trade_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    volatility_delta_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spread_delta_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    spread_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    volume_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    iteration: Mapped["RefinementIteration"] = relationship(back_populates="scenario_results")

@@ -45,7 +45,7 @@ def make_explainer_tools(output: SimulationOutput) -> list[Any]:
         # Find closest timestamp
         idx = (l1["time"] - timestamp_ns).abs().idxmin()
         row = l1.loc[idx]
-        return f"Time: {row['time']}\n" f"Bid: {row['bid_price']} (qty={row['bid_qty']})\n" f"Ask: {row['ask_price']} (qty={row['ask_qty']})\n" f"Mid: {(row['bid_price'] + row['ask_price']) / 2:.0f}"
+        return f"Time: {row['time']}\nBid: {row['bid_price']} (qty={row['bid_qty']})\nAsk: {row['ask_price']} (qty={row['ask_qty']})\nMid: {(row['bid_price'] + row['ask_price']) / 2:.0f}"
 
     @tool
     def get_agent_trades(agent_id: int) -> str:

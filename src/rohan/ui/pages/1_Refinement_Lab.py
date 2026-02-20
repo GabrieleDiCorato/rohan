@@ -6,10 +6,12 @@ Autonomous LLM-driven strategy optimization.  This page lets you:
 2. Launch the refinement loop (Writer → Validator → Executor → Explainer → Judge)
 3. Monitor progress in real-time as each agent completes
 4. Inspect iteration history, metrics, and the final strategy code
+5. Save / load complete runs to the database
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import traceback
@@ -18,8 +20,17 @@ from typing import Any
 import plotly.graph_objects as go
 import streamlit as st
 
+from rohan.config import SimulationSettings
+from rohan.framework.database import initialize_database
+from rohan.framework.refinement_repository import (
+    IterationData,
+    RefinementRepository,
+    ScenarioResultData,
+)
+from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.llm.graph import build_refinement_graph
 from rohan.llm.state import RefinementState, ScenarioConfig
+from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.theme import COLORS, apply_theme
 
 logger = logging.getLogger(__name__)
@@ -36,6 +47,13 @@ st.set_page_config(
 )
 
 apply_theme()
+
+# Ensure DB tables exist
+with contextlib.suppress(Exception):
+    initialize_database()
+
+_scenario_repo = ScenarioRepository()
+_refinement_repo = RefinementRepository()
 
 # ============================================================================
 # CONSTANTS
@@ -71,6 +89,12 @@ _DEFAULTS: dict[str, Any] = {
     "refine_progress": [],
     "refine_timestamp": None,
     "refine_error": None,
+    # ── Dirty tracking ──
+    "refine_is_dirty": False,
+    "refine_saved": False,
+    "refine_saved_id": None,
+    "refine_prev_goal": "",
+    "refine_prev_scenarios": [],
 }
 
 for _key, _val in _DEFAULTS.items():
@@ -96,14 +120,45 @@ def _card(label: str, value: str, accent: str) -> str:
     """
 
 
-def _build_scenarios(preset: str) -> list[ScenarioConfig]:
-    """Convert a UI preset choice into a scenario list."""
-    if preset == "Multi-Scenario":
-        return [
-            ScenarioConfig(name="default"),
-            ScenarioConfig(name="volatile", config_override={"seed": 99}),
-        ]
-    return [ScenarioConfig(name="default")]
+def _build_scenarios_from_selection(selected: list[str]) -> list[ScenarioConfig]:
+    """Convert the multi-select result into a list of ScenarioConfig.
+
+    Preset names use a diff vs. default SimulationSettings.
+    Saved scenarios carry the full config as override.
+    """
+    default_dump = SimulationSettings().model_dump()
+    configs: list[ScenarioConfig] = []
+
+    for name in selected:
+        if name.startswith("💾 "):
+            # Saved scenario — load full config from DB
+            raw_name = name[len("💾 ") :]
+            sc = _scenario_repo.get_scenario_by_name(raw_name)
+            if sc:
+                configs.append(ScenarioConfig(name=raw_name, config_override=sc.full_config))
+            else:
+                configs.append(ScenarioConfig(name=raw_name))
+        elif name.startswith("📦 "):
+            # Preset — compute diff from defaults
+            raw_name = name[len("📦 ") :]
+            preset_settings = get_preset_config(raw_name)
+            preset_dump = preset_settings.model_dump()
+            override = _dict_diff(default_dump, preset_dump)
+            configs.append(ScenarioConfig(name=raw_name, config_override=override))
+        else:
+            # Plain default
+            configs.append(ScenarioConfig(name=name))
+
+    return configs if configs else [ScenarioConfig(name="default")]
+
+
+def _dict_diff(base: dict, other: dict) -> dict:
+    """Return only the keys in *other* that differ from *base* (shallow top-level)."""
+    diff: dict[str, Any] = {}
+    for k, v in other.items():
+        if k not in base or base[k] != v:
+            diff[k] = v
+    return diff
 
 
 def _pct(v: float | None) -> str:
@@ -117,6 +172,90 @@ def _dollar(v: float | None) -> str:
     if v is None:
         return "N/A"
     return f"${v / 100:,.2f}"
+
+
+def _reset_run_state() -> None:
+    """Clear all run-related session state (called before new run / load)."""
+    st.session_state.refine_final_state = None
+    st.session_state.refine_duration = None
+    st.session_state.refine_progress = []
+    st.session_state.refine_timestamp = None
+    st.session_state.refine_error = None
+    st.session_state.refine_saved = False
+    st.session_state.refine_saved_id = None
+    st.session_state.refine_is_dirty = False
+
+
+def _save_current_run(run_name: str | None = None) -> bool:
+    """Persist the current refine_final_state to the DB. Returns success."""
+    fs = st.session_state.refine_final_state
+    if fs is None:
+        return False
+
+    iterations_data: list[IterationData] = []
+    for it in fs.get("iterations", []):
+        sc_results = [
+            ScenarioResultData(
+                scenario_name=sm.scenario_name,
+                total_pnl=sm.total_pnl,
+                sharpe_ratio=sm.sharpe_ratio,
+                max_drawdown=sm.max_drawdown,
+                trade_count=sm.trade_count,
+                volatility_delta_pct=sm.volatility_delta_pct,
+                spread_delta_pct=sm.spread_delta_pct,
+                price_chart_b64=sm.price_chart_b64,
+                spread_chart_b64=sm.spread_chart_b64,
+                volume_chart_b64=sm.volume_chart_b64,
+            )
+            for sm in it.scenario_metrics.values()
+        ]
+        iterations_data.append(
+            IterationData(
+                iteration_number=it.iteration_number,
+                strategy_code=it.strategy_code,
+                class_name=fs.get("current_class_name"),
+                reasoning=fs.get("current_reasoning"),
+                judge_score=it.judge_score,
+                judge_reasoning=it.judge_reasoning,
+                aggregated_explanation=it.aggregated_explanation,
+                scenario_results=sc_results,
+            )
+        )
+
+    goal = fs.get("goal", "")
+    if not run_name:
+        ts = st.session_state.refine_timestamp or time.strftime("%Y-%m-%d %H:%M")
+        run_name = f"{goal[:50]} — {ts}"
+
+    # Serialize scenario configs
+    scenarios_raw = fs.get("scenarios", [])
+    scenario_dicts = [s.model_dump() if hasattr(s, "model_dump") else s for s in scenarios_raw]
+
+    iterations = fs.get("iterations", [])
+    final_score = iterations[-1].judge_score if iterations else None
+
+    try:
+        saved = _refinement_repo.save_session(
+            name=run_name,
+            goal=goal,
+            max_iterations=fs.get("max_iterations", 3),
+            scenario_configs=scenario_dicts,
+            status=fs.get("status", "done"),
+            final_score=final_score,
+            total_duration=st.session_state.refine_duration,
+            progress_log=st.session_state.refine_progress or [],
+            final_code=fs.get("current_code"),
+            final_class_name=fs.get("current_class_name"),
+            final_reasoning=fs.get("current_reasoning"),
+            iterations=iterations_data,
+        )
+        st.session_state.refine_saved = True
+        st.session_state.refine_saved_id = saved.session_id
+        st.session_state.refine_is_dirty = False
+        return True
+    except Exception as exc:
+        logger.error("Failed to save refinement run: %s", exc)
+        return False
 
 
 # ============================================================================
@@ -165,6 +304,7 @@ with st.sidebar:
     for _name, _goal_text in EXAMPLE_GOALS.items():
         if st.button(_name, use_container_width=True, key=f"eg_{_name}"):
             st.session_state.refine_goal = _goal_text
+            st.session_state.goal_input = _goal_text
             st.rerun()
 
     st.markdown("---")
@@ -221,7 +361,7 @@ goal = st.text_area(
 st.session_state.refine_goal = goal
 
 # Controls row
-ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([1, 1, 2])
+ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([1, 2, 1, 1])
 
 with ctrl_col1:
     max_iterations = st.number_input(
@@ -235,26 +375,158 @@ with ctrl_col1:
     st.session_state.refine_max_iterations = max_iterations
 
 with ctrl_col2:
-    scenario_preset = st.selectbox(
+    # Build scenario options: presets + saved
+    _preset_names = get_preset_names()
+    _preset_options = [f"📦 {n}" for n in _preset_names]
+    try:
+        _saved_scenarios = _scenario_repo.list_scenarios()
+        _saved_options = [f"💾 {s.name}" for s in _saved_scenarios]
+    except Exception:
+        _saved_options = []
+    _all_scenario_options = _preset_options + _saved_options
+
+    selected_scenarios = st.multiselect(
         "Scenarios",
-        options=["Default (single)", "Multi-Scenario"],
-        key="scenario_select",
+        options=_all_scenario_options,
+        default=[_all_scenario_options[0]] if _all_scenario_options else [],
+        key="scenario_multiselect",
+        help="Select one or more scenarios to run the strategy against",
     )
 
 with ctrl_col3:
-    # Vertical alignment spacer
     st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
-
-    can_launch = bool(goal.strip()) and not st.session_state.refine_running
+    can_launch = bool(goal.strip()) and not st.session_state.refine_running and len(selected_scenarios) > 0
     launch_pressed = st.button(
-        "🚀 LAUNCH REFINEMENT",
+        "🚀 LAUNCH",
         type="primary",
         use_container_width=True,
         disabled=not can_launch,
     )
 
+with ctrl_col4:
+    st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
+    load_pressed = st.button(
+        "📂 Load Run",
+        use_container_width=True,
+    )
+
 if not goal.strip() and st.session_state.refine_final_state is None:
     st.caption("👆 Enter a strategy goal above to get started. Try one of the **example goals** in the sidebar.")
+
+
+# ============================================================================
+# DIRTY TRACKING
+# ============================================================================
+
+# Detect if inputs changed after a run completed
+if st.session_state.refine_final_state is not None and not st.session_state.refine_saved:
+    _goal_changed = goal != st.session_state.refine_prev_goal
+    _scenarios_changed = sorted(selected_scenarios) != sorted(st.session_state.refine_prev_scenarios)
+    if _goal_changed or _scenarios_changed:
+        st.session_state.refine_is_dirty = True
+
+
+# ============================================================================
+# DIALOGS
+# ============================================================================
+
+
+@st.dialog("⚠️ Unsaved Changes")
+def _unsaved_changes_dialog(action: str) -> None:
+    """Show save-before-reset prompt. *action* = 'launch' or 'load'."""
+    st.markdown("You have **unsaved results** from the current run. What would you like to do?")
+
+    d_col1, d_col2, d_col3 = st.columns(3)
+    with d_col1:
+        if st.button("💾 Save & Continue", use_container_width=True, type="primary"):
+            if _save_current_run():
+                st.toast("✅ Run saved!")
+            _reset_run_state()
+            if action == "launch":
+                st.session_state._pending_launch = True
+            elif action == "load":
+                st.session_state._pending_load = True
+            st.rerun()
+    with d_col2:
+        if st.button("🗑️ Discard", use_container_width=True):
+            _reset_run_state()
+            if action == "launch":
+                st.session_state._pending_launch = True
+            elif action == "load":
+                st.session_state._pending_load = True
+            st.rerun()
+    with d_col3:
+        if st.button("Cancel", use_container_width=True):
+            st.rerun()
+
+
+@st.dialog("📂 Load Past Run", width="large")
+def _load_run_dialog() -> None:
+    """Browse and load a past refinement run from the database."""
+    try:
+        sessions = _refinement_repo.list_sessions()
+    except Exception as exc:
+        st.error(f"Could not load past runs: {exc}")
+        return
+
+    if not sessions:
+        st.info("No saved runs found. Run a refinement and save it first.")
+        return
+
+    st.markdown(f"**{len(sessions)} saved run(s)**")
+    st.markdown("---")
+
+    for s in sessions:
+        s_col1, s_col2, s_col3 = st.columns([4, 1, 1])
+        with s_col1:
+            score_str = f"{s.final_score:.1f}/10" if s.final_score is not None else "N/A"
+            st.markdown(f"**{s.name}**")
+            st.caption(f"Score: {score_str} · {s.iteration_count} iter · {s.status} · {s.created_at:%Y-%m-%d %H:%M}")
+        with s_col2:
+            if st.button("Load", key=f"dlg_load_{s.session_id}", use_container_width=True, type="primary"):
+                loaded = _refinement_repo.load_session(s.session_id)
+                if loaded:
+                    for k, v in loaded.items():
+                        st.session_state[k] = v
+                    # Sync prev-tracking to loaded values
+                    st.session_state.refine_prev_goal = loaded.get("refine_goal", "")
+                    st.session_state.refine_prev_scenarios = []
+                    st.session_state.refine_running = False
+                    st.toast("✅ Run loaded!")
+                    st.rerun()
+                else:
+                    st.error("Failed to load run.")
+        with s_col3:
+            if st.button("🗑️", key=f"dlg_del_{s.session_id}", use_container_width=True, help="Delete this run"):
+                _refinement_repo.delete_session(s.session_id)
+                st.rerun()
+
+
+# ============================================================================
+# DIALOG TRIGGERS
+# ============================================================================
+
+_has_unsaved_results = st.session_state.refine_final_state is not None and not st.session_state.refine_saved
+
+# Load button logic
+if load_pressed:
+    if _has_unsaved_results:
+        _unsaved_changes_dialog("load")
+    else:
+        st.session_state._pending_load = True
+        st.rerun()
+
+if st.session_state.pop("_pending_load", False):
+    _load_run_dialog()
+
+# Launch button logic — guard for unsaved results
+if launch_pressed:
+    if _has_unsaved_results:
+        _unsaved_changes_dialog("launch")
+    else:
+        st.session_state._pending_launch = True
+        st.rerun()
+
 
 st.markdown("---")
 
@@ -401,6 +673,10 @@ def _run_refinement(
         st.session_state.refine_progress = progress
         st.session_state.refine_timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         st.session_state.refine_error = None
+        st.session_state.refine_saved = False
+        st.session_state.refine_is_dirty = False
+        st.session_state.refine_prev_goal = goal
+        st.session_state.refine_prev_scenarios = sorted(selected_scenarios)
 
     except Exception as exc:
         total = time.time() - t0
@@ -420,9 +696,10 @@ def _run_refinement(
 
 
 # ── Launch trigger ────────────────────────────────────────────────────────
-if launch_pressed:
+if st.session_state.pop("_pending_launch", False) or (launch_pressed and not _has_unsaved_results):
+    _reset_run_state()
     st.session_state.refine_running = True
-    _run_refinement(goal, max_iterations, _build_scenarios(scenario_preset))
+    _run_refinement(goal, max_iterations, _build_scenarios_from_selection(selected_scenarios))
 
 
 # ============================================================================
@@ -433,6 +710,38 @@ final_state: dict[str, Any] | None = st.session_state.refine_final_state
 
 if final_state is not None:
     iterations = final_state.get("iterations", [])
+
+    # ── Save bar ──────────────────────────────────────────────────────
+    save_col1, save_col2, save_col3 = st.columns([3, 1, 1])
+    with save_col1:
+        _run_name = st.text_input(
+            "Run name",
+            value="" if not st.session_state.refine_saved else "✅ Saved",
+            placeholder="e.g. MM strategy v3",
+            key="save_run_name",
+            label_visibility="collapsed",
+            disabled=st.session_state.refine_saved,
+        )
+    with save_col2:
+        _save_btn = st.button(
+            "✅ Saved" if st.session_state.refine_saved else "💾 Save Run",
+            use_container_width=True,
+            disabled=st.session_state.refine_saved,
+            type="primary" if not st.session_state.refine_saved else "secondary",
+        )
+    with save_col3:
+        if st.session_state.refine_is_dirty:
+            st.markdown(
+                f"<div style='padding:8px; color:{COLORS['secondary']};'>⚠️ Unsaved changes</div>",
+                unsafe_allow_html=True,
+            )
+
+    if _save_btn and not st.session_state.refine_saved:
+        if _save_current_run(_run_name if _run_name and _run_name.strip() else None):
+            st.toast("✅ Run saved successfully!")
+            st.rerun()
+        else:
+            st.error("Failed to save run.")
 
     tab_monitor, tab_results, tab_strategy = st.tabs(["📡 Monitor", "📊 Results", "💻 Strategy"])
 
@@ -610,6 +919,21 @@ if final_state is not None:
                                 "Vol Δ%",
                                 _pct(sm.volatility_delta_pct),
                             )
+
+                        # Simulation charts
+                        import base64
+
+                        chart_cols = st.columns(3)
+                        chart_data = [
+                            ("📈 Price Series", sm.price_chart_b64),
+                            ("📊 Bid-Ask Spread", sm.spread_chart_b64),
+                            ("📉 Volume at BBO", sm.volume_chart_b64),
+                        ]
+                        for col, (chart_label, chart_b64) in zip(chart_cols, chart_data, strict=False):
+                            with col:
+                                if chart_b64:
+                                    st.caption(chart_label)
+                                    st.image(base64.b64decode(chart_b64))
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 3 — Strategy

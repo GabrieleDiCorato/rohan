@@ -41,6 +41,11 @@ class ScenarioResult(BaseModel):
     trade_count: int = 0
     error: str | None = None
 
+    # Base64-encoded PNG charts (populated by executor)
+    price_chart_b64: str | None = None
+    spread_chart_b64: str | None = None
+    volume_chart_b64: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # Graph state

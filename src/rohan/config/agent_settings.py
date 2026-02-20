@@ -63,7 +63,7 @@ class ValueAgentSettings(BaseAgentSettings):
         if v <= 0:
             raise ValueError(f"r_bar must be positive, got {v}")
         if v > 10_000_000:
-            raise ValueError(f"r_bar too large ({v:,}). Must be ≤ 10,000,000 cents ($100,000) to prevent int32 overflow in ABIDES. " f"For reference: r_bar=100,000 represents a $1,000 stock.")
+            raise ValueError(f"r_bar too large ({v:,}). Must be ≤ 10,000,000 cents ($100,000) to prevent int32 overflow in ABIDES. For reference: r_bar=100,000 represents a $1,000 stock.")
         return v
 
     @field_validator("lambda_a")
@@ -73,7 +73,7 @@ class ValueAgentSettings(BaseAgentSettings):
         if v <= 0:
             raise ValueError(f"lambda_a must be positive, got {v}")
         if v > 1e-3:
-            raise ValueError(f"lambda_a too large ({v}). Recommended range: 1e-6 to 1e-4. " f"Very large values can cause numerical issues.")
+            raise ValueError(f"lambda_a too large ({v}). Recommended range: 1e-6 to 1e-4. Very large values can cause numerical issues.")
         return v
 
     @field_validator("kappa")

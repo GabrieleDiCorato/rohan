@@ -24,48 +24,48 @@ def apply_theme():
         <style>
         /* Global Styles */
         .stApp {{
-            background-color: {COLORS['background']};
-            color: {COLORS['text']};
+            background-color: {COLORS["background"]};
+            color: {COLORS["text"]};
             font-family: 'Courier New', monospace;
         }}
 
         /* Sidebar */
         [data-testid="stSidebar"] {{
-            background-color: {COLORS['secondary_bg']};
-            border-right: 2px solid {COLORS['border']};
+            background-color: {COLORS["secondary_bg"]};
+            border-right: 2px solid {COLORS["border"]};
         }}
 
         [data-testid="stSidebar"] .stMarkdown {{
-            color: {COLORS['text']};
+            color: {COLORS["text"]};
         }}
 
         /* Headers */
         h1, h2, h3 {{
-            color: {COLORS['primary']};
+            color: {COLORS["primary"]};
             font-family: 'Courier New', monospace;
             font-weight: 700;
             letter-spacing: 1px;
         }}
 
         h1 {{
-            border-bottom: 3px solid {COLORS['primary']};
+            border-bottom: 3px solid {COLORS["primary"]};
             padding-bottom: 10px;
         }}
 
         /* Cards/Containers */
         .element-container {{
-            color: {COLORS['text']};
+            color: {COLORS["text"]};
         }}
 
         /* Metrics */
         [data-testid="stMetricValue"] {{
-            color: {COLORS['primary']};
+            color: {COLORS["primary"]};
             font-size: 2rem;
             font-weight: bold;
         }}
 
         [data-testid="stMetricLabel"] {{
-            color: {COLORS['text_muted']};
+            color: {COLORS["text_muted"]};
             text-transform: uppercase;
             font-size: 0.8rem;
             letter-spacing: 1px;
@@ -73,8 +73,8 @@ def apply_theme():
 
         /* Buttons */
         .stButton > button {{
-            background-color: {COLORS['primary']};
-            color: {COLORS['background']};
+            background-color: {COLORS["primary"]};
+            color: {COLORS["background"]};
             border: none;
             border-radius: 4px;
             padding: 0.5rem 2rem;
@@ -86,8 +86,8 @@ def apply_theme():
         }}
 
         .stButton > button:hover {{
-            background-color: {COLORS['secondary']};
-            box-shadow: 0 0 20px {COLORS['primary']};
+            background-color: {COLORS["secondary"]};
+            box-shadow: 0 0 20px {COLORS["primary"]};
         }}
 
         /* Input Fields */
@@ -95,9 +95,9 @@ def apply_theme():
         .stNumberInput > div > div > input,
         .stSelectbox > div > div > select,
         .stTextArea > div > div > textarea {{
-            background-color: {COLORS['card_bg']};
-            color: {COLORS['text']};
-            border: 1px solid {COLORS['border']};
+            background-color: {COLORS["card_bg"]};
+            color: {COLORS["text"]};
+            border: 1px solid {COLORS["border"]};
             border-radius: 4px;
             font-family: 'Courier New', monospace;
         }}
@@ -106,8 +106,8 @@ def apply_theme():
         .stNumberInput > div > div > input:focus,
         .stSelectbox > div > div > select:focus,
         .stTextArea > div > div > textarea:focus {{
-            border-color: {COLORS['primary']};
-            box-shadow: 0 0 10px {COLORS['primary']}33;
+            border-color: {COLORS["primary"]};
+            box-shadow: 0 0 10px {COLORS["primary"]}33;
         }}
 
         /* Labels */
@@ -116,7 +116,7 @@ def apply_theme():
         .stSelectbox > label,
         .stTextArea > label,
         .stCheckbox > label {{
-            color: {COLORS['text_muted']};
+            color: {COLORS["text_muted"]};
             font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -125,12 +125,12 @@ def apply_theme():
         /* Tabs */
         .stTabs [data-baseweb="tab-list"] {{
             gap: 2px;
-            background-color: {COLORS['secondary_bg']};
+            background-color: {COLORS["secondary_bg"]};
         }}
 
         .stTabs [data-baseweb="tab"] {{
-            background-color: {COLORS['card_bg']};
-            color: {COLORS['text_muted']};
+            background-color: {COLORS["card_bg"]};
+            color: {COLORS["text_muted"]};
             border-radius: 4px 4px 0 0;
             padding: 10px 20px;
             font-family: 'Courier New', monospace;
@@ -139,15 +139,15 @@ def apply_theme():
         }}
 
         .stTabs [aria-selected="true"] {{
-            background-color: {COLORS['primary']};
-            color: {COLORS['background']};
+            background-color: {COLORS["primary"]};
+            color: {COLORS["background"]};
         }}
 
         /* Expander */
         .streamlit-expanderHeader {{
-            background-color: {COLORS['card_bg']};
-            color: {COLORS['primary']};
-            border: 1px solid {COLORS['border']};
+            background-color: {COLORS["card_bg"]};
+            color: {COLORS["primary"]};
+            border: 1px solid {COLORS["border"]};
             border-radius: 4px;
             font-family: 'Courier New', monospace;
             text-transform: uppercase;
@@ -155,22 +155,22 @@ def apply_theme():
         }}
 
         .streamlit-expanderContent {{
-            background-color: {COLORS['secondary_bg']};
-            border: 1px solid {COLORS['border']};
+            background-color: {COLORS["secondary_bg"]};
+            border: 1px solid {COLORS["border"]};
             border-top: none;
         }}
 
         /* DataFrames */
         .dataframe {{
-            background-color: {COLORS['card_bg']};
-            color: {COLORS['text']};
+            background-color: {COLORS["card_bg"]};
+            color: {COLORS["text"]};
             font-family: 'Courier New', monospace;
             font-size: 0.85rem;
         }}
 
         .dataframe th {{
-            background-color: {COLORS['secondary_bg']};
-            color: {COLORS['primary']};
+            background-color: {COLORS["secondary_bg"]};
+            color: {COLORS["primary"]};
             text-transform: uppercase;
             letter-spacing: 0.5px;
             font-weight: bold;
@@ -178,37 +178,37 @@ def apply_theme():
 
         /* Success/Error Messages */
         .stSuccess {{
-            background-color: {COLORS['success']}22;
-            color: {COLORS['success']};
-            border-left: 4px solid {COLORS['success']};
+            background-color: {COLORS["success"]}22;
+            color: {COLORS["success"]};
+            border-left: 4px solid {COLORS["success"]};
         }}
 
         .stError {{
-            background-color: {COLORS['danger']}22;
-            color: {COLORS['danger']};
-            border-left: 4px solid {COLORS['danger']};
+            background-color: {COLORS["danger"]}22;
+            color: {COLORS["danger"]};
+            border-left: 4px solid {COLORS["danger"]};
         }}
 
         .stWarning {{
-            background-color: {COLORS['secondary']}22;
-            color: {COLORS['secondary']};
-            border-left: 4px solid {COLORS['secondary']};
+            background-color: {COLORS["secondary"]}22;
+            color: {COLORS["secondary"]};
+            border-left: 4px solid {COLORS["secondary"]};
         }}
 
         .stInfo {{
-            background-color: {COLORS['primary']}22;
-            color: {COLORS['primary']};
-            border-left: 4px solid {COLORS['primary']};
+            background-color: {COLORS["primary"]}22;
+            color: {COLORS["primary"]};
+            border-left: 4px solid {COLORS["primary"]};
         }}
 
         /* Progress Bar */
         .stProgress > div > div > div > div {{
-            background-color: {COLORS['primary']};
+            background-color: {COLORS["primary"]};
         }}
 
         /* Divider */
         hr {{
-            border-color: {COLORS['border']};
+            border-color: {COLORS["border"]};
         }}
         </style>
         """,

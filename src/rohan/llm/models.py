@@ -75,6 +75,11 @@ class ScenarioMetrics(BaseModel):
     volatility_delta_pct: float | None = None
     spread_delta_pct: float | None = None
 
+    # Base64-encoded PNG charts (carried from ScenarioResult)
+    price_chart_b64: str | None = None
+    spread_chart_b64: str | None = None
+    volume_chart_b64: str | None = None
+
 
 class IterationSummary(BaseModel):
     """Summary of a single iteration for history tracking."""

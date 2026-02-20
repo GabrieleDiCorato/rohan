@@ -7,6 +7,7 @@ Performance optimizations:
 - Conditional rendering
 """
 
+import contextlib
 import traceback
 from datetime import datetime
 
@@ -26,9 +27,17 @@ from rohan.config.agent_settings import (
 )
 from rohan.config.latency_settings import LatencyModelSettings, LatencyType
 from rohan.framework.analysis_service import AnalysisService
+from rohan.framework.database import initialize_database
+from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.simulation.simulation_service import SimulationService
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.theme import COLORS, apply_theme
+
+# Ensure DB tables exist
+with contextlib.suppress(Exception):  # DB may not be configured; features degrade gracefully
+    initialize_database()
+
+_scenario_repo = ScenarioRepository()
 
 # Page configuration
 st.set_page_config(
@@ -129,13 +138,13 @@ def render_sidebar_config():
     st.markdown(
         f"""
         <div style='text-align: center; padding: 20px 0;'>
-            <h1 style='color: {COLORS['primary']}; font-size: 1.8rem; margin: 0;'>
+            <h1 style='color: {COLORS["primary"]}; font-size: 1.8rem; margin: 0;'>
                 ABIDES-ROHAN
             </h1>
-            <p style='color: {COLORS['secondary']}; font-size: 1.2rem; margin: 5px 0 0 0; letter-spacing: 2px;'>
+            <p style='color: {COLORS["secondary"]}; font-size: 1.2rem; margin: 5px 0 0 0; letter-spacing: 2px;'>
                 TERMINAL
             </p>
-            <hr style='border-color: {COLORS['border']}; margin: 15px 0;'>
+            <hr style='border-color: {COLORS["border"]}; margin: 15px 0;'>
         </div>
         """,
         unsafe_allow_html=True,
@@ -156,6 +165,37 @@ def render_sidebar_config():
         st.session_state.draft_config = get_preset_config(preset_name)
         st.success(f"✅ Loaded preset: {preset_name} (click 'Apply Configuration' to use it)")
         st.rerun()
+
+    st.markdown("---")
+
+    # ── Saved scenarios from DB ────────────────────────────────────
+    st.markdown("### 💾 Saved Scenarios")
+    try:
+        _saved_list = _scenario_repo.list_scenarios()
+    except Exception:
+        _saved_list = []
+
+    if _saved_list:
+        for _sc in _saved_list:
+            _sc_col1, _sc_col2 = st.columns([3, 1])
+            with _sc_col1:
+                st.markdown(f"**{_sc.name}**")
+                if _sc.description:
+                    st.caption(_sc.description)
+            with _sc_col2:
+                if st.button("Load", key=f"load_sc_{_sc.scenario_id}", use_container_width=True):
+                    from rohan.config import SimulationSettings as _SimSettings
+
+                    st.session_state.draft_config = _SimSettings.model_validate(_sc.full_config)
+                    st.session_state.simulation_config = st.session_state.draft_config
+                    st.success(f"✅ Loaded: {_sc.name}")
+                    st.rerun()
+            # Delete button (small)
+            if st.button("🗑️", key=f"del_sc_{_sc.scenario_id}", help=f"Delete '{_sc.name}'"):
+                _scenario_repo.delete_scenario(_sc.scenario_id)
+                st.rerun()
+    else:
+        st.caption("No saved scenarios yet. Save one from the Execute tab.")
 
     st.markdown("---")
 
@@ -579,10 +619,10 @@ with st.sidebar:
 st.markdown(
     f"""
     <div style='text-align: center; padding: 20px 0;'>
-        <h1 style='color: {COLORS['primary']}; font-size: 2.5rem; margin: 0;'>
+        <h1 style='color: {COLORS["primary"]}; font-size: 2.5rem; margin: 0;'>
             ABIDES-Markets Simulation Terminal
         </h1>
-        <p style='color: {COLORS['text_muted']}; font-size: 1.1rem; margin: 10px 0 0 0;'>
+        <p style='color: {COLORS["text_muted"]}; font-size: 1.1rem; margin: 10px 0 0 0;'>
             Agent-Based Interactive Discrete Event Simulation
         </p>
     </div>
@@ -612,6 +652,31 @@ def render_execute_tab():
 
     config = st.session_state.simulation_config
 
+    # ── Save Scenario ──────────────────────────────────────────────
+    st.markdown("### 💾 Save as Scenario")
+    save_sc_col1, save_sc_col2 = st.columns([3, 1])
+    with save_sc_col1:
+        _save_name = st.text_input(
+            "Scenario name",
+            placeholder="e.g. High-Vol Stress Test",
+            key="save_scenario_name",
+            label_visibility="collapsed",
+        )
+    with save_sc_col2:
+        st.markdown("<div style='height: 2px'></div>", unsafe_allow_html=True)
+        _save_clicked = st.button("💾 Save", use_container_width=True, disabled=not bool(_save_name and _save_name.strip()))
+    if _save_clicked and _save_name and _save_name.strip():
+        try:
+            _scenario_repo.save_scenario(
+                name=_save_name.strip(),
+                full_config=config.model_dump(),
+            )
+            st.toast(f"✅ Scenario '{_save_name.strip()}' saved!")
+        except Exception as _save_err:
+            st.error(f"Could not save scenario: {_save_err}")
+
+    st.markdown("---")
+
     # Configuration Summary
     st.markdown("### 📋 Applied Configuration")
     st.info("ℹ️ This is the configuration that will be used for simulation runs. Modify settings in the sidebar and click 'Apply Configuration' to update.")
@@ -621,9 +686,9 @@ def render_execute_tab():
     with col1:
         st.markdown(
             f"""
-            <div style='background-color: {COLORS['card_bg']}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS['primary']};'>
-                <p style='color: {COLORS['text_muted']}; margin: 0; font-size: 0.8rem;'>DATE</p>
-                <p style='color: {COLORS['text']}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.date}</p>
+            <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["primary"]};'>
+                <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>DATE</p>
+                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.date}</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -632,9 +697,9 @@ def render_execute_tab():
     with col2:
         st.markdown(
             f"""
-            <div style='background-color: {COLORS['card_bg']}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS['secondary']};'>
-                <p style='color: {COLORS['text_muted']}; margin: 0; font-size: 0.8rem;'>TIME RANGE</p>
-                <p style='color: {COLORS['text']}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.start_time} - {config.end_time}</p>
+            <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["secondary"]};'>
+                <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>TIME RANGE</p>
+                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.start_time} - {config.end_time}</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -643,9 +708,9 @@ def render_execute_tab():
     with col3:
         st.markdown(
             f"""
-            <div style='background-color: {COLORS['card_bg']}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS['success']};'>
-                <p style='color: {COLORS['text_muted']}; margin: 0; font-size: 0.8rem;'>TICKER</p>
-                <p style='color: {COLORS['text']}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.ticker}</p>
+            <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["success"]};'>
+                <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>TICKER</p>
+                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.ticker}</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -654,9 +719,9 @@ def render_execute_tab():
     with col4:
         st.markdown(
             f"""
-            <div style='background-color: {COLORS['card_bg']}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS['danger']};'>
-                <p style='color: {COLORS['text_muted']}; margin: 0; font-size: 0.8rem;'>SEED</p>
-                <p style='color: {COLORS['text']}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.seed}</p>
+            <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["danger"]};'>
+                <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>SEED</p>
+                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.seed}</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -859,9 +924,9 @@ def render_execute_tab():
         with col1:
             st.markdown(
                 f"""
-                <div style='background-color: {COLORS['card_bg']}; padding: 15px; border-radius: 8px;'>
-                    <p style='color: {COLORS['text_muted']}; margin: 0; font-size: 0.8rem;'>TIMESTAMP</p>
-                    <p style='color: {COLORS['text']}; margin: 5px 0 0 0;'>{st.session_state.simulation_timestamp.strftime('%Y-%m-%d %H:%M:%S')}</p>
+                <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px;'>
+                    <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>TIMESTAMP</p>
+                    <p style='color: {COLORS["text"]}; margin: 5px 0 0 0;'>{st.session_state.simulation_timestamp.strftime("%Y-%m-%d %H:%M:%S")}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -870,9 +935,9 @@ def render_execute_tab():
         with col2:
             st.markdown(
                 f"""
-                <div style='background-color: {COLORS['card_bg']}; padding: 15px; border-radius: 8px;'>
-                    <p style='color: {COLORS['text_muted']}; margin: 0; font-size: 0.8rem;'>DURATION</p>
-                    <p style='color: {COLORS['text']}; margin: 5px 0 0 0;'>{st.session_state.simulation_duration:.2f} seconds</p>
+                <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px;'>
+                    <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>DURATION</p>
+                    <p style='color: {COLORS["text"]}; margin: 5px 0 0 0;'>{st.session_state.simulation_duration:.2f} seconds</p>
                 </div>
                 """,
                 unsafe_allow_html=True,

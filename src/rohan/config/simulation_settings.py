@@ -62,9 +62,7 @@ class SimulationSettings(BaseSettings):
             duration_seconds = end_seconds - start_seconds
 
             if duration_seconds < 300:  # Less than 5 minutes (300 seconds)
-                raise ValueError(
-                    f"Simulation duration must be at least 5 minutes (300 seconds). " f"Current duration: {duration_seconds} seconds " f"(from {info.data['start_time']} to {end_time_str})"
-                )
+                raise ValueError(f"Simulation duration must be at least 5 minutes (300 seconds). Current duration: {duration_seconds} seconds (from {info.data['start_time']} to {end_time_str})")
         return end_time_str
 
     model_config = SettingsConfigDict(

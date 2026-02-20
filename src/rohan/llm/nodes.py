@@ -196,11 +196,10 @@ def scenario_executor_node(state: RefinementState) -> dict:
     for scenario in scenarios:
         logger.info("Running scenario %r", scenario.name)
         try:
-            # Apply overrides
-            settings = base_settings.model_copy(deep=True)
-            for k, v in scenario.config_override.items():
-                if hasattr(settings, k):
-                    setattr(settings, k, v)
+            # Apply overrides — supports both full-config and partial diffs
+            merged = base_settings.model_dump()
+            merged.update(scenario.config_override)
+            settings = SimulationSettings.model_validate(merged)
 
             # Run strategy
             if not code:
@@ -281,6 +280,31 @@ def scenario_executor_node(state: RefinementState) -> dict:
 
             prompt = format_interpreter_prompt(summary, goal=state.get("goal", ""))
 
+            # Generate charts for the UI
+            import matplotlib.pyplot as plt
+
+            price_chart_b64: str | None = None
+            spread_chart_b64: str | None = None
+            volume_chart_b64: str | None = None
+            try:
+                fig = analyzer.plot_price_series(strategy_output, title=f"{scenario.name} — Price")
+                price_chart_b64 = analyzer.figure_to_base64(fig)
+                plt.close(fig)
+            except Exception:
+                pass
+            try:
+                fig = analyzer.plot_spread(strategy_output, title=f"{scenario.name} — Spread")
+                spread_chart_b64 = analyzer.figure_to_base64(fig)
+                plt.close(fig)
+            except Exception:
+                pass
+            try:
+                fig = analyzer.plot_volume(strategy_output, title=f"{scenario.name} — Volume")
+                volume_chart_b64 = analyzer.figure_to_base64(fig)
+                plt.close(fig)
+            except Exception:
+                pass
+
             results.append(
                 ScenarioResult(
                     scenario_name=scenario.name,
@@ -289,6 +313,9 @@ def scenario_executor_node(state: RefinementState) -> dict:
                     volatility_delta_pct=impact.volatility_delta_pct,
                     spread_delta_pct=impact.spread_delta_pct,
                     trade_count=strategy_agent_metrics.trade_count,
+                    price_chart_b64=price_chart_b64,
+                    spread_chart_b64=spread_chart_b64,
+                    volume_chart_b64=volume_chart_b64,
                 )
             )
 
@@ -467,6 +494,9 @@ def aggregator_node(state: RefinementState) -> dict:
             volatility_delta_pct=sr.volatility_delta_pct,
             spread_delta_pct=sr.spread_delta_pct,
             trade_count=sr.trade_count,
+            price_chart_b64=sr.price_chart_b64,
+            spread_chart_b64=sr.spread_chart_b64,
+            volume_chart_b64=sr.volume_chart_b64,
         )
 
     iteration_summary = IterationSummary(

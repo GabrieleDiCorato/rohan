@@ -68,15 +68,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # Print results
     iterations = final_state.get("iterations", [])
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Refinement complete — {len(iterations)} iteration(s)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if iterations:
         last = iterations[-1]
         print(f"Final score: {last.judge_score}/10")
         print(f"Judge reasoning: {last.judge_reasoning}")
-        print(f"\nFinal strategy code:\n{'─'*60}")
+        print(f"\nFinal strategy code:\n{'─' * 60}")
         print(final_state.get("current_code", "(no code)"))
     else:
         print("No iterations completed.")
