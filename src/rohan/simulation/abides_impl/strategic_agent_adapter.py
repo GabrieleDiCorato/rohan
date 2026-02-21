@@ -236,7 +236,7 @@ class StrategicAgentAdapter(TradingAgent):
         bid: int | None = None
         ask: int | None = None
         if self.symbol in self.known_bids:
-            bid, _, ask, _ = self.get_known_bid_ask(self.symbol)
+            bid, _, ask, _ = self.get_known_bid_ask(self.symbol)  # pyright: ignore[reportAssignmentType]
 
         # Full depth from ABIDES caches (populated by get_current_spread)
         bid_depth: list[tuple[int, int]] = []
@@ -291,8 +291,8 @@ class StrategicAgentAdapter(TradingAgent):
                     self.cancel_order(order)
         else:
             order_to_cancel = self.orders.get(cancel_id)
-            if order_to_cancel is not None:
-                self.cancel_order(order_to_cancel)  # type: ignore[arg-type]
+            if order_to_cancel is not None and isinstance(order_to_cancel, LimitOrder):
+                self.cancel_order(order_to_cancel)
 
     # ── Conversion helpers ────────────────────────────────────────────────
 

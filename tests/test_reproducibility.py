@@ -35,6 +35,8 @@ def test_simulation_reproducibility():
     simulation2 = run_simulation(seed)
 
     # Compare L1
+    assert simulation1 is not None
+    assert simulation2 is not None
     l1_sim1 = simulation1.get_order_book_l1()
     l1_sim2 = simulation2.get_order_book_l1()
 

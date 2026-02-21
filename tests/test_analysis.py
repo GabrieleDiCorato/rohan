@@ -68,7 +68,7 @@ class TestAnalysisService:
         # Test price plot
         fig = analyzer.plot_price_series(sample_simulation_output)
         assert fig is not None
-        assert isinstance(fig, plt.Figure)
+        assert isinstance(fig, plt.Figure)  # pyright: ignore[reportPrivateImportUsage]
 
         # Save to bytes to verify it works
         buf = io.BytesIO()
@@ -79,7 +79,7 @@ class TestAnalysisService:
         # Test volume plot
         fig = analyzer.plot_volume(sample_simulation_output)
         assert fig is not None
-        assert isinstance(fig, plt.Figure)
+        assert isinstance(fig, plt.Figure)  # pyright: ignore[reportPrivateImportUsage]
         plt.close(fig)
 
     def test_save_plots_as_binary_artifacts(self, setup_db, sample_simulation_output):
@@ -113,6 +113,7 @@ class TestAnalysisService:
         assert len(artifacts) == 1
         assert artifacts[0].artifact_type == ArtifactType.IMAGE
         assert artifacts[0].path == "price_series.png"
+        assert artifacts[0].content is not None
         assert len(artifacts[0].content) > 0
 
 

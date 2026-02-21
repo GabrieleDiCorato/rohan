@@ -5,7 +5,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+[![pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 An agentic framework for autonomously evolving and stress-testing robust trading strategies using Large Language Models (LLMs) and high-fidelity market simulation.
@@ -84,7 +84,7 @@ uv run pytest
 ### Code Quality
 The project uses pre-commit hooks to maintain code quality:
 - **ruff**: Linting and formatting
-- **mypy**: Type checking
+- **pyright**: Type checking
 - **nbstripout**: Strips Jupyter notebook outputs/metadata from commits
 
 To run pre-commit hooks manually:

@@ -6,7 +6,7 @@ market data, agent logs, and artifacts (DB or filesystem backed).
 
 import logging
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 import pandas as pd
@@ -120,19 +120,19 @@ class ArtifactStore:
         records = []
         for _, row in logs.iterrows():
             agent_id = row.get("AgentID")
-            if pd.isna(agent_id) and "agent_id" in row:
+            if pd.isna(agent_id) and "agent_id" in row:  # pyright: ignore[reportGeneralTypeIssues]
                 agent_id = row.get("agent_id")
-            if pd.isna(agent_id):
+            if pd.isna(agent_id):  # pyright: ignore[reportGeneralTypeIssues]
                 continue
 
             agent_type = row.get("AgentType", "Unknown")
-            if pd.isna(agent_type) and "agent_type" in row:
+            if pd.isna(agent_type) and "agent_type" in row:  # pyright: ignore[reportGeneralTypeIssues]
                 agent_type = row.get("agent_type", "Unknown")
 
             event_type = row.get("EventType", "Unknown")
 
             time_placed = row.get("time_placed")
-            if pd.isna(time_placed):
+            if pd.isna(time_placed):  # pyright: ignore[reportGeneralTypeIssues]
                 time_placed = None
             elif isinstance(time_placed, str):
                 try:
@@ -147,7 +147,7 @@ class ArtifactStore:
 
             record = {
                 "run_id": run_id,
-                "agent_id": int(agent_id),
+                "agent_id": int(agent_id),  # pyright: ignore[reportArgumentType]
                 "agent_type": str(agent_type),
                 "event_type": str(event_type),
                 "time_placed": time_placed,
@@ -223,10 +223,10 @@ class ArtifactStore:
         if artifact.storage_backend == "filesystem" and self._artifact_root is not None:
             fs_path = self._artifact_root / str(artifact.run_id) / artifact.path
             if fs_path.exists():
-                return cast(bytes, fs_path.read_bytes())
+                return fs_path.read_bytes()
             logger.warning("Artifact file not found: %s", fs_path)
             return None
-        return cast(bytes | None, artifact.content)
+        return artifact.content
 
     # ------------------------------------------------------------------
     # Queries
@@ -237,7 +237,7 @@ class ArtifactStore:
         session = self.db.get_session()
         try:
             result = session.execute(select(SimulationRun).where(SimulationRun.run_id == run_id))
-            return cast(SimulationRun | None, result.scalar_one_or_none())
+            return result.scalar_one_or_none()
         finally:
             self.db.remove_session()
 

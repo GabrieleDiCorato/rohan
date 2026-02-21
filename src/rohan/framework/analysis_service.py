@@ -83,7 +83,7 @@ class AnalysisService:
         if not hasattr(result, "end_state"):
             return AgentMetrics(agent_id=agent_id, initial_cash=initial_cash)
 
-        agents = {a.id: a for a in result.end_state["agents"]}
+        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[not-subscriptable]  # guarded by hasattr above
         if agent_id not in agents:
             raise ValueError(f"Agent {agent_id} not found in simulation output")
 

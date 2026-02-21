@@ -553,68 +553,68 @@ def render_sidebar_config():
             # Build configuration
             agents = AgentSettings(
                 exchange=ExchangeAgentSettings(
-                    book_logging=exchange_book_logging,
-                    book_log_depth=exchange_book_log_depth,
-                    stream_history_length=exchange_stream_history,
-                    exchange_log_orders=exchange_log_orders,
-                    pipeline_delay_ns=exchange_pipeline_delay,
-                    computation_delay_ns=exchange_computation_delay,
+                    book_logging=bool(exchange_book_logging),
+                    book_log_depth=int(exchange_book_log_depth),  # pyright: ignore[reportArgumentType]
+                    stream_history_length=int(exchange_stream_history),  # pyright: ignore[reportArgumentType]
+                    exchange_log_orders=bool(exchange_log_orders),
+                    pipeline_delay_ns=int(exchange_pipeline_delay),  # pyright: ignore[reportArgumentType]
+                    computation_delay_ns=int(exchange_computation_delay),  # pyright: ignore[reportArgumentType]
                 ),
-                noise=NoiseAgentSettings(num_agents=noise_num_agents),
+                noise=NoiseAgentSettings(num_agents=int(noise_num_agents)),  # pyright: ignore[reportArgumentType]
                 value=ValueAgentSettings(
-                    num_agents=value_num_agents,
-                    r_bar=value_r_bar,
-                    kappa=value_kappa,
-                    lambda_a=value_lambda_a,
+                    num_agents=int(value_num_agents),  # pyright: ignore[reportArgumentType]
+                    r_bar=int(value_r_bar),  # pyright: ignore[reportArgumentType]
+                    kappa=float(value_kappa),  # pyright: ignore[reportArgumentType]
+                    lambda_a=float(value_lambda_a),  # pyright: ignore[reportArgumentType]
                 ),
                 adaptive_market_maker=AdaptiveMarketMakerSettings(
-                    num_agents=amm_num_agents,
-                    window_size=(amm_window_size if amm_window_size == "adaptive" else int(amm_window_size)),
-                    pov=amm_pov,
-                    num_ticks=amm_num_ticks,
-                    wake_up_freq=amm_wake_up_freq,
-                    poisson_arrival=amm_poisson,
-                    min_order_size=amm_min_order_size,
-                    skew_beta=amm_skew_beta,
-                    price_skew=amm_price_skew,
-                    level_spacing=amm_level_spacing,
-                    spread_alpha=amm_spread_alpha,
-                    backstop_quantity=amm_backstop_qty,
+                    num_agents=int(amm_num_agents),  # pyright: ignore[reportArgumentType]
+                    window_size=(amm_window_size if amm_window_size == "adaptive" else int(amm_window_size)),  # pyright: ignore[reportArgumentType]
+                    pov=float(amm_pov),  # pyright: ignore[reportArgumentType]
+                    num_ticks=int(amm_num_ticks),  # pyright: ignore[reportArgumentType]
+                    wake_up_freq=str(amm_wake_up_freq),
+                    poisson_arrival=bool(amm_poisson),
+                    min_order_size=int(amm_min_order_size),  # pyright: ignore[reportArgumentType]
+                    skew_beta=int(amm_skew_beta),  # pyright: ignore[reportArgumentType]
+                    price_skew=int(amm_price_skew),  # pyright: ignore[reportArgumentType]
+                    level_spacing=int(amm_level_spacing),  # pyright: ignore[reportArgumentType]
+                    spread_alpha=float(amm_spread_alpha),  # pyright: ignore[reportArgumentType]
+                    backstop_quantity=int(amm_backstop_qty),  # pyright: ignore[reportArgumentType]
                 ),
                 momentum=MomentumAgentSettings(
-                    num_agents=momentum_num_agents,
-                    min_size=momentum_min_size,
-                    max_size=momentum_max_size,
-                    wake_up_freq=momentum_wake_up_freq,
-                    poisson_arrival=momentum_poisson,
+                    num_agents=int(momentum_num_agents),  # pyright: ignore[reportArgumentType]
+                    min_size=int(momentum_min_size),  # pyright: ignore[reportArgumentType]
+                    max_size=int(momentum_max_size),  # pyright: ignore[reportArgumentType]
+                    wake_up_freq=str(momentum_wake_up_freq),
+                    poisson_arrival=bool(momentum_poisson),
                 ),
                 oracle=OracleSettings(
-                    kappa=oracle_kappa,
-                    sigma_s=oracle_sigma_s,
-                    fund_vol=oracle_fund_vol,
-                    megashock_lambda_a=oracle_megashock_lambda,
-                    megashock_mean=oracle_megashock_mean,
-                    megashock_var=oracle_megashock_var,
+                    kappa=float(oracle_kappa),  # pyright: ignore[reportArgumentType]
+                    sigma_s=float(oracle_sigma_s),  # pyright: ignore[reportArgumentType]
+                    fund_vol=float(oracle_fund_vol),  # pyright: ignore[reportArgumentType]
+                    megashock_lambda_a=float(oracle_megashock_lambda),  # pyright: ignore[reportArgumentType]
+                    megashock_mean=int(oracle_megashock_mean),  # pyright: ignore[reportArgumentType]
+                    megashock_var=int(oracle_megashock_var),  # pyright: ignore[reportArgumentType]
                 ),
             )
 
             latency = LatencyModelSettings(
                 type=LatencyType(latency_type),
-                jitter=latency_jitter,
-                jitter_clip=latency_jitter_clip,
-                jitter_unit=latency_jitter_unit,
+                jitter=float(latency_jitter),  # pyright: ignore[reportArgumentType]
+                jitter_clip=float(latency_jitter_clip),  # pyright: ignore[reportArgumentType]
+                jitter_unit=float(latency_jitter_unit),  # pyright: ignore[reportArgumentType]
             )
 
             new_config = SimulationSettings(
-                date=date,
-                start_time=start_time,
-                end_time=end_time,
-                seed=seed,
-                ticker=ticker,
-                starting_cash=starting_cash,
-                stdout_log_level=stdout_log_level,
-                log_orders=log_orders,
-                computation_delay_ns=computation_delay_ns,
+                date=str(date),
+                start_time=str(start_time),
+                end_time=str(end_time),
+                seed=int(seed),  # pyright: ignore[reportArgumentType]
+                ticker=str(ticker),
+                starting_cash=int(starting_cash),  # pyright: ignore[reportArgumentType]
+                stdout_log_level=str(stdout_log_level),
+                log_orders=bool(log_orders),
+                computation_delay_ns=int(computation_delay_ns),  # pyright: ignore[reportArgumentType]
                 agents=agents,
                 latency=latency,
             )
@@ -1007,6 +1007,10 @@ with tab2:
 
             col1, col2, col3 = st.columns(3)
 
+            if metrics is None:
+                st.warning("Metrics not available.")
+                return
+
             with col1:
                 st.metric("Volatility", _mv(metrics.volatility))
                 st.metric("Mean Spread", _mv_dollar(metrics.mean_spread))
@@ -1247,8 +1251,8 @@ with tab2:
                         y=0,
                         line_dash="dash",
                         line_color=COLORS["text_muted"],
-                        row=2,
-                        col=1,
+                        row=2,  # pyright: ignore[reportArgumentType]
+                        col=1,  # pyright: ignore[reportArgumentType]
                     )
 
                     fig.update_layout(

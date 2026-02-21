@@ -235,7 +235,7 @@ class TestStrategyInjection:
         """Run simulation once with CountingStrategy and share across tests."""
         strategy = CountingStrategy()
         service = SimulationService()
-        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)
+        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)  # pyright: ignore[reportArgumentType]
         return result, strategy
 
     @pytest.fixture(scope="class")
@@ -243,7 +243,7 @@ class TestStrategyInjection:
         """Run simulation once with SimpleBuyStrategy."""
         strategy = SimpleBuyStrategy()
         service = SimulationService()
-        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)
+        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)  # pyright: ignore[reportArgumentType]
         return result, strategy
 
     @pytest.fixture(scope="class")
@@ -257,7 +257,7 @@ class TestStrategyInjection:
         """Run simulation once with CancellingStrategy."""
         strategy = CancellingStrategy()
         service = SimulationService()
-        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)
+        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)  # pyright: ignore[reportArgumentType]
         return result, strategy
 
     @pytest.fixture(scope="class")
@@ -265,7 +265,7 @@ class TestStrategyInjection:
         """Run simulation once with CancelAllStrategy."""
         strategy = CancelAllStrategy()
         service = SimulationService()
-        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)
+        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)  # pyright: ignore[reportArgumentType]
         return result, strategy
 
     def test_strategy_receives_initialize_callback(self, counting_strategy_result):
@@ -401,7 +401,7 @@ class TestStrategicAgentAdapter:
         strategy = CountingStrategy()
         adapter = StrategicAgentAdapter(
             id=1,
-            strategy=strategy,
+            strategy=strategy,  # pyright: ignore[reportArgumentType]
             symbol="ABM",
             starting_cash=10_000_000,
             order_book_depth=10,

@@ -202,6 +202,7 @@ class TestDatabaseAndRepository:
         updated_run = repo.get_run(run.run_id)
         assert updated_run is not None
         assert updated_run.status == RunStatus.COMPLETED
+        assert updated_run.metrics_summary is not None
         assert updated_run.metrics_summary["sharpe"] == 1.5
         assert updated_run.metrics_summary["pnl"] == 5000.0
 

@@ -444,7 +444,7 @@ with ctrl_col2:
 
 with ctrl_col3:
     st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
-    can_launch = bool(goal.strip()) and not st.session_state.refine_running and len(selected_scenarios) > 0
+    can_launch = bool(goal and goal.strip()) and not st.session_state.refine_running and len(selected_scenarios) > 0
     launch_pressed = st.button(
         "🚀 LAUNCH",
         type="primary",
@@ -459,7 +459,7 @@ with ctrl_col4:
         use_container_width=True,
     )
 
-if not goal.strip() and st.session_state.refine_final_state is None:
+if not (goal and goal.strip()) and st.session_state.refine_final_state is None:
     st.caption("👆 Enter a strategy goal above to get started. Try one of the **example goals** in the sidebar.")
 
 
@@ -613,7 +613,7 @@ def _run_refinement(
     graph = build_refinement_graph()
     t0 = time.time()
     progress: list[str] = []
-    accumulated: dict[str, Any] = dict(initial_state)  # manual state merge
+    accumulated: dict[str, Any] = {**initial_state}  # manual state merge
 
     status_container = st.status("🔄 Launching refinement loop…", expanded=True)
 
@@ -748,7 +748,7 @@ def _run_refinement(
 if st.session_state.pop("_pending_launch", False) or (launch_pressed and not _has_unsaved_results):
     _reset_run_state()
     st.session_state.refine_running = True
-    _run_refinement(goal, max_iterations, _build_scenarios_from_selection(selected_scenarios))
+    _run_refinement(str(goal), max_iterations, _build_scenarios_from_selection(selected_scenarios))
 
 
 # ============================================================================

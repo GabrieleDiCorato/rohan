@@ -14,16 +14,13 @@ repos:
       # Run the formatter
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
+  - repo: local
     hooks:
-      - id: mypy
-        additional_dependencies:
-          - pydantic>=2.12.5
-          - pydantic-settings>=2.12.0
-          - numpy>=2.4.1
-          - pandas>=2.3.3
-        args: [--config-file=pyproject.toml]
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        types: [python]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

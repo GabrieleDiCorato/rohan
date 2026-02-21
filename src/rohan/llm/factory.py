@@ -35,47 +35,47 @@ _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 def _create_openrouter_model(
     model_name: str,
     settings: LLMSettings,
-    **kwargs: object,
+    **kwargs: Any,
 ) -> BaseChatModel:
     """Create a model that talks to OpenRouter (OpenAI-compatible)."""
     if not settings.openrouter_api_key:
         raise ValueError("OPENROUTER_API_KEY is required when provider='openrouter'. Set it in your .env file or environment.")
     return ChatOpenAI(
         model=model_name,
-        api_key=settings.openrouter_api_key.get_secret_value(),  # type: ignore[arg-type]
+        api_key=settings.openrouter_api_key.get_secret_value(),
         base_url=_OPENROUTER_BASE_URL,
         temperature=settings.temperature,
-        max_tokens=settings.max_tokens,
-        **kwargs,  # type: ignore[arg-type]
+        max_tokens=settings.max_tokens,  # pyright: ignore[reportCallIssue]
+        **kwargs,
     )
 
 
 def _create_openai_model(
     model_name: str,
     settings: LLMSettings,
-    **kwargs: object,
+    **kwargs: Any,
 ) -> BaseChatModel:
     """Create a direct OpenAI model."""
     if not settings.openai_api_key:
         raise ValueError("OPENAI_API_KEY is required when provider='openai'. Set it in your .env file or environment.")
     return ChatOpenAI(
         model=model_name,
-        api_key=settings.openai_api_key.get_secret_value(),  # type: ignore[arg-type]
+        api_key=settings.openai_api_key.get_secret_value(),
         temperature=settings.temperature,
-        max_tokens=settings.max_tokens,
-        **kwargs,  # type: ignore[arg-type]
+        max_tokens=settings.max_tokens,  # pyright: ignore[reportCallIssue]
+        **kwargs,
     )
 
 
 def _create_google_model(
     model_name: str,
     settings: LLMSettings,
-    **kwargs: object,
+    **kwargs: Any,
 ) -> BaseChatModel:
     """Create a Google Generative AI model."""
     # Lazy import to avoid hard dependency
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_google_genai import ChatGoogleGenerativeAI  # pyright: ignore[reportMissingImports]
     except ImportError as exc:
         raise ImportError("langchain-google-genai is required for provider='google'. Install it with: pip install langchain-google-genai") from exc
 
@@ -83,10 +83,10 @@ def _create_google_model(
         raise ValueError("GOOGLE_API_KEY is required when provider='google'. Set it in your .env file or environment.")
     model: BaseChatModel = ChatGoogleGenerativeAI(
         model=model_name,
-        google_api_key=settings.google_api_key.get_secret_value(),  # type: ignore[arg-type]
+        google_api_key=settings.google_api_key.get_secret_value(),
         temperature=settings.temperature,
         max_output_tokens=settings.max_tokens,
-        **kwargs,  # type: ignore[arg-type]
+        **kwargs,
     )
     return model
 
@@ -101,7 +101,7 @@ _PROVIDER_FACTORIES = {
 def create_chat_model(
     model_name: str,
     settings: LLMSettings,
-    **kwargs: object,
+    **kwargs: Any,
 ) -> BaseChatModel:
     """Create a LangChain chat model for the given provider and model name.
 
@@ -168,4 +168,4 @@ def get_structured_model[T](
     Returns a :class:`~langchain_core.runnables.Runnable` whose
     ``.invoke()`` / ``.ainvoke()`` return an instance of *schema*.
     """
-    return model.with_structured_output(schema, method="function_calling")  # type: ignore[return-value]
+    return model.with_structured_output(schema, method="function_calling")  # type: ignore[invalid-return-type]

@@ -74,7 +74,7 @@ def build_refinement_graph() -> Any:
     CompiledGraph
         A compiled LangGraph ready for ``.invoke()`` or ``.stream()``.
     """
-    graph = StateGraph(RefinementState)
+    graph = StateGraph(RefinementState)  # type: ignore[invalid-argument-type]
 
     # ── Nodes ──
     graph.add_node("writer", writer_node)

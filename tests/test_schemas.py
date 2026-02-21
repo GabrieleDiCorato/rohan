@@ -86,7 +86,7 @@ class TestOrderBookL1Schema:
 
     def test_missing_column_fails(self, valid_l1_df):
         bad_df = valid_l1_df.drop(columns=["bid_price"])
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             OrderBookL1Schema.validate(bad_df)
 
     def test_empty_dataframe_passes(self):
@@ -115,17 +115,17 @@ class TestOrderBookL2Schema:
 
     def test_invalid_side_fails(self, valid_l2_df):
         valid_l2_df.loc[0, "side"] = "INVALID"
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             OrderBookL2Schema.validate(valid_l2_df)
 
     def test_level_below_one_fails(self, valid_l2_df):
         valid_l2_df.loc[0, "level"] = 0
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             OrderBookL2Schema.validate(valid_l2_df)
 
     def test_missing_column_fails(self, valid_l2_df):
         bad_df = valid_l2_df.drop(columns=["side"])
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             OrderBookL2Schema.validate(bad_df)
 
 
@@ -146,7 +146,7 @@ class TestAgentLogsSchema:
 
     def test_missing_required_column_fails(self, valid_logs_df):
         bad_df = valid_logs_df.drop(columns=["agent_id"])
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             AgentLogsSchema.validate(bad_df)
 
 
@@ -215,7 +215,7 @@ class TestSchemaTypeCoercion:
                 "timestamp": pd.to_datetime(["2026-01-30 09:30:00"]),
             }
         )
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             OrderBookL2Schema.validate(df)
 
     def test_l2_side_case_sensitive(self):
@@ -230,7 +230,7 @@ class TestSchemaTypeCoercion:
                 "timestamp": pd.to_datetime(["2026-01-30 09:30:00"]),
             }
         )
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             OrderBookL2Schema.validate(df)
 
     def test_l2_side_accepts_only_bid_or_ask(self):
@@ -245,7 +245,7 @@ class TestSchemaTypeCoercion:
                 "timestamp": pd.to_datetime(["2026-01-30 09:30:00"]),
             }
         )
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             OrderBookL2Schema.validate(df)
 
     def test_logs_agent_id_must_be_numeric(self):
@@ -257,7 +257,7 @@ class TestSchemaTypeCoercion:
                 "EventType": ["ORDER_SUBMITTED"],
             }
         )
-        with pytest.raises(pa.errors.SchemaError):
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
             AgentLogsSchema.validate(df)
 
     def test_logs_agent_id_coerces_float_to_int(self):
@@ -292,7 +292,7 @@ class TestSchemaRealWorldEdgeCases:
             }
         )
         result = OrderBookL1Schema.validate(df)
-        assert result["bid_price"].isna().all()
+        assert bool(result["bid_price"].isna().all())  # pyright: ignore[reportGeneralTypeIssues]
 
     def test_l1_with_zero_quantities(self):
         """L1 with zero quantities (empty book level)."""

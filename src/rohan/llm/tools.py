@@ -65,7 +65,7 @@ def make_explainer_tools(output: SimulationOutput) -> list[Any]:
         if trades.empty:
             return f"No trades found for agent {agent_id}."
 
-        result: str = trades.to_string(max_rows=50, max_cols=10)
+        result: str = trades.to_string(max_rows=50, max_cols=10)  # pyright: ignore[reportCallIssue]
         return result
 
     @tool
@@ -132,7 +132,7 @@ def make_explainer_tools(output: SimulationOutput) -> list[Any]:
         filtered = logs[mask].head(limit)
         if filtered.empty:
             return f"No logs matching agent_type={agent_type!r}, event_type={event_type!r}."
-        result: str = filtered.to_string(max_cols=10)
+        result: str = filtered.to_string(max_cols=10)  # pyright: ignore[reportCallIssue]
         return result
 
     @tool
@@ -146,7 +146,7 @@ def make_explainer_tools(output: SimulationOutput) -> list[Any]:
         if fills.empty:
             return "No fills recorded."
 
-        return f"Total fill events: {len(fills)}\n{fills['AgentType'].value_counts().to_string()}"
+        return f"Total fill events: {len(fills)}\n{fills['AgentType'].value_counts().to_string()}"  # pyright: ignore[reportAttributeAccessIssue]
 
     return [
         get_order_book_snapshot,

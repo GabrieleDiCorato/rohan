@@ -1,5 +1,7 @@
 """Bloomberg Terminal-inspired theme for Streamlit application."""
 
+from typing import Literal
+
 import streamlit as st
 
 # Bloomberg Terminal Color Palette
@@ -216,7 +218,9 @@ def apply_theme():
     )
 
 
-def create_metric_card(label: str, value: str, delta: str | None = None, delta_color: str = "normal"):
+def create_metric_card(
+    label: str, value: str, delta: str | None = None, delta_color: Literal["normal", "inverse", "off", "red", "orange", "yellow", "green", "blue", "violet", "gray", "grey", "primary"] = "normal"
+):
     """Create a styled metric card."""
     st.metric(label=label, value=value, delta=delta, delta_color=delta_color)
 

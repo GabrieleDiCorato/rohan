@@ -18,7 +18,7 @@ import logging
 import time
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -345,4 +345,4 @@ class IterationPipeline:
                 except Exception:
                     logger.warning("Failed to save artifact %s", name, exc_info=True)
 
-        return cast(UUID, iteration.iteration_id)
+        return iteration.iteration_id
