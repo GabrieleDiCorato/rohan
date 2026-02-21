@@ -1,11 +1,31 @@
-# rohan
-An agentic framework for autonomously evolving and stress-testing robust trading strategies using LLMs and market simulation.
+# ROHAN: Risk Optimization with Heuristic Agent Network
 
-## Development Setup
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+An agentic framework for autonomously evolving and stress-testing robust trading strategies using Large Language Models (LLMs) and high-fidelity market simulation.
+
+## Functional Overview
+
+ROHAN provides an autonomous loop for generating, testing, and refining specific trading strategies using the `abides-rohan` market simulator. It leverages **LangGraph** for state management, **PostgreSQL** for relational data storage, and **Streamlit** for real-time monitoring and analysis.
+
+The core refinement loop operates as follows:
+
+1. **Define:** The user inputs a natural language trading goal (e.g., "Market making with low inventory risk").
+2. **Generate & Validate:** The LLM (Writer Agent) generates Python code implementing the strategy. The code is instantly validated for safety and syntax via an AST sandbox.
+3. **Simulate:** The validated strategy is injected into the ABIDES high-fidelity market simulator and stress-tested against various market scenarios.
+4. **Analyze:** An Explainer Agent uses data tools to analyze the order book, trade logs, and PnL to understand why the strategy performed the way it did.
+5. **Refine:** A Judge Agent scores the iteration. If the strategy has not converged on the goal, the feedback is routed back to the Writer to improve the code in the next loop.
+
+## Getting Started
 
 ### Prerequisites
 - Python 3.12 or higher
 - [uv](https://docs.astral.sh/uv/) package manager
+- PostgreSQL (optional, defaults to SQLite for local development)
 
 ### Installation
 
@@ -20,18 +40,41 @@ cd rohan
 uv sync --all-groups
 ```
 
-3. Install pre-commit hooks (mandatory for all developers):
+3. Set up environment variables:
+Create a `.env` file in the root directory and add your LLM provider keys:
+```env
+OPENROUTER_API_KEY=your_api_key_here
+# Or OPENAI_API_KEY, ANTHROPIC_API_KEY, etc. depending on your configuration
+```
+
+### Usage
+
+Launch the Streamlit UI (Terminal and Refinement Lab):
+```bash
+uv run ui
+```
+
+Run the LLM refinement loop via CLI:
+```bash
+uv run refine --goal "Create a momentum strategy" --max-iterations 3
+```
+
+## Development Setup
+
+### Pre-commit Hooks
+Install pre-commit hooks (mandatory for all developers):
 ```bash
 uv run pre-commit install
 uv run nbstripout --install
 ```
 
 This ensures that:
-- Jupyter notebook outputs and metadata are automatically stripped from commits (keeping your local files intact)
-- Code is automatically formatted and linted before commits
-- Type checking is performed on committed code
+- Jupyter notebook outputs and metadata are automatically stripped from commits (keeping your local files intact).
+- Code is automatically formatted and linted before commits.
+- Type checking is performed on committed code.
 
 ### Running Tests
+Execute the test suite using pytest:
 ```bash
 uv run pytest
 ```
