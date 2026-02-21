@@ -474,21 +474,21 @@ model = get_analysis_model().with_structured_output(ScenarioExplanation)
 
 ---
 
-### 🚧 TODO: Phase 2 Remaining (Steps 2.5–2.6)
+### 🚧 TODO: Phase 2 Remaining (Steps 2.6–2.7)
 
-#### Step 2.5: UI & Notebook for Local Testing
-**Status:** TODO.
+#### Step 2.5: UI & Notebook for Local Testing ✅
+**Status:** Complete and tested.
 
-*   **Create `notebooks/quickstart.ipynb`** — Interactive demo.
-*   **Add "Strategy" tab** — Code editor for strategy input.
-*   **Add "Interpretation" panel** — Display agent feedback.
-*   **Add "Scenario Results" view** — Per-scenario metrics and explanations.
+*   **Created `notebooks/quickstart.ipynb`** — Interactive demo.
+*   **Added "Strategy" tab** — Code editor for strategy input.
+*   **Added "Interpretation" panel** — Display agent feedback.
+*   **Added "Scenario Results" view** — Per-scenario metrics and explanations.
 
 **UV Scripts:**
 ```toml
-[tool.uv.scripts]
-ui = "streamlit run src/rohan/ui/app.py"
-notebook = "jupyter lab notebooks/"
+[project.scripts]
+ui = "rohan.ui.__main__:main"
+refine = "rohan.llm.cli:main"
 ```
 
 ---
@@ -618,32 +618,23 @@ Monetary formatting logic is currently scattered across three locations:
 - Replace all inline formatting functions with imports from the shared module.
 - Add unit tests for edge cases: zero, negative, None, very large values.
 
-##### 2.7.7 Split UI Monolith (Code Organization)
+##### 2.7.7 Split UI Monolith (Code Organization) ✅
+**Status:** Complete and tested.
 
-[src/rohan/ui/app.py](../src/rohan/ui/app.py) is a ~1300+ line file handling all tabs, charts, configuration, and callbacks. This makes it difficult to navigate, test, and maintain.
+[src/rohan/ui/app.py](../src/rohan/ui/app.py) was a ~1300+ line file handling all tabs, charts, configuration, and callbacks. This made it difficult to navigate, test, and maintain.
 
 **Implementation:**
-- Extract into a component-based structure:
+- Extracted into a Streamlit multipage app structure:
   ```
   src/rohan/ui/
-  ├── app.py                      # Main entry: layout, tab routing, session state init
-  ├── components/
-  │   ├── __init__.py
-  │   ├── sidebar.py              # render_sidebar_config()
-  │   ├── execute_tab.py          # render_execute_tab()
-  │   ├── metrics_tab.py          # render_metrics_tab()
-  │   ├── refinement_tab.py       # render_refinement_tab()
-  │   └── charts/
-  │       ├── __init__.py
-  │       ├── price_charts.py     # plot_price_series(), plot_mid_price()
-  │       ├── volume_charts.py    # plot_volume_profile()
-  │       └── spread_charts.py    # plot_spread_analysis()
+  ├── 0_Terminal.py               # Main entry: Terminal dashboard (Execute, Metrics, Logs)
+  ├── pages/
+  │   └── 1_Refinement_Lab.py     # Refinement Lab: Autonomous strategy optimization
   └── utils/
       ├── presets.py              # (existing)
-      └── formatting.py           # → shared from src/rohan/utils/formatting.py
+      └── theme.py                # Shared UI theme and colors
   ```
-- Each component receives its dependencies via function parameters (not global state).
-- `app.py` remains the Streamlit entry point, reduced to ~100 lines of layout and routing.
+- The Refinement Lab is now a dedicated page with its own state management and layout.
 
 ##### 2.7.8 Test Hardening (Testing)
 
@@ -723,7 +714,7 @@ The `exec()` call in `strategy_validator.py` is the primary security boundary fo
 
 ---
 
-**MVP Scope (Step 2.1-2.4):** ✅ Complete
+**MVP Scope (Step 2.1-2.5):** ✅ Complete
 1. ✅ Writer + Validator loop (3 retries)
 2. ✅ Single pre-defined scenario (architecture supports multiple)
 3. ✅ Single Explainer agent with 7 analysis tools
@@ -731,6 +722,7 @@ The `exec()` call in `strategy_validator.py` is the primary security boundary fo
 5. ✅ Configurable 1–N refinement iterations
 6. ✅ CLI entry point (`python -m rohan.llm.cli`)
 7. ✅ 92 tests covering all LLM modules (253 total across project)
+8. ✅ Streamlit UI with Terminal and Refinement Lab pages
 
 **Future Extensions:**
 - Multiple scenarios in parallel
@@ -756,12 +748,13 @@ graph LR
 **Estimated Timeline:**
 | Step | Effort | Notes |
 |------|--------|-------|
-| 2.1 | 1 day | LangChain setup |
-| 2.2 | 2-3 days | Agent nodes implementation |
-| 2.3 | 1-2 days | LangGraph wiring |
-| 2.4 | 2-3 days | Tools + ReAct explainer |
-| 2.5 | 1-2 days | UI updates |
+| 2.1 | 1 day | LangChain setup (Done) |
+| 2.2 | 2-3 days | Agent nodes implementation (Done) |
+| 2.3 | 1-2 days | LangGraph wiring (Done) |
+| 2.4 | 2-3 days | Tools + ReAct explainer (Done) |
+| 2.5 | 1-2 days | UI updates (Done) |
 | 2.6 | 2-3 days | Benchmarking |
+| 2.7 | 3-5 days | Code Quality & Hardening |
 
 ---
 
