@@ -1,5 +1,7 @@
 # ROHAN: Risk Optimization with Heuristic Agent Network
 
+[![CI](https://github.com/GabrieleDiCorato/rohan/actions/workflows/ci.yml/badge.svg)](https://github.com/GabrieleDiCorato/rohan/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/GabrieleDiCorato/rohan/branch/main/graph/badge.svg)](https://codecov.io/gh/GabrieleDiCorato/rohan)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
