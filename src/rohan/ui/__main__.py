@@ -17,12 +17,12 @@ def main():
         print("Please install the UI dependencies with: uv sync --group ui")
         sys.exit(1)
 
-    # Get the path to the app.py file
+    # Get the path to the 0_Terminal.py file
     ui_dir = Path(__file__).parent
-    app_path = ui_dir / "app.py"
+    app_path = ui_dir / "0_Terminal.py"
 
     if not app_path.exists():
-        print(f"Error: Could not find app.py at {app_path}")
+        print(f"Error: Could not find 0_Terminal.py at {app_path}")
         sys.exit(1)
 
     # Launch Streamlit with the app

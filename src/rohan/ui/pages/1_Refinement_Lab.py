@@ -299,6 +299,55 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # ── Saved Refinement Runs ─────────────────────────────────────────
+    st.markdown("### 💾 Saved Runs")
+
+    @st.dialog("Load Past Run", width="large")
+    def _sidebar_load_run_dialog():
+        try:
+            _sessions = _refinement_repo.list_sessions()
+        except Exception as _exc:
+            st.error(f"Could not load past runs: {_exc}")
+            return
+
+        if not _sessions:
+            st.info("No saved runs found. Run a refinement and save it first.")
+            return
+
+        st.markdown(f"**{len(_sessions)} saved run(s)**")
+        st.markdown("---")
+
+        for _s in _sessions:
+            _s_col1, _s_col2, _s_col3 = st.columns([5, 1, 1])
+            with _s_col1:
+                _score_str = f"{_s.final_score:.1f}/10" if _s.final_score is not None else "N/A"
+                st.markdown(f"**{_s.name}**")
+                st.caption(_s.goal)
+                st.caption(f"🏆 Score: {_score_str} · 🔄 {_s.iteration_count} iter · 📌 {_s.status} · 📅 {_s.created_at:%Y-%m-%d %H:%M}")
+            with _s_col2:
+                if st.button("Load", key=f"sb_load_{_s.session_id}", use_container_width=True, type="primary"):
+                    _loaded = _refinement_repo.load_session(_s.session_id)
+                    if _loaded:
+                        for _k, _v in _loaded.items():
+                            st.session_state[_k] = _v
+                        st.session_state.refine_prev_goal = _loaded.get("refine_goal", "")
+                        st.session_state.refine_prev_scenarios = []
+                        st.session_state.refine_running = False
+                        st.toast("✅ Run loaded!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to load run.")
+            with _s_col3:
+                if st.button("🗑️", key=f"sb_del_{_s.session_id}", use_container_width=True, help="Delete this run"):
+                    _refinement_repo.delete_session(_s.session_id)
+                    st.rerun()
+            st.divider()
+
+    if st.button("Load Past Run", use_container_width=True):
+        _sidebar_load_run_dialog()
+
+    st.markdown("---")
+
     # ── Example goals ─────────────────────────────────────────────────
     st.markdown("### 💡 Example Goals")
     for _name, _goal_text in EXAMPLE_GOALS.items():

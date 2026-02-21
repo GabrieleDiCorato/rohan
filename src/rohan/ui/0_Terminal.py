@@ -170,32 +170,57 @@ def render_sidebar_config():
 
     # ── Saved scenarios from DB ────────────────────────────────────
     st.markdown("### 💾 Saved Scenarios")
-    try:
-        _saved_list = _scenario_repo.list_scenarios()
-    except Exception:
-        _saved_list = []
 
-    if _saved_list:
+    @st.dialog("Load Saved Scenario", width="large")
+    def load_scenario_dialog():
+        try:
+            _saved_list = _scenario_repo.list_scenarios()
+        except Exception:
+            _saved_list = []
+
+        if not _saved_list:
+            st.info("No saved scenarios yet. Save one from the Execute tab.")
+            return
+
+        st.markdown(f"**{len(_saved_list)} saved scenario(s)**")
+        st.markdown("---")
+
         for _sc in _saved_list:
-            _sc_col1, _sc_col2 = st.columns([3, 1])
+            _cfg = _sc.full_config or {}
+            _agents = _cfg.get("agents", {})
+            _noise_n = _agents.get("noise", {}).get("num_agents", "?")
+            _value_n = _agents.get("value", {}).get("num_agents", "?")
+            _mm_n = _agents.get("adaptive_market_maker", {}).get("num_agents", "?")
+            _mom_n = _agents.get("momentum", {}).get("num_agents", "?")
+
+            _sc_col1, _sc_col2, _sc_col3 = st.columns([5, 1, 1])
             with _sc_col1:
                 st.markdown(f"**{_sc.name}**")
                 if _sc.description:
                     st.caption(_sc.description)
+                _detail_parts = [
+                    f"📅 {_cfg.get('date', '?')}",
+                    f"🕐 {_cfg.get('start_time', '?')} – {_cfg.get('end_time', '?')}",
+                    f"🏷️ {_cfg.get('ticker', '?')}",
+                ]
+                st.caption(" · ".join(_detail_parts))
+                st.caption(f"👥 Noise: {_noise_n} · Value: {_value_n} · MM: {_mm_n} · Momentum: {_mom_n}   | Created: {_sc.created_at:%Y-%m-%d %H:%M}")
             with _sc_col2:
-                if st.button("Load", key=f"load_sc_{_sc.scenario_id}", use_container_width=True):
+                if st.button("Load", key=f"load_sc_{_sc.scenario_id}", use_container_width=True, type="primary"):
                     from rohan.config import SimulationSettings as _SimSettings
 
                     st.session_state.draft_config = _SimSettings.model_validate(_sc.full_config)
                     st.session_state.simulation_config = st.session_state.draft_config
-                    st.success(f"✅ Loaded: {_sc.name}")
+                    st.toast(f"✅ Loaded: {_sc.name}")
                     st.rerun()
-            # Delete button (small)
-            if st.button("🗑️", key=f"del_sc_{_sc.scenario_id}", help=f"Delete '{_sc.name}'"):
-                _scenario_repo.delete_scenario(_sc.scenario_id)
-                st.rerun()
-    else:
-        st.caption("No saved scenarios yet. Save one from the Execute tab.")
+            with _sc_col3:
+                if st.button("🗑️", key=f"del_sc_{_sc.scenario_id}", use_container_width=True, help=f"Delete '{_sc.name}'"):
+                    _scenario_repo.delete_scenario(_sc.scenario_id)
+                    st.rerun()
+            st.divider()
+
+    if st.button("Load Configuration", use_container_width=True):
+        load_scenario_dialog()
 
     st.markdown("---")
 

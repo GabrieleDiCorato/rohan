@@ -81,6 +81,10 @@ ignore = [
     "E501",  # line too long (handled by formatter)
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"src/rohan/ui/*.py" = ["N999"]
+"src/rohan/ui/pages/*.py" = ["N999"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["rohan"]
 
