@@ -52,6 +52,7 @@ class IterationResult(BaseModel):
 
     iteration_id: UUID | None = Field(default=None, description="DB iteration ID (set when persistence is enabled)")
     generation_number: int = Field(default=0)
+    seed: int | None = Field(default=None, description="Random seed used for this iteration (for reproducibility)")
     validation: ValidationResult = Field(...)
     comparison: ComparisonResult | None = Field(default=None)
     summary: RunSummary | None = Field(default=None)
@@ -138,12 +139,21 @@ class IterationPipeline:
         """
         start = time.time()
 
+        # Log seed for reproducibility (thesis polish: 2.7.9)
+        logger.info(
+            "[gen=%d] seed=%d  (export ROHAN_SEED=%d to reproduce)",
+            generation_number,
+            config.settings.seed,
+            config.settings.seed,
+        )
+
         # 1. Validate -------------------------------------------------------
         validation = self._validator.validate(strategy_code)
         if not validation.is_valid:
             logger.warning("Validation failed: %s", validation.errors)
             return IterationResult(
                 generation_number=generation_number,
+                seed=config.settings.seed,
                 validation=validation,
                 duration_seconds=time.time() - start,
                 error=f"Validation errors: {validation.errors}",
@@ -157,6 +167,7 @@ class IterationPipeline:
             logger.error("Execution failed: %s", exc)
             return IterationResult(
                 generation_number=generation_number,
+                seed=config.settings.seed,
                 validation=validation,
                 duration_seconds=time.time() - start,
                 error=f"Execution error: {exc}\n{tb}",
@@ -196,6 +207,7 @@ class IterationPipeline:
         return IterationResult(
             iteration_id=iteration_id,
             generation_number=generation_number,
+            seed=config.settings.seed,
             validation=validation,
             comparison=comparison,
             summary=summary,

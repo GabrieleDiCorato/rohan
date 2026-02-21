@@ -25,6 +25,7 @@ from rohan.framework.database import (
     RefinementIteration,
     RefinementScenarioResult,
     RefinementSession,
+    get_database_connector,
 )
 from rohan.llm.models import IterationSummary, ScenarioMetrics
 
@@ -88,7 +89,7 @@ class RefinementRepository:
     """Persist and reload complete Refinement Lab runs."""
 
     def __init__(self, db: DatabaseConnector | None = None) -> None:
-        self.db = db or DatabaseConnector()
+        self.db = db or get_database_connector()
 
     # ------------------------------------------------------------------
     # Save

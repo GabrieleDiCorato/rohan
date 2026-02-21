@@ -1,7 +1,11 @@
 import ast
 import builtins
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Any
 
 from rohan.config import SimulationSettings
+from rohan.exceptions import SimulationTimeoutError, StrategyExecutionError, StrategyValidationError
 from rohan.simulation.models import (
     SimulationContext,
     SimulationResult,
@@ -94,11 +98,10 @@ class StrategyValidator:
         """Execute the strategy code in a restricted namespace and return the class."""
         result = self.validate(code)
         if not result.is_valid:
-            raise ValueError(f"Security violations found: {result.errors}")
+            raise StrategyValidationError(f"Security violations found: {result.errors}")
 
         # Prepare restricted execution context
         # We need to inject necessary modules and builtins
-        from typing import Any
 
         context: dict[str, Any] = {
             "__builtins__": {k: getattr(builtins, k) for k in self.SAFE_BUILTINS if hasattr(builtins, k)},
@@ -141,15 +144,15 @@ class StrategyValidator:
             # Execute the code
             exec(code, context)
         except Exception as e:
-            raise RuntimeError(f"Strategy execution failed: {e}") from e
+            raise StrategyExecutionError(f"Strategy execution failed: {e}") from e
 
         # Extract the strategy class
         if class_name not in context:
-            raise ValueError(f"Strategy class '{class_name}' not found in code")
+            raise StrategyValidationError(f"Strategy class '{class_name}' not found in code")
 
         strategy_class = context[class_name]
         if not isinstance(strategy_class, type):
-            raise TypeError(f"'{class_name}' is not a class")
+            raise StrategyValidationError(f"'{class_name}' is not a class")
 
         # Verify it implements the protocol
         required_methods = [
@@ -161,59 +164,89 @@ class StrategyValidator:
         ]
         for method in required_methods:
             if not hasattr(strategy_class, method):
-                raise TypeError(f"Strategy class '{class_name}' missing required method: '{method}'")
+                raise StrategyValidationError(f"Strategy class '{class_name}' missing required method: '{method}'")
 
         return strategy_class
+
+
+def _run_simulation_in_thread(
+    strategy_code: str,
+    settings: SimulationSettings,
+) -> SimulationResult:
+    """Run strategy simulation in the current thread.  Used by execute_strategy_safely."""
+    validator = StrategyValidator()
+
+    tree = ast.parse(strategy_code)
+    class_name: str | None = None
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            class_name = node.name
+            break
+
+    if not class_name:
+        return SimulationResult(
+            context=SimulationContext(settings=settings),
+            duration_seconds=0,
+            error=StrategyValidationError("No strategy class found in code"),
+        )
+
+    strategy_class = validator.execute_strategy(strategy_code, class_name)
+    strategy_instance = strategy_class()
+    service = SimulationService()
+    return service.run_simulation(settings, strategy=strategy_instance)
 
 
 def execute_strategy_safely(
     strategy_code: str,
     settings: SimulationSettings,
-    _timeout_seconds: int = 300,
+    timeout_seconds: int = 300,
 ) -> SimulationResult:
+    """Execute a strategy simulation with a wall-clock timeout.
+
+    # SECURITY
+    # ---------
+    # Threat model: LLM-generated code may contain:
+    #   - Infinite loops in __init__, on_market_data, or on_order_update
+    #   - Excessive memory allocation (e.g. allocating huge arrays)
+    #   - Attempts to access the filesystem or network
+    #
+    # Current mitigations:
+    #   - AST-level import whitelist (StrategyValidator.validate)
+    #   - Restricted builtins in exec() namespace (StrategyValidator.execute_strategy)
+    #   - Execution in a daemon thread; parent aborts after ``timeout_seconds``
+    #   - SimulationTimeoutError is raised on timeout, propagating to LangGraph nodes
+    #
+    # Timeout implementation note:
+    #   We use a ThreadPoolExecutor rather than multiprocessing because the ABIDES
+    #   simulation output (AbidesOutput / end_state) contains C-extension thread
+    #   locks that are not picklable and cannot cross process boundaries.
+    #   Thread-based timeout cannot forcibly kill a runaway thread (Python has no
+    #   such primitive), but the AST-level import whitelist prevents user code from
+    #   importing ``time``, ``asyncio``, or C extensions that could truly spin
+    #   forever.  For true OS-level isolation, see Phase 3 (Docker sandbox).
+    #
+    # Known gaps (acceptable for thesis MVP):
+    #   - No CPU cgroup limit
+    #   - No memory limit
+    #   - No filesystem or network isolation
+    #
+    # Planned mitigation: Docker sandbox (Phase 3)
+
+    Steps:
+        1. Submit _run_simulation_in_thread to a single-thread executor.
+        2. Wait up to ``timeout_seconds`` for the future to complete.
+        3. If the timeout is exceeded, raise SimulationTimeoutError (the
+           background thread continues but is a daemon and will be reaped
+           when the process exits).
+        4. Otherwise, return the SimulationResult.
     """
-    Executes a strategy simulation with safety checks and timeout.
-
-    1. Validates code safety (imports, builtins)
-    2. Compiles strategy class
-    3. Runs simulation in separate process/thread (or just safely here for MVP)
-
-    For MVP on Windows, we run in-process but with validation.
-    """
-    validator = StrategyValidator()
-
-    try:
-        # Extract class name - for now assume "MyStrategy" or parse it
-        # Simple parsing to find class name
-        model_tree = ast.parse(strategy_code)
-        class_name = None
-        for node in model_tree.body:
-            if isinstance(node, ast.ClassDef):
-                class_name = node.name
-                break
-
-        if not class_name:
-            return SimulationResult(
-                context=SimulationContext(settings=settings),
-                duration_seconds=0,
-                error=ValueError("No strategy class found in code"),
-            )
-
-        strategy_class = validator.execute_strategy(strategy_code, class_name)
-
-        # Instantiate strategy
-        # We need to adapt it? SimulationService takes strategy INSTANCE?
-        # SimulationService.run_simulation(settings, strategy)
-        # Strategy must be StrategicAgentAdapter?
-        # No, SimulationService takes `strategy: Optional[Any]`.
-        # And it uses `StrategicAgentAdapter` to wrap it.
-        # So we pass the minimal strategy instance.
-
-        # Minimal strategy interface: initialize, on_market_data, on_order_update
-        strategy_instance = strategy_class()
-
-        service = SimulationService()
-        return service.run_simulation(settings, strategy=strategy_instance)
-
-    except Exception as e:
-        return SimulationResult(context=SimulationContext(settings=settings), duration_seconds=0, error=e)
+    start_time = time.monotonic()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future: Future[SimulationResult] = executor.submit(_run_simulation_in_thread, strategy_code, settings)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except TimeoutError:
+            elapsed = time.monotonic() - start_time
+            raise SimulationTimeoutError(f"Strategy execution timed out after {elapsed:.1f}s " f"(limit: {timeout_seconds}s). The strategy may contain an infinite loop.") from None
+        except Exception as exc:
+            raise StrategyExecutionError(f"Strategy execution failed: {exc}") from exc

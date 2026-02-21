@@ -13,7 +13,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from rohan.framework.database import DatabaseConnector, SavedScenario
+from rohan.framework.database import DatabaseConnector, SavedScenario, get_database_connector
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class ScenarioRepository:
     """Manage saved simulation scenarios in the database."""
 
     def __init__(self, db: DatabaseConnector | None = None) -> None:
-        self.db = db or DatabaseConnector()
+        self.db = db or get_database_connector()
 
     # ------------------------------------------------------------------
     # Create

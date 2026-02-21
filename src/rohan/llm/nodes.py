@@ -201,10 +201,13 @@ def scenario_executor_node(state: RefinementState) -> dict:
             merged.update(scenario.config_override)
             settings = SimulationSettings.model_validate(merged)
 
+            # Log seed for reproducibility (2.7.9)
+            logger.info("Scenario %r  seed=%d", scenario.name, settings.seed)
+
             # Run strategy
             if not code:
                 raise ValueError("No strategy code to execute")
-            sim_result = execute_strategy_safely(code, settings, _timeout_seconds=300)
+            sim_result = execute_strategy_safely(code, settings, timeout_seconds=300)
             if sim_result.error or not sim_result.result:
                 results.append(
                     ScenarioResult(

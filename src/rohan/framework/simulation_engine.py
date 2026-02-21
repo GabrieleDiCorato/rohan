@@ -8,7 +8,7 @@ from rohan.config import SimulationSettings
 from rohan.simulation import SimulationService
 
 from .analysis_service import AnalysisService
-from .database import ArtifactType, DatabaseConnector, RunStatus
+from .database import ArtifactType, DatabaseConnector, RunStatus, get_database_connector
 from .repository import ArtifactStore
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class SimulationEngine:
     """
 
     def __init__(self, db: DatabaseConnector | None = None):
-        self.db = db or DatabaseConnector()
+        self.db = db or get_database_connector()
         self.repo = ArtifactStore(self.db)
         self.analyzer = AnalysisService()
 
@@ -38,6 +38,9 @@ class SimulationEngine:
         self.repo.update_run_status(run_id, RunStatus.RUNNING)
 
         try:
+            # Log seed for reproducibility (2.7.9) — inside try so None settings fail gracefully
+            logger.info("seed=%d  (export ROHAN_SEED=%d to reproduce)", settings.seed, settings.seed)
+
             # 2. Run Simulation
             service = SimulationService()
             sim_result = service.run_simulation(settings)

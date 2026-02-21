@@ -10,8 +10,22 @@ Notes / pitfalls:
 - Converting times: ABIDES provides timestamps as ns since epoch. We
     often convert those to "ns since midnight" using `ns_date()` so that
     snapshots align with a single trading day.
+
+Caching strategy:
+- Single-argument computed properties use ``@functools.cached_property``,
+  which stores the result in the instance's ``__dict__``.  This is
+  garbage-collected with the instance, avoiding the memory-leak footgun
+  of ``@lru_cache`` on instance methods (which pins ``self`` in the
+  function-level cache forever).
+- The depth-parameterized ``get_order_book_l2(n_levels)`` uses an
+  explicit ``dict`` initialised in ``__init__`` so the cache is clearly
+  owned by the instance and does not require ``__hash__`` / ``__eq__``
+  overrides that ``lru_cache`` would demand.
+- All cache entries are populated **after** Pandera validation so that
+  the "validate at production boundary" contract is preserved.
 """
 
+import functools
 from typing import Any, override
 
 import numpy as np
@@ -44,23 +58,23 @@ class AbidesOutput(SimulationOutput):
         super().__init__()
         self.end_state = end_state
         self.strategic_agent_id = strategic_agent_id
+        # Depth-parameterised L2 cache: {n_levels: validated_df}
+        # Using an explicit dict owned by the instance avoids the memory-leak
+        # footgun of @lru_cache on instance methods (see module docstring).
+        self._order_book_l2_cache: dict[int, DataFrame[OrderBookL2Schema]] = {}
 
     @override
     def get_order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
         """Returns the Level 1 order book data as a single DataFrame.
         Columns: time, bid_price, bid_qty, ask_price, ask_qty, timestamp
         """
-
-        # L1 snapshots are relatively cheap to hold in memory; compute once
-        # and cache on the instance. The resulting DataFrame uses a 'time'
-        # column expressed in ns since midnight (int64) plus a human
-        # readable `timestamp` column.
-        if not hasattr(self, "_order_book_l1"):
-            order_book = self.get_order_book()
-            df = AbidesOutput._compute_order_book_l1(order_book)
-            self._order_book_l1 = OrderBookL1Schema.validate(df)
-
         return self._order_book_l1
+
+    @functools.cached_property
+    def _order_book_l1(self) -> DataFrame[OrderBookL1Schema]:
+        order_book = self.order_book
+        df = AbidesOutput._compute_order_book_l1(order_book)
+        return OrderBookL1Schema.validate(df)  # pyright: ignore[reportReturnType]
 
     @override
     def get_order_book_l2(self, n_levels: int) -> DataFrame[OrderBookL2Schema]:
@@ -70,52 +84,50 @@ class AbidesOutput(SimulationOutput):
         Columns: time (ns from midnight), timestamp (pd.Timestamp), level (1-indexed),
                  side ('bid'|'ask'), price, qty
         """
-        if not hasattr(self, "_order_book_l2_cache"):
-            self._order_book_l2_cache: dict[int, DataFrame[OrderBookL2Schema]] = {}
         if n_levels not in self._order_book_l2_cache:
-            order_book = self.get_order_book()
+            order_book = self.order_book
             df = AbidesOutput._compute_order_book_l2(order_book, n_levels)
-            self._order_book_l2_cache[n_levels] = OrderBookL2Schema.validate(df)
-
+            self._order_book_l2_cache[n_levels] = OrderBookL2Schema.validate(df)  # pyright: ignore[reportArgumentType]
         return self._order_book_l2_cache[n_levels]
 
     @override
     def get_logs_df(self) -> DataFrame[AgentLogsSchema]:
         """Returns a single DataFrame with the logs from all agents."""
-
-        # Parsing all agent logs can be expensive; cache the result.
-        # `parse_logs_df` returns a combined DataFrame suitable for
-        # downstream analysis and plotting.
-        if not hasattr(self, "_logs_df"):
-            df = parse_logs_df(self.end_state)
-            self._logs_df = AgentLogsSchema.validate(df)
-
         return self._logs_df
+
+    @functools.cached_property
+    def _logs_df(self) -> DataFrame[AgentLogsSchema]:
+        # Parsing all agent logs can be expensive; cached_property ensures it
+        # runs once and is garbage-collected with the instance.
+        df = parse_logs_df(self.end_state)
+        return AgentLogsSchema.validate(df)  # pyright: ignore[reportReturnType]
 
     @override
     def get_logs_by_agent(self) -> dict[int, Any]:
         """Returns a dictionary of agent logs."""
-        if not hasattr(self, "_logs_dict"):
-            self._logs_dict = {agent.id: agent.log for agent in self.end_state["agents"]}
+        return self._logs_by_agent
 
-        return self._logs_dict
+    @functools.cached_property
+    def _logs_by_agent(self) -> dict[int, Any]:
+        return {agent.id: agent.log for agent in self.end_state["agents"]}
 
     def get_exchange_agent(self) -> ExchangeAgent:
         """Returns the exchange agent from the end state."""
+        return self.exchange_agent
 
+    @functools.cached_property
+    def exchange_agent(self) -> ExchangeAgent:
         # By convention in ABIDES setups used here, the exchange agent
         # appears as the first agent in the `end_state['agents']` list.
-        return self.end_state["agents"][0]
+        return self.end_state["agents"][0]  # pyright: ignore[reportReturnType]
 
     def get_order_book(self) -> OrderBook:
         """Returns the order book data from the end state."""
-        # Lazy-load and cache the `OrderBook` to avoid repeated lookup cost.
-        # This attribute is intentionally stored on the instance so that
-        # subsequent calls are cheap.
-        if not hasattr(self, "_order_book"):
-            self._order_book = self.get_exchange_agent().order_books["ABM"]
+        return self.order_book
 
-        return self._order_book
+    @functools.cached_property
+    def order_book(self) -> OrderBook:
+        return self.exchange_agent.order_books["ABM"]  # pyright: ignore[reportReturnType]
 
     @staticmethod
     def _compute_order_book_l1(order_book: OrderBook) -> pd.DataFrame:

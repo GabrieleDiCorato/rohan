@@ -7,7 +7,7 @@ for the agentic simulation framework.
 
 import logging
 
-from .database_connector import DatabaseConnector
+from .database_connector import get_database_connector
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def initialize_database() -> None:
     defined in models.py. It's idempotent - running it multiple times
     won't cause errors.
     """
-    db = DatabaseConnector()
+    db = get_database_connector()
     db.create_tables()
     logger.info("Database tables created successfully")
 
@@ -33,7 +33,7 @@ def drop_all_tables() -> None:
     """
     from rohan.framework.database.models import Base
 
-    db = DatabaseConnector()
+    db = get_database_connector()
     Base.metadata.drop_all(bind=db.engine)
     logger.info("All tables dropped")
 

@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING
 
+from rohan.utils.formatting import fmt_dollar_metric
+
 if TYPE_CHECKING:
     from rohan.simulation import RunSummary
 
@@ -36,11 +38,6 @@ INTERPRETER_PROMPT_TEMPLATE = """You are analyzing the results of a trading stra
 """
 
 
-def _fmt_dollar(v: int | float | None) -> str:
-    """Format a value in cents as a dollar string for human display."""
-    return f"{v / 100:,.2f}" if v is not None else "N/A"
-
-
 def _fmt_pct(v: float | None) -> str:
     return f"{v:+.1%}" if v is not None else "N/A"
 
@@ -72,9 +69,9 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "") -> str:
 
     return INTERPRETER_PROMPT_TEMPLATE.format(
         goal=goal,
-        total_pnl=_fmt_dollar(agent.total_pnl),
-        initial_cash=_fmt_dollar(agent.initial_cash),
-        ending_cash=_fmt_dollar(agent.ending_cash),
+        total_pnl=fmt_dollar_metric(agent.total_pnl),
+        initial_cash=fmt_dollar_metric(agent.initial_cash),
+        ending_cash=fmt_dollar_metric(agent.ending_cash),
         trade_count=agent.trade_count,
         fill_rate=_fmt_rate(agent.fill_rate),
         end_inventory=agent.end_inventory,

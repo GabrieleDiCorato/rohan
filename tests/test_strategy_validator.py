@@ -1,5 +1,6 @@
 import pytest
 
+from rohan.exceptions import StrategyExecutionError, StrategyValidationError
 from rohan.simulation.strategy_validator import StrategyValidator
 
 
@@ -78,7 +79,7 @@ class BadStrategy:
     def test_missing_class(self):
         validator = StrategyValidator()
         code = "x = 1"
-        with pytest.raises(ValueError, match="Strategy class 'MyStrategy' not found"):
+        with pytest.raises(StrategyValidationError, match="Strategy class 'MyStrategy' not found"):
             validator.execute_strategy(code, "MyStrategy")
 
     def test_missing_methods(self):
@@ -87,7 +88,7 @@ class BadStrategy:
 class IncompleteStrategy:
     def initialize(self, config): pass
 """
-        with pytest.raises(TypeError, match="missing required method"):
+        with pytest.raises(StrategyValidationError, match="missing required method"):
             validator.execute_strategy(code, "IncompleteStrategy")
 
     def test_runtime_error_in_strategy(self):
@@ -96,7 +97,7 @@ class IncompleteStrategy:
 class CrashingStrategy:
     x = 1 / 0
 """
-        with pytest.raises(RuntimeError, match="Strategy execution failed"):
+        with pytest.raises(StrategyExecutionError, match="Strategy execution failed"):
             validator.execute_strategy(code, "CrashingStrategy")
 
     def test_safe_builtins_allowed(self):
@@ -135,5 +136,5 @@ class HackerStrategy:
 """
         # It passes validation (no forbidden imports/attributes),
         # but fails at runtime because 'open' is not in SAFE_BUILTINS
-        with pytest.raises(RuntimeError, match="name 'open' is not defined"):
+        with pytest.raises(StrategyExecutionError, match="Strategy execution failed"):
             validator.execute_strategy(code, "HackerStrategy")

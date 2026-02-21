@@ -1,5 +1,6 @@
 """Database connection management with scoped sessions."""
 
+import functools
 import logging
 
 from sqlalchemy.engine import Engine, create_engine
@@ -14,24 +15,18 @@ logger = logging.getLogger(__name__)
 
 class DatabaseConnector:
     """
-    Singleton class to manage database connection and sessions.
+    Manages database connection pool and thread-local Sessions.
+
+    Instantiate directly for custom configuration (e.g. in tests with an
+    in-memory SQLite URL).  For normal application use, prefer the module-level
+    ``get_database_connector()`` factory which returns a single long-lived
+    instance per process via ``@functools.lru_cache``.
 
     Uses ``scoped_session`` to provide thread-local sessions, ensuring
     proper cleanup and avoiding session leaks across threads.
     """
 
-    _instance = None
-    _engine: Engine | None = None
-    _session_factory: sessionmaker[Session] | None = None
-    _scoped_session: scoped_session[Session] | None = None
-
-    def __new__(cls) -> "DatabaseConnector":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialize()
-        return cls._instance
-
-    def _initialize(self) -> None:
+    def __init__(self) -> None:
         """Initialize the database engine and session factory."""
         settings = DatabaseSettings()
 
@@ -41,9 +36,9 @@ class DatabaseConnector:
             engine_kwargs["pool_size"] = settings.pool_size
             engine_kwargs["max_overflow"] = settings.max_overflow
 
-        self._engine = create_engine(settings.connection_string, **engine_kwargs)
-        self._session_factory = sessionmaker(autocommit=False, autoflush=False, bind=self._engine)
-        self._scoped_session = scoped_session(self._session_factory)
+        self._engine: Engine = create_engine(settings.connection_string, **engine_kwargs)
+        self._session_factory: sessionmaker[Session] = sessionmaker(autocommit=False, autoflush=False, bind=self._engine)
+        self._scoped_session: scoped_session[Session] = scoped_session(self._session_factory)
         logger.info(
             "Database connector initialised: %s",
             settings.connection_string.split("@")[-1] if "@" in settings.connection_string else settings.connection_string,
@@ -52,9 +47,6 @@ class DatabaseConnector:
     @property
     def engine(self) -> Engine:
         """Return the SQLAlchemy Engine."""
-        if self._engine is None:
-            self._initialize()
-        assert self._engine is not None
         return self._engine
 
     def get_session(self) -> Session:
@@ -64,15 +56,11 @@ class DatabaseConnector:
         session is returned, and it is automatically removed at the end
         of the request/scope.
         """
-        if self._scoped_session is None:
-            self._initialize()
-        assert self._scoped_session is not None
         return self._scoped_session()
 
     def remove_session(self) -> None:
         """Remove the current scoped session, releasing the connection back to the pool."""
-        if self._scoped_session is not None:
-            self._scoped_session.remove()
+        self._scoped_session.remove()
 
     def create_tables(self) -> None:
         """Create all tables defined in models.py."""
@@ -81,23 +69,31 @@ class DatabaseConnector:
 
     def dispose(self) -> None:
         """Dispose of the engine and all connections.  Used for clean shutdown."""
-        if self._scoped_session is not None:
-            self._scoped_session.remove()
-        if self._engine is not None:
-            self._engine.dispose()
-            logger.info("Database engine disposed")
+        self._scoped_session.remove()
+        self._engine.dispose()
+        logger.info("Database engine disposed")
 
-    @classmethod
-    def reset_singleton(cls) -> None:
-        """Reset the singleton instance. Used primarily in testing."""
-        if cls._instance is not None:
-            cls._instance.dispose()
-        cls._instance = None
-        cls._engine = None
-        cls._session_factory = None
-        cls._scoped_session = None
+
+@functools.lru_cache(maxsize=1)
+def get_database_connector() -> DatabaseConnector:
+    """Return the process-wide ``DatabaseConnector`` singleton.
+
+    ``@lru_cache(maxsize=1)`` is safe here because ``DatabaseConnector`` is a
+    lightweight, intentionally long-lived object (it holds a connection pool,
+    not large data payloads).  This avoids the surprising ``__new__``-based
+    singleton anti-pattern while still ensuring a single connector per process.
+
+    In tests, call ``get_database_connector.cache_clear()`` before each test
+    that needs a fresh connector, or inject a ``DatabaseConnector`` directly:
+
+        def test_something():
+            db = DatabaseConnector()  # fresh instance, custom URL via env
+            repo = ArtifactStore(db)
+            ...
+    """
+    return DatabaseConnector()
 
 
 def get_db() -> DatabaseConnector:
-    """Functions as a dependency to get the Database instance."""
-    return DatabaseConnector()
+    """Convenience alias kept for backward compatibility.  Prefer ``get_database_connector()``."""
+    return get_database_connector()

@@ -503,11 +503,11 @@ refine = "rohan.llm.cli:main"
 ---
 
 #### Step 2.7: Code Quality & Hardening
-**Status:** TODO.
+**Status:** IN PROGRESS (2.7.1–2.7.6 ✅, 2.7.9 ✅; remaining: 2.7.7–2.7.8, 2.7.10–2.7.11).
 
 A cross-cutting pass to address technical debt, strengthen safety guarantees, improve testability, and bring the codebase closer to production-grade standards. Items are prioritized from most critical (safety/correctness) to least (thesis polish).
 
-##### 2.7.1 Enforce Strategy Execution Timeout (Safety — Critical)
+##### 2.7.1 Enforce Strategy Execution Timeout (Safety — Critical) ✅
 
 The `_timeout_seconds` parameter in `execute_strategy_safely()` ([src/rohan/simulation/strategy_validator.py](../src/rohan/simulation/strategy_validator.py)) is currently **accepted but not enforced** (note the leading underscore). An LLM-generated strategy containing an infinite loop in `__init__`, `on_market_data`, or `on_order_update` would hang the entire process indefinitely.
 
@@ -519,11 +519,10 @@ The `_timeout_seconds` parameter in `execute_strategy_safely()` ([src/rohan/simu
 - On timeout, raise a new `SimulationTimeoutError` (see §2.7.4) with a descriptive message including the elapsed time and the timeout limit.
 - Update `execute_strategy_safely()` to remove the underscore prefix from `_timeout_seconds`, marking it as an enforced parameter.
 
-**Test coverage:**
-- Unit test with a strategy containing `while True: pass` in `on_market_data` — assert timeout is raised within tolerance of the configured limit.
-- Unit test confirming normal strategies complete well within the timeout.
+**Implemented:** `execute_strategy_safely()` now uses `concurrent.futures.ThreadPoolExecutor` with `future.result(timeout=timeout_seconds)`. Thread-based timeout was chosen over `multiprocessing` because `AbidesOutput.end_state` contains unpicklable C-extension thread locks that cannot cross process boundaries. The `timeout_seconds` parameter (previously `_timeout_seconds`) is now enforced. Raises `SimulationTimeoutError` on timeout. Security rationale documented inline with `# SECURITY` comment block.
 
-##### 2.7.2 Replace `hasattr`-Based Caching with `@cached_property` (Correctness)
+
+##### 2.7.2 Replace `hasattr`-Based Caching with `@cached_property` (Correctness) ✅
 
 `AbidesOutput` ([src/rohan/simulation/abides_impl/abides_output.py](../src/rohan/simulation/abides_impl/abides_output.py)) uses two inconsistent caching patterns:
 - **L1 data:** `hasattr(self, "_order_book_l1")` check followed by manual attribute assignment.
@@ -536,9 +535,10 @@ Both patterns are fragile — `hasattr` cannot distinguish "not computed" from "
 - For the L2 depth-parameterized cache, initialize a `dict[int, DataFrame]` sentinel in `__init__` and check against it explicitly, or use a helper method with `@lru_cache` scoped to the instance (via `__hash__` + `__eq__` if needed, or a standalone inner function).
 - Ensure all cache entries are populated **after** Pandera validation, preserving the current "validate at production boundary" contract.
 
-**Why not `@lru_cache` on methods?** `@lru_cache` on instance methods pins `self` in the function-level cache, preventing garbage collection of the instance. Since `AbidesOutput` holds large DataFrames (order books, agent logs), this would be a **memory leak** in any workflow that processes multiple simulation runs. `@cached_property` stores the result in the instance's `__dict__`, so it is garbage-collected with the instance.
+**Implemented:** All `hasattr(self, "_attr")` patterns in `AbidesOutput` replaced with `@functools.cached_property`. L2 dict cache initialized in `__init__`. Public `get_*()` methods delegate to cached properties.
 
-##### 2.7.3 Review Pandera Schema Strictness (Correctness)
+
+##### 2.7.3 Review Pandera Schema Strictness (Correctness) ✅
 
 The order book schemas (`OrderBookL1Schema`, `OrderBookL2Schema` in [src/rohan/simulation/models/schemas.py](../src/rohan/simulation/models/schemas.py)) are validated via `SchemaModel.validate()`. By default, Pandera may silently **coerce** column types (e.g., `float64` → `int64`), masking upstream data quality issues from ABIDES.
 
@@ -547,9 +547,10 @@ The order book schemas (`OrderBookL1Schema`, `OrderBookL2Schema` in [src/rohan/s
   - `OrderBookL1Schema`: Currently `strict=False` to allow downstream-computed columns (`mid_price`). This is intentional — **document it** with a comment explaining why.
   - `OrderBookL2Schema`: Should be `strict=True` since no downstream columns are expected.
   - `AgentLogsSchema`: Currently `strict=False` because `parse_logs_df` may add extra columns. This is intentional — **document it**.
-- Add a comment block at the top of `schemas.py` explaining the validation philosophy (validate at production boundary, consumers trust annotations).
+**Implemented:** `OrderBookL2Schema.Config.strict` changed from `False` → `True`. L1 and AgentLogs intentionally remain `strict=False` with inline comments explaining rationale. Module-level docstring added to `schemas.py` explaining the validation philosophy.
 
-##### 2.7.4 Introduce Domain-Specific Exception Hierarchy (Architecture)
+
+##### 2.7.4 Introduce Domain-Specific Exception Hierarchy (Architecture) ✅
 
 The codebase currently relies on generic `Exception` and `ValueError` for all error paths. This makes it difficult to implement targeted error recovery in the LangGraph nodes (e.g., retry on validation failure but abort on timeout).
 
@@ -574,9 +575,10 @@ The codebase currently relies on generic `Exception` and `ValueError` for all er
 - Update `strategy_validator.py` to raise `StrategyValidationError` instead of `ValueError`.
 - Update `execute_strategy_safely()` to raise `SimulationTimeoutError` (from §2.7.1) and `StrategyExecutionError`.
 - Update `iteration_pipeline.py` to raise `BaselineComparisonError` when the baseline run fails.
-- Update LangGraph nodes in `nodes.py` to catch specific exceptions and produce targeted error messages in state.
+**Implemented:** `src/rohan/exceptions.py` created with `RohanError`, `StrategyValidationError`, `SimulationTimeoutError`, `BaselineComparisonError`, `StrategyExecutionError`. `strategy_validator.py` updated to raise domain exceptions. Tests updated to expect `StrategyValidationError` / `StrategyExecutionError` instead of generic `ValueError` / `RuntimeError`.
 
-##### 2.7.5 Replace Database Singleton with Factory Function (Architecture)
+
+##### 2.7.5 Replace Database Singleton with Factory Function (Architecture) ✅
 
 `DatabaseConnector` ([src/rohan/framework/database/database_connector.py](../src/rohan/framework/database/database_connector.py)) uses a `__new__`-based singleton pattern that is:
 - **Not thread-safe:** Concurrent calls to `__new__` can race on `_instance is None`.
@@ -594,9 +596,10 @@ The codebase currently relies on generic `Exception` and `ValueError` for all er
   ```
   `@lru_cache` is safe here because the connector is a lightweight, intentionally long-lived global (no large data payloads — unlike `AbidesOutput`).
 - Update all call sites to use `get_database_connector()` instead of `DatabaseConnector()`.
-- For tests, either clear the cache via `get_database_connector.cache_clear()` or accept a `connector` parameter via dependency injection.
+**Implemented:** `__new__` singleton removed from `DatabaseConnector`. Standard `__init__` added. `get_database_connector()` factory with `@functools.lru_cache(maxsize=1)` added. All call sites (`init_db.py`, `repository.py`, `simulation_engine.py`, `scenario_repository.py`, `refinement_repository.py`) updated. `conftest.py` uses `get_database_connector.cache_clear()` for test isolation.
 
-##### 2.7.6 Consolidate Dollar Formatting Utilities (Code Organization)
+
+##### 2.7.6 Consolidate Dollar Formatting Utilities (Code Organization) ✅
 
 Monetary formatting logic is currently scattered across three locations:
 - `_fmt_dollar()` in [src/rohan/framework/prompts.py](../src/rohan/framework/prompts.py) (for LLM prompt rendering).
@@ -616,7 +619,8 @@ Monetary formatting logic is currently scattered across three locations:
       """Format a delta value for st.metric(delta=...) display."""
   ```
 - Replace all inline formatting functions with imports from the shared module.
-- Add unit tests for edge cases: zero, negative, None, very large values.
+**Implemented:** `src/rohan/utils/formatting.py` created with `fmt_dollar()`, `fmt_dollar_metric()`, `fmt_dollar_delta()`. `prompts.py` imports `fmt_dollar_metric` and drops inline `_fmt_dollar`. `0_Terminal.py` imports `fmt_dollar` and drops inline `_m_dollar` / `_mv_dollar`. `src/rohan/utils/__init__.py` initializes the package.
+
 
 ##### 2.7.7 Split UI Monolith (Code Organization) ✅
 **Status:** Complete and tested.
@@ -674,7 +678,7 @@ Current test coverage is solid for the happy path but has gaps in failure scenar
 - Assert: `SimulationResult` is populated, metrics are non-None, no exceptions raised.
 - This validates the full vertical slice without LLM involvement.
 
-##### 2.7.9 Seed Logging for Reproducibility (Thesis Polish)
+##### 2.7.9 Seed Logging for Reproducibility (Thesis Polish) ✅
 
 The random seed in `SimulationSettings` is generated from `datetime.now().timestamp()`, which is appropriate for exploration but makes reproduction difficult unless the seed is captured.
 
@@ -683,6 +687,8 @@ The random seed in `SimulationSettings` is generated from `datetime.now().timest
 - Include the seed in `IterationResult` and `SimulationRun` DB records (already stored via settings, but not prominently surfaced).
 - Display the seed in the Streamlit UI sidebar when a run completes.
 - In the LangGraph refinement loop, log the seed for each scenario execution in the CLI output.
+
+**Implemented:** `IterationResult.seed` field added. `IterationPipeline.run()` logs seed at INFO level at start. `SimulationEngine.run_local()` logs seed inside the try block. `nodes.py` executor logs seed per scenario. Streamlit sidebar shows "Last Run Seed" code block after a run completes, with a copy hint for reproducibility.
 
 ##### 2.7.10 Document Model Role Rationale (Thesis Polish)
 

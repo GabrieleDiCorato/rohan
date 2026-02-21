@@ -4,16 +4,29 @@ These schemas serve as the **single source of truth** for the column contracts
 of every DataFrame that crosses module boundaries.  They replace implicit
 column-name conventions with explicit, validated definitions.
 
+Validation philosophy
+---------------------
+Schemas are validated at the **production boundary** — i.e. inside
+``AbidesOutput`` right after data is computed and before it is cached.
+Consumers (e.g. ``AnalysisService``) rely on type annotations
+(``DataFrame[OrderBookL1Schema]``) for documentation without re-validating.
+
+``strict`` vs ``coerce``
+------------------------
+* ``OrderBookL1Schema``:  ``strict=False`` — downstream code may attach
+  computed columns (e.g. ``mid_price``).  ``coerce=True`` because ABIDES
+  emits mixed numeric types from C extensions; we normalise them here.
+* ``OrderBookL2Schema``:  ``strict=True`` — no downstream columns are
+  expected.  ``coerce=True`` for the same dtype-normalisation reason.
+* ``AgentLogsSchema``:  ``strict=False`` — ``parse_logs_df`` may append
+  extra event-specific columns depending on agent type.  ``coerce=True``
+  to handle float agent IDs from ABIDES JSON round-trips.
+
 Usage:
     Producers (e.g. ``AbidesOutput``) call ``schema.validate(df)`` before
     returning data.  Consumers (e.g. ``AnalysisService``) can rely on type
     annotations (``DataFrame[OrderBookL1Schema]``) for documentation without
     re-validating.
-
-Design rationale (see ``implementation_plan.md § 3.2``):
-    * **Pydantic** is used for lightweight metadata/summaries (``SimulationMetrics``).
-    * **Pandera** is used for bulk tabular data — it validates DataFrames
-      in-place with near-zero overhead compared to row-by-row Pydantic parsing.
 """
 
 from __future__ import annotations
@@ -54,7 +67,14 @@ class OrderBookL1Schema(pa.DataFrameModel):
     timestamp: Series[pa.DateTime] = pa.Field(description="Wall-clock timestamp")
 
     class Config:
-        strict = False  # allow extra columns (e.g. downstream-computed 'mid_price')
+        # strict=False: downstream code may attach computed columns such as
+        # `mid_price` or `spread` without triggering a validation error.
+        # This is intentional — we validate at the production boundary and
+        # consumers are free to add columns as needed.
+        strict = False
+        # coerce=True: ABIDES C extensions sometimes emit mixed numeric types
+        # (e.g. int32/int64, float32/float64).  Coercion normalises them to
+        # the declared dtypes before analysis code consumes the DataFrame.
         coerce = True
 
 
@@ -90,7 +110,11 @@ class OrderBookL2Schema(pa.DataFrameModel):
     timestamp: Series[pa.DateTime] = pa.Field(description="Wall-clock timestamp")
 
     class Config:
-        strict = False
+        # strict=True: unlike L1, no downstream code is expected to add
+        # columns to L2 DataFrames.  Extra columns would indicate an upstream
+        # change in ABIDES output format that we should be aware of.
+        strict = True
+        # coerce=True: normalise mixed numeric types from ABIDES C extensions.
         coerce = True
 
 
@@ -125,5 +149,9 @@ class AgentLogsSchema(pa.DataFrameModel):
     EventType: Series[str] = pa.Field(description="Event type")
 
     class Config:
-        strict = False  # upstream may add extra columns
+        # strict=False: parse_logs_df appends extra event-specific columns
+        # (e.g. `order_id`, `quantity`, `price`) depending on the agent type.
+        # These are not guaranteed and vary across simulation configurations.
+        strict = False
+        # coerce=True: agent IDs can be float after JSON/CSV round-trips.
         coerce = True

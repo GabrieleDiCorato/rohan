@@ -32,6 +32,7 @@ from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.simulation.simulation_service import SimulationService
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.theme import COLORS, apply_theme
+from rohan.utils.formatting import fmt_dollar
 
 # Ensure DB tables exist
 with contextlib.suppress(Exception):  # DB may not be configured; features degrade gracefully
@@ -637,6 +638,15 @@ def render_sidebar_config():
 with st.sidebar:
     render_sidebar_config()
 
+    # 2.7.9 — Show the seed used by the last completed run so results are
+    # reproducible: the user can copy the seed back into the seed field to
+    # replay an exact scenario.
+    if "simulation_seed" in st.session_state:
+        st.markdown("---")
+        st.markdown("**🎲 Last Run Seed**")
+        st.code(str(st.session_state.simulation_seed), language=None)
+        st.caption("Set this seed in Configuration to reproduce results.")
+
 # ============================================================================
 # MAIN PANEL: HEADER
 # ============================================================================
@@ -883,6 +893,7 @@ def render_execute_tab():
                 st.session_state.simulation_metrics = metrics
                 st.session_state.simulation_duration = duration
                 st.session_state.simulation_timestamp = datetime.now()
+                st.session_state.simulation_seed = config.seed  # 2.7.9 reproducibility
 
                 # Clear caches to force fresh data
                 get_l1_data.clear()
@@ -903,15 +914,11 @@ def render_execute_tab():
             def _m(v: float | None, fmt: str = ".6f") -> str:
                 return f"{v:{fmt}}" if v is not None else "N/A"
 
-            def _m_dollar(v: float | None) -> str:
-                """Format a cents value as dollars."""
-                return f"${v / 100:,.4f}" if v is not None else "N/A"
-
             with col1:
                 st.metric("Volatility", _m(metrics.volatility))
 
             with col2:
-                st.metric("Mean Spread", _m_dollar(metrics.mean_spread))
+                st.metric("Mean Spread", fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A")
 
             with col3:
                 st.metric("Avg Bid Liquidity", _m(metrics.avg_bid_liquidity, ".2f"))
@@ -1001,10 +1008,6 @@ with tab2:
             def _mv(v: float | None, fmt: str = ".6f") -> str:
                 return f"{v:{fmt}}" if v is not None else "N/A"
 
-            def _mv_dollar(v: float | None) -> str:
-                """Format a cents value as dollars."""
-                return f"${v / 100:,.4f}" if v is not None else "N/A"
-
             col1, col2, col3 = st.columns(3)
 
             if metrics is None:
@@ -1013,10 +1016,10 @@ with tab2:
 
             with col1:
                 st.metric("Volatility", _mv(metrics.volatility))
-                st.metric("Mean Spread", _mv_dollar(metrics.mean_spread))
+                st.metric("Mean Spread", fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A")
 
             with col2:
-                st.metric("Effective Spread", _mv_dollar(metrics.effective_spread))
+                st.metric("Effective Spread", fmt_dollar(metrics.effective_spread, precision=4) if metrics.effective_spread is not None else "N/A")
                 st.metric("Avg Bid Liquidity", _mv(metrics.avg_bid_liquidity, ".2f"))
 
             with col3:

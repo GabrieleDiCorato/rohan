@@ -23,6 +23,7 @@ from rohan.framework.database import (
     SimulationScenario,
     StrategyIteration,
     StrategySession,
+    get_database_connector,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ class ArtifactStore:
         db: DatabaseConnector | None = None,
         artifact_root: str | Path | None = None,
     ):
-        self.db = db or DatabaseConnector()
+        self.db = db or get_database_connector()
         self._artifact_root = Path(artifact_root) if artifact_root else None
 
     # ------------------------------------------------------------------
