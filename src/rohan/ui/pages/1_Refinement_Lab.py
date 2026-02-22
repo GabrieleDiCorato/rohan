@@ -969,6 +969,24 @@ if final_state is not None:
                                 _pct(sm.volatility_delta_pct),
                             )
 
+                        # Microstructure row
+                        _has_micro = any(getattr(sm, f, None) is not None for f in ("vpin", "lob_imbalance_mean", "market_ott_ratio"))
+                        if _has_micro:
+                            mm1, mm2, mm3, mm4 = st.columns(4)
+
+                            def _fv(v: float | None, f: str = ".4f") -> str:
+                                return f"{v:{f}}" if v is not None else "N/A"
+
+                            with mm1:
+                                st.metric("VPIN", _fv(sm.vpin))
+                            with mm2:
+                                st.metric("LOB Imb.", _fv(sm.lob_imbalance_mean))
+                            with mm3:
+                                res_ms = f"{sm.resilience_mean_ns / 1e6:.1f} ms" if sm.resilience_mean_ns is not None else "N/A"
+                                st.metric("Resilience", res_ms)
+                            with mm4:
+                                st.metric("OTT", _fv(sm.market_ott_ratio, ".2f"))
+
                         # Simulation charts
                         import base64
 

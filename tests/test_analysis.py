@@ -54,12 +54,30 @@ class TestAnalysisService:
         analyzer = AnalysisService()
         metrics = analyzer.compute_metrics(sample_simulation_output)
 
-        # Verify core metrics are computed (not None)
-        # Note: Some metrics may be None if market data is insufficient
-        assert metrics.volatility is not None
-        # mean_spread can be None if there's no valid bid-ask data
-        # Just verify the method completes without error
+        # Core metrics object must be returned
         assert metrics is not None
+
+        # Spread / liquidity are computable even on short simulations
+        assert metrics.mean_spread is not None
+        assert metrics.avg_bid_liquidity is not None
+        assert metrics.avg_ask_liquidity is not None
+
+        # Volatility may be None when < 30 two-sided observations exist
+        # (our minimum-observation guard). That's correct behaviour.
+        if metrics.volatility is not None:
+            assert metrics.volatility >= 0.0
+
+        # Microstructure metrics: verify they're computed when data allows
+        # traded_volume / effective_spread depend on executed fills
+        if metrics.traded_volume is not None:
+            assert metrics.traded_volume >= 0
+        if metrics.effective_spread is not None:
+            assert metrics.effective_spread >= 0.0
+        # LOB imbalance is always computable on two-sided rows
+        assert metrics.lob_imbalance_mean is not None
+        # market_ott_ratio requires at least some order activity
+        if metrics.market_ott_ratio is not None:
+            assert metrics.market_ott_ratio >= 1.0  # OTT = submitted / executed ≥ 1
 
     def test_generate_price_and_volume_plots(self, sample_simulation_output):
         """Test generating matplotlib visualizations for price series and volume."""

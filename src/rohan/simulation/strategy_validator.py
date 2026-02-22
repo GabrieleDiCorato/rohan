@@ -247,6 +247,6 @@ def execute_strategy_safely(
             return future.result(timeout=timeout_seconds)
         except TimeoutError:
             elapsed = time.monotonic() - start_time
-            raise SimulationTimeoutError(f"Strategy execution timed out after {elapsed:.1f}s " f"(limit: {timeout_seconds}s). The strategy may contain an infinite loop.") from None
+            raise SimulationTimeoutError(f"Strategy execution timed out after {elapsed:.1f}s (limit: {timeout_seconds}s). The strategy may contain an infinite loop.") from None
         except Exception as exc:
             raise StrategyExecutionError(f"Strategy execution failed: {exc}") from exc

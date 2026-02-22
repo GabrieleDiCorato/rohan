@@ -22,6 +22,13 @@ class SimulationMetrics(BaseModel):
     avg_ask_liquidity: float | None = Field(default=None, description="Mean quantity at best ask")
     traded_volume: int | None = Field(default=None, description="Total shares traded")
 
+    # --- Microstructure metrics ---
+    lob_imbalance_mean: float | None = Field(default=None, description="Mean L1 order-book imbalance (Qbid−Qask)/(Qbid+Qask), range [−1, 1]")
+    lob_imbalance_std: float | None = Field(default=None, description="Std of L1 order-book imbalance")
+    vpin: float | None = Field(default=None, description="Volume-synchronised probability of informed trading")
+    resilience_mean_ns: float | None = Field(default=None, description="Mean spread recovery time after shocks (ns)")
+    market_ott_ratio: float | None = Field(default=None, description="Market-wide order-to-trade ratio (submissions/fills)")
+
 
 class AgentMetrics(BaseModel):
     """Performance metrics for a specific agent.
@@ -65,6 +72,13 @@ class MarketMetrics(BaseModel):
     avg_ask_liquidity: float | None = Field(default=None, description="Mean qty at best ask")
     traded_volume: int | None = Field(default=None, description="Total shares traded")
 
+    # --- Microstructure metrics ---
+    lob_imbalance_mean: float | None = Field(default=None, description="Mean L1 order-book imbalance")
+    lob_imbalance_std: float | None = Field(default=None, description="Std of L1 order-book imbalance")
+    vpin: float | None = Field(default=None, description="Volume-synchronised probability of informed trading")
+    resilience_mean_ns: float | None = Field(default=None, description="Mean spread recovery time after shocks (ns)")
+    market_ott_ratio: float | None = Field(default=None, description="Market-wide order-to-trade ratio")
+
 
 # ---------------------------------------------------------------------------
 # Market impact (typed, not a bare dict)
@@ -79,6 +93,12 @@ class MarketImpact(BaseModel):
     volatility_delta_pct: float | None = Field(default=None, description="% change in volatility")
     bid_liquidity_delta_pct: float | None = Field(default=None, description="% change in avg bid qty")
     ask_liquidity_delta_pct: float | None = Field(default=None, description="% change in avg ask qty")
+
+    # --- Microstructure deltas ---
+    lob_imbalance_delta_pct: float | None = Field(default=None, description="% change in mean LOB imbalance")
+    vpin_delta_pct: float | None = Field(default=None, description="% change in VPIN")
+    resilience_delta_pct: float | None = Field(default=None, description="% change in mean spread recovery time")
+    ott_ratio_delta_pct: float | None = Field(default=None, description="% change in market OTT ratio")
 
 
 class ComparisonResult(BaseModel):

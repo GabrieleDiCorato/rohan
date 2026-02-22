@@ -926,6 +926,19 @@ def render_execute_tab():
             with col4:
                 st.metric("Avg Ask Liquidity", _m(metrics.avg_ask_liquidity, ".2f"))
 
+            # Microstructure quick row
+            if any(v is not None for v in [metrics.vpin, metrics.lob_imbalance_mean, metrics.market_ott_ratio]):
+                qm1, qm2, qm3, qm4 = st.columns(4)
+                with qm1:
+                    st.metric("VPIN", _m(metrics.vpin, ".4f"))
+                with qm2:
+                    st.metric("LOB Imbalance", _m(metrics.lob_imbalance_mean, ".4f"))
+                with qm3:
+                    vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
+                    st.metric("Traded Volume", vol_str)
+                with qm4:
+                    st.metric("Market OTT", _m(metrics.market_ott_ratio, ".2f"))
+
         except Exception as e:
             status_container.update(label="❌ Simulation Failed", state="error", expanded=True)
             st.error(f"❌ Simulation failed: {str(e)}")
@@ -1026,6 +1039,26 @@ with tab2:
                 st.metric("Avg Ask Liquidity", _mv(metrics.avg_ask_liquidity, ".2f"))
                 vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
                 st.metric("Traded Volume", vol_str)
+
+            st.markdown("---")
+
+            # Microstructure metrics
+            st.markdown("### 🔬 Microstructure")
+            mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+            with mc1:
+                st.metric("LOB Imbalance", _mv(metrics.lob_imbalance_mean, ".4f"))
+            with mc2:
+                st.metric("LOB Imb. σ", _mv(metrics.lob_imbalance_std, ".4f"))
+            with mc3:
+                st.metric("VPIN", _mv(metrics.vpin, ".4f"))
+            with mc4:
+                if metrics.resilience_mean_ns is not None:
+                    res_ms = metrics.resilience_mean_ns / 1e6
+                    st.metric("Resilience", f"{res_ms:.1f}ms")
+                else:
+                    st.metric("Resilience", "N/A")
+            with mc5:
+                st.metric("Market OTT", _mv(metrics.market_ott_ratio, ".2f"))
 
             st.markdown("---")
 

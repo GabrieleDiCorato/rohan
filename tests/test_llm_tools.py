@@ -45,7 +45,7 @@ class TestMakeExplainerTools:
         output = _mock_output()
         tools = make_explainer_tools(output)
         assert isinstance(tools, list)
-        assert len(tools) == 7
+        assert len(tools) == 8
 
     def test_tool_names(self):
         output = _mock_output()
@@ -58,6 +58,7 @@ class TestMakeExplainerTools:
         assert "get_spread_stats" in names
         assert "query_logs" in names
         assert "get_volume_profile" in names
+        assert "get_microstructure_stats" in names
 
 
 class TestOrderBookSnapshot:

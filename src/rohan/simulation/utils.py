@@ -23,6 +23,11 @@ def _to_market_metrics(sim: "SimulationMetrics") -> MarketMetrics:
         avg_bid_liquidity=sim.avg_bid_liquidity,
         avg_ask_liquidity=sim.avg_ask_liquidity,
         traded_volume=sim.traded_volume,
+        lob_imbalance_mean=sim.lob_imbalance_mean,
+        lob_imbalance_std=sim.lob_imbalance_std,
+        vpin=sim.vpin,
+        resilience_mean_ns=sim.resilience_mean_ns,
+        market_ott_ratio=sim.market_ott_ratio,
     )
 
 
@@ -79,6 +84,10 @@ def run_with_baseline(
         volatility_delta_pct=_pct_change(strat_market.volatility, base_market.volatility),
         bid_liquidity_delta_pct=_pct_change(strat_market.avg_bid_liquidity, base_market.avg_bid_liquidity),
         ask_liquidity_delta_pct=_pct_change(strat_market.avg_ask_liquidity, base_market.avg_ask_liquidity),
+        lob_imbalance_delta_pct=_pct_change(strat_market.lob_imbalance_mean, base_market.lob_imbalance_mean),
+        vpin_delta_pct=_pct_change(strat_market.vpin, base_market.vpin),
+        resilience_delta_pct=_pct_change(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
+        ott_ratio_delta_pct=_pct_change(strat_market.market_ott_ratio, base_market.market_ott_ratio),
     )
 
     return ComparisonResult(

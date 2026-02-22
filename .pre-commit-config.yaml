@@ -5,14 +5,18 @@ repos:
       - id: nbstripout
         name: Strip notebook output and metadata
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+  - repo: local
     hooks:
-      # Run the linter
       - id: ruff
-        args: [--fix]
-      # Run the formatter
+        name: ruff lint
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
       - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
 
   - repo: local
     hooks:

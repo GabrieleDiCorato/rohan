@@ -148,6 +148,41 @@ def make_explainer_tools(output: SimulationOutput) -> list[Any]:
 
         return f"Total fill events: {len(fills)}\n{fills['AgentType'].value_counts().to_string()}"  # pyright: ignore[reportAttributeAccessIssue]
 
+    @tool
+    def get_microstructure_stats() -> str:
+        """Get microstructure analytics: LOB imbalance, VPIN, resilience, OTT ratio.
+
+        Returns a human-readable summary of all microstructure metrics
+        computed from the simulation output.
+        """
+        from rohan.framework.analysis_service import AnalysisService
+
+        metrics = AnalysisService.compute_metrics(output)
+
+        lines = ["Microstructure Analytics:"]
+
+        def _f(v: float | None, fmt: str = ".4f") -> str:
+            return f"{v:{fmt}}" if v is not None else "N/A"
+
+        def _ns(v: float | None) -> str:
+            if v is None:
+                return "N/A"
+            if v >= 1e9:
+                return f"{v / 1e9:.2f}s"
+            if v >= 1e6:
+                return f"{v / 1e6:.1f}ms"
+            return f"{v / 1e3:.0f}μs"
+
+        lines.append(f"  LOB Imbalance: mean={_f(metrics.lob_imbalance_mean)}, std={_f(metrics.lob_imbalance_std)}")
+        lines.append(f"  VPIN: {_f(metrics.vpin)}")
+        lines.append(f"  Spread Resilience (mean recovery): {_ns(metrics.resilience_mean_ns)}")
+        lines.append(f"  Market OTT Ratio: {_f(metrics.market_ott_ratio, '.2f')}")
+        lines.append(f"  Effective Spread: {_f(metrics.effective_spread, '.2f')} cents")
+        lines.append(f"  Traded Volume: {metrics.traded_volume if metrics.traded_volume is not None else 'N/A'} shares")
+        lines.append(f"  Volatility (ann.): {_f(metrics.volatility, '.6f')}")
+
+        return "\n".join(lines)
+
     return [
         get_order_book_snapshot,
         get_agent_trades,
@@ -156,4 +191,5 @@ def make_explainer_tools(output: SimulationOutput) -> list[Any]:
         get_spread_stats,
         query_logs,
         get_volume_profile,
+        get_microstructure_stats,
     ]

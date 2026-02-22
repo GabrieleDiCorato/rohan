@@ -250,6 +250,11 @@ def scenario_executor_node(state: RefinementState) -> dict:
                     avg_bid_liquidity=m.avg_bid_liquidity,
                     avg_ask_liquidity=m.avg_ask_liquidity,
                     traded_volume=m.traded_volume,
+                    lob_imbalance_mean=m.lob_imbalance_mean,
+                    lob_imbalance_std=m.lob_imbalance_std,
+                    vpin=m.vpin,
+                    resilience_mean_ns=m.resilience_mean_ns,
+                    market_ott_ratio=m.market_ott_ratio,
                 )
 
             def _pct(a: float | None, b: float | None) -> float | None:
@@ -266,6 +271,10 @@ def scenario_executor_node(state: RefinementState) -> dict:
                 volatility_delta_pct=_pct(strat_market.volatility, base_market.volatility),
                 bid_liquidity_delta_pct=_pct(strat_market.avg_bid_liquidity, base_market.avg_bid_liquidity),
                 ask_liquidity_delta_pct=_pct(strat_market.avg_ask_liquidity, base_market.avg_ask_liquidity),
+                lob_imbalance_delta_pct=_pct(strat_market.lob_imbalance_mean, base_market.lob_imbalance_mean),
+                vpin_delta_pct=_pct(strat_market.vpin, base_market.vpin),
+                resilience_delta_pct=_pct(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
+                ott_ratio_delta_pct=_pct(strat_market.market_ott_ratio, base_market.market_ott_ratio),
             )
 
             comparison = ComparisonResult(
