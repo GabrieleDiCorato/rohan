@@ -152,7 +152,7 @@ class TestPriceTypeValidation:
             symbol="ABM",
             side=Side.BID,
             quantity=100,
-            price=10000,  # Use int to avoid mypy errors
+            price=10000,
             order_type=OrderType.LIMIT,
             status=OrderStatus.NEW,
             filled_quantity=0,

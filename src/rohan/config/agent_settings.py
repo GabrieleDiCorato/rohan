@@ -21,6 +21,16 @@ class BaseAgentSettings(BaseModel):
     num_agents: int = Field(default=1, description="Number of agents in the simulation")
     type: AgentType = Field(..., description="Type of agent")
 
+    @field_validator("num_agents")
+    @classmethod
+    def validate_num_agents(cls, v: int) -> int:
+        """Validate agent count is within reasonable bounds."""
+        if v < 0:
+            raise ValueError(f"num_agents must be non-negative, got {v}")
+        if v > 10_000:
+            raise ValueError(f"num_agents too large ({v}). Maximum allowed is 10,000.")
+        return v
+
 
 class ExchangeAgentSettings(BaseAgentSettings):
     """Settings for the Exchange Agent."""

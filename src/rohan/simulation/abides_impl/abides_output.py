@@ -184,7 +184,11 @@ class AbidesOutput(SimulationOutput):
         # where the final axis is (price, qty). We use `np.asarray` to
         # tolerate list inputs and then flatten into a long/tidy format.
         bids = np.asarray(l2["bids"], dtype=float)  # shape (T, levels, 2) price, qty
+        if bids.size == 0:
+            bids = np.empty((0, n_levels, 2), dtype=float)
         asks = np.asarray(l2["asks"], dtype=float)  # shape (T, levels, 2)
+        if asks.size == 0:
+            asks = np.empty((0, n_levels, 2), dtype=float)
 
         # Repeat/time and level indices to match flattened price/qty arrays
         time_rep = np.repeat(times, n_levels)

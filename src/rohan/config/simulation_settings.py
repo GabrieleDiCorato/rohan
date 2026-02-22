@@ -48,6 +48,14 @@ class SimulationSettings(BaseSettings):
         description="Settings for the agents in the simulation.",
     )
 
+    @field_validator("seed")
+    @classmethod
+    def validate_seed(cls, v: int) -> int:
+        """Validate seed is within uint32 bounds (required by numpy RandomState)."""
+        if not (0 <= v <= 2**32 - 1):
+            raise ValueError(f"seed must be between 0 and 2**32 - 1, got {v}")
+        return v
+
     @field_validator("end_time")
     @classmethod
     def validate_minimum_duration(cls, end_time_str: str, info) -> str:

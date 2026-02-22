@@ -343,7 +343,7 @@ class TestTypeCoercion:
         """int fields may coerce whole floats like 100.0 → 100."""
         metrics = AgentMetrics(
             agent_id=1,
-            initial_cash=100,  # Use int to avoid mypy errors
+            initial_cash=100,
         )
         assert metrics.initial_cash == 100
         assert isinstance(metrics.initial_cash, int)
