@@ -30,6 +30,7 @@ from rohan.framework.analysis_service import AnalysisService
 from rohan.framework.database import initialize_database
 from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.simulation.simulation_service import SimulationService
+from rohan.ui.utils.metric_display import fmt_pct, get_delta_color, get_help, metric_delta, pct_delta
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.theme import COLORS, apply_theme
 from rohan.utils.formatting import fmt_dollar
@@ -66,6 +67,12 @@ if "simulation_metrics" not in st.session_state:
 
 if "simulation_running" not in st.session_state:
     st.session_state.simulation_running = False
+
+if "previous_metrics" not in st.session_state:
+    st.session_state.previous_metrics = None
+
+if "baseline_comparison" not in st.session_state:
+    st.session_state.baseline_comparison = None
 
 # ============================================================================
 # CACHED DATA FUNCTIONS
@@ -888,12 +895,18 @@ def render_execute_tab():
 
                 st.write("✓ Results processed successfully")
 
+                # Track previous run for delta display
+                st.session_state.previous_metrics = st.session_state.simulation_metrics
+
                 # Save to session state
                 st.session_state.simulation_result = result
                 st.session_state.simulation_metrics = metrics
                 st.session_state.simulation_duration = duration
                 st.session_state.simulation_timestamp = datetime.now()
                 st.session_state.simulation_seed = config.seed  # 2.7.9 reproducibility
+
+                # Clear stale baseline (agent mix may have changed)
+                st.session_state.baseline_comparison = None
 
                 # Clear caches to force fresh data
                 get_l1_data.clear()
@@ -906,8 +919,10 @@ def render_execute_tab():
 
             st.success(f"🎉 Simulation completed successfully in {duration:.2f} seconds!")
 
-            # Show quick metrics
+            # Show quick metrics (with deltas vs previous run)
             st.markdown("### 📊 Quick Metrics")
+
+            prev = st.session_state.previous_metrics
 
             col1, col2, col3, col4 = st.columns(4)
 
@@ -915,29 +930,63 @@ def render_execute_tab():
                 return f"{v:{fmt}}" if v is not None else "N/A"
 
             with col1:
-                st.metric("Volatility", _m(metrics.volatility))
+                d = metric_delta(metrics.volatility, prev.volatility if prev else None)
+                st.metric("Volatility", _m(metrics.volatility, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("volatility"), help=get_help("volatility"))
 
             with col2:
-                st.metric("Mean Spread", fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A")
+                val = fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A"
+                d = metric_delta(metrics.mean_spread, prev.mean_spread if prev else None)
+                d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
+                st.metric("Mean Spread", val, delta=d_str, delta_color=get_delta_color("mean_spread"), help=get_help("mean_spread"))
 
             with col3:
-                st.metric("Avg Bid Liquidity", _m(metrics.avg_bid_liquidity, ".2f"))
+                d = metric_delta(metrics.avg_bid_liquidity, prev.avg_bid_liquidity if prev else None)
+                st.metric(
+                    "Avg Bid Liquidity",
+                    _m(metrics.avg_bid_liquidity, ".2f"),
+                    delta=f"{d:+.2f}" if d is not None else None,
+                    delta_color=get_delta_color("avg_bid_liquidity"),
+                    help=get_help("avg_bid_liquidity"),
+                )
 
             with col4:
-                st.metric("Avg Ask Liquidity", _m(metrics.avg_ask_liquidity, ".2f"))
+                d = metric_delta(metrics.avg_ask_liquidity, prev.avg_ask_liquidity if prev else None)
+                st.metric(
+                    "Avg Ask Liquidity",
+                    _m(metrics.avg_ask_liquidity, ".2f"),
+                    delta=f"{d:+.2f}" if d is not None else None,
+                    delta_color=get_delta_color("avg_ask_liquidity"),
+                    help=get_help("avg_ask_liquidity"),
+                )
 
             # Microstructure quick row
             if any(v is not None for v in [metrics.vpin, metrics.lob_imbalance_mean, metrics.market_ott_ratio]):
                 qm1, qm2, qm3, qm4 = st.columns(4)
                 with qm1:
-                    st.metric("VPIN", _m(metrics.vpin, ".4f"))
+                    d = metric_delta(metrics.vpin, prev.vpin if prev else None)
+                    st.metric("VPIN", _m(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("vpin"), help=get_help("vpin"))
                 with qm2:
-                    st.metric("LOB Imbalance", _m(metrics.lob_imbalance_mean, ".4f"))
+                    d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
+                    st.metric(
+                        "LOB Imbalance",
+                        _m(metrics.lob_imbalance_mean, ".4f"),
+                        delta=f"{d:+.4f}" if d is not None else None,
+                        delta_color=get_delta_color("lob_imbalance_mean"),
+                        help=get_help("lob_imbalance_mean"),
+                    )
                 with qm3:
                     vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
-                    st.metric("Traded Volume", vol_str)
+                    d = metric_delta(metrics.traded_volume, prev.traded_volume if prev else None)
+                    st.metric("Traded Volume", vol_str, delta=f"{d:+,}" if d is not None else None, delta_color=get_delta_color("traded_volume"), help=get_help("traded_volume"))
                 with qm4:
-                    st.metric("Market OTT", _m(metrics.market_ott_ratio, ".2f"))
+                    d = metric_delta(metrics.market_ott_ratio, prev.market_ott_ratio if prev else None)
+                    st.metric(
+                        "Market OTT",
+                        _m(metrics.market_ott_ratio, ".2f"),
+                        delta=f"{d:+.2f}" if d is not None else None,
+                        delta_color=get_delta_color("market_ott_ratio"),
+                        help=get_help("market_ott_ratio"),
+                    )
 
         except Exception as e:
             status_container.update(label="❌ Simulation Failed", state="error", expanded=True)
@@ -958,6 +1007,81 @@ def render_execute_tab():
 
         finally:
             st.session_state.simulation_running = False
+
+    # ── Baseline Comparison ─────────────────────────────────────────
+    # Run the same time range / seed with default agents to see how the
+    # user's agent mix changes the market microstructure.
+    if st.session_state.simulation_metrics is not None:
+        st.markdown("---")
+        st.markdown("### ⚖️ Baseline Comparison")
+        st.caption("Run the same time range with default agents to see how your agent configuration changes the market.")
+
+        baseline_btn = st.button(
+            "⚖️ COMPARE WITH BASELINE",
+            use_container_width=True,
+            disabled=st.session_state.simulation_running,
+            help="Runs the same simulation with default agent settings for comparison",
+        )
+
+        if baseline_btn:
+            st.session_state.simulation_running = True
+            bl_status = st.status("🔄 Running baseline…", expanded=True)
+
+            try:
+                with bl_status:
+                    st.write("⏳ Running baseline with default agent configuration…")
+
+                    baseline_config = config.model_copy(deep=True)
+                    baseline_config.agents = AgentSettings()  # reset to defaults
+
+                    bl_service = SimulationService()
+                    bl_start = datetime.now()
+                    bl_result = bl_service.run_simulation(baseline_config)
+
+                    if bl_result.error is not None:
+                        raise bl_result.error
+
+                    bl_output = bl_result.result
+                    assert bl_output is not None
+
+                    bl_duration = (datetime.now() - bl_start).total_seconds()
+                    st.write(f"✓ Baseline completed in {bl_duration:.2f}s")
+
+                    st.write("⏳ Computing comparison…")
+                    bl_metrics = AnalysisService.compute_metrics(bl_output)
+
+                    st.session_state.baseline_comparison = {
+                        "metrics": bl_metrics,
+                        "timestamp": datetime.now(),
+                    }
+                    st.write("✓ Comparison ready — see the Analyze tab.")
+
+                bl_status.update(label="✅ Baseline Complete!", state="complete", expanded=False)
+
+            except Exception as bl_err:
+                bl_status.update(label="❌ Baseline Failed", state="error", expanded=True)
+                st.error(f"Baseline comparison failed: {bl_err}")
+            finally:
+                st.session_state.simulation_running = False
+
+        # Show compact baseline summary if available
+        bl_data = st.session_state.baseline_comparison
+        if bl_data is not None:
+            bm = bl_data["metrics"]
+            cur = st.session_state.simulation_metrics
+
+            st.markdown("##### Δ vs Baseline (default agents)")
+            bc1, bc2, bc3, bc4, bc5 = st.columns(5)
+            with bc1:
+                st.metric("Volatility", fmt_pct(pct_delta(cur.volatility, bm.volatility)) or "N/A", delta_color=get_delta_color("volatility"))
+            with bc2:
+                st.metric("Spread", fmt_pct(pct_delta(cur.mean_spread, bm.mean_spread)) or "N/A", delta_color=get_delta_color("mean_spread"))
+            with bc3:
+                st.metric("Bid Liq.", fmt_pct(pct_delta(cur.avg_bid_liquidity, bm.avg_bid_liquidity)) or "N/A", delta_color=get_delta_color("avg_bid_liquidity"))
+            with bc4:
+                st.metric("VPIN", fmt_pct(pct_delta(cur.vpin, bm.vpin)) or "N/A", delta_color=get_delta_color("vpin"))
+            with bc5:
+                st.metric("Volume", fmt_pct(pct_delta(cur.traded_volume, bm.traded_volume)) or "N/A", delta_color=get_delta_color("traded_volume"))
 
     # Execution History
     if "simulation_timestamp" in st.session_state:
@@ -1018,6 +1142,8 @@ with tab2:
             """Render metrics tab as a fragment."""
             st.markdown("### 📊 Key Metrics")
 
+            prev = st.session_state.previous_metrics
+
             def _mv(v: float | None, fmt: str = ".6f") -> str:
                 return f"{v:{fmt}}" if v is not None else "N/A"
 
@@ -1028,17 +1154,42 @@ with tab2:
                 return
 
             with col1:
-                st.metric("Volatility", _mv(metrics.volatility))
-                st.metric("Mean Spread", fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A")
+                d = metric_delta(metrics.volatility, prev.volatility if prev else None)
+                st.metric("Volatility", _mv(metrics.volatility, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("volatility"), help=get_help("volatility"))
+
+                val = fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A"
+                d = metric_delta(metrics.mean_spread, prev.mean_spread if prev else None)
+                d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
+                st.metric("Mean Spread", val, delta=d_str, delta_color=get_delta_color("mean_spread"), help=get_help("mean_spread"))
 
             with col2:
-                st.metric("Effective Spread", fmt_dollar(metrics.effective_spread, precision=4) if metrics.effective_spread is not None else "N/A")
-                st.metric("Avg Bid Liquidity", _mv(metrics.avg_bid_liquidity, ".2f"))
+                val = fmt_dollar(metrics.effective_spread, precision=4) if metrics.effective_spread is not None else "N/A"
+                d = metric_delta(metrics.effective_spread, prev.effective_spread if prev else None)
+                d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
+                st.metric("Effective Spread", val, delta=d_str, delta_color=get_delta_color("effective_spread"), help=get_help("effective_spread"))
+
+                d = metric_delta(metrics.avg_bid_liquidity, prev.avg_bid_liquidity if prev else None)
+                st.metric(
+                    "Avg Bid Liquidity",
+                    _mv(metrics.avg_bid_liquidity, ".2f"),
+                    delta=f"{d:+.2f}" if d is not None else None,
+                    delta_color=get_delta_color("avg_bid_liquidity"),
+                    help=get_help("avg_bid_liquidity"),
+                )
 
             with col3:
-                st.metric("Avg Ask Liquidity", _mv(metrics.avg_ask_liquidity, ".2f"))
+                d = metric_delta(metrics.avg_ask_liquidity, prev.avg_ask_liquidity if prev else None)
+                st.metric(
+                    "Avg Ask Liquidity",
+                    _mv(metrics.avg_ask_liquidity, ".2f"),
+                    delta=f"{d:+.2f}" if d is not None else None,
+                    delta_color=get_delta_color("avg_ask_liquidity"),
+                    help=get_help("avg_ask_liquidity"),
+                )
+
                 vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
-                st.metric("Traded Volume", vol_str)
+                d = metric_delta(metrics.traded_volume, prev.traded_volume if prev else None)
+                st.metric("Traded Volume", vol_str, delta=f"{d:+,}" if d is not None else None, delta_color=get_delta_color("traded_volume"), help=get_help("traded_volume"))
 
             st.markdown("---")
 
@@ -1046,19 +1197,73 @@ with tab2:
             st.markdown("### 🔬 Microstructure")
             mc1, mc2, mc3, mc4, mc5 = st.columns(5)
             with mc1:
-                st.metric("LOB Imbalance", _mv(metrics.lob_imbalance_mean, ".4f"))
+                d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
+                st.metric(
+                    "LOB Imbalance",
+                    _mv(metrics.lob_imbalance_mean, ".4f"),
+                    delta=f"{d:+.4f}" if d is not None else None,
+                    delta_color=get_delta_color("lob_imbalance_mean"),
+                    help=get_help("lob_imbalance_mean"),
+                )
             with mc2:
-                st.metric("LOB Imb. σ", _mv(metrics.lob_imbalance_std, ".4f"))
+                d = metric_delta(metrics.lob_imbalance_std, prev.lob_imbalance_std if prev else None)
+                st.metric(
+                    "LOB Imb. σ",
+                    _mv(metrics.lob_imbalance_std, ".4f"),
+                    delta=f"{d:+.4f}" if d is not None else None,
+                    delta_color=get_delta_color("lob_imbalance_std"),
+                    help=get_help("lob_imbalance_std"),
+                )
             with mc3:
-                st.metric("VPIN", _mv(metrics.vpin, ".4f"))
+                d = metric_delta(metrics.vpin, prev.vpin if prev else None)
+                st.metric("VPIN", _mv(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("vpin"), help=get_help("vpin"))
             with mc4:
                 if metrics.resilience_mean_ns is not None:
                     res_ms = metrics.resilience_mean_ns / 1e6
-                    st.metric("Resilience", f"{res_ms:.1f}ms")
+                    d_ns = metric_delta(metrics.resilience_mean_ns, prev.resilience_mean_ns if prev else None)
+                    d_str = f"{d_ns / 1e6:+.1f}ms" if d_ns is not None else None
+                    st.metric("Resilience", f"{res_ms:.1f}ms", delta=d_str, delta_color=get_delta_color("resilience_mean_ns"), help=get_help("resilience_mean_ns"))
                 else:
-                    st.metric("Resilience", "N/A")
+                    st.metric("Resilience", "N/A", help=get_help("resilience_mean_ns"))
             with mc5:
-                st.metric("Market OTT", _mv(metrics.market_ott_ratio, ".2f"))
+                d = metric_delta(metrics.market_ott_ratio, prev.market_ott_ratio if prev else None)
+                st.metric(
+                    "Market OTT", _mv(metrics.market_ott_ratio, ".2f"), delta=f"{d:+.2f}" if d is not None else None, delta_color=get_delta_color("market_ott_ratio"), help=get_help("market_ott_ratio")
+                )
+
+            # ── Baseline Comparison (if available) ──────────────────
+            bl_data = st.session_state.get("baseline_comparison")
+            if bl_data is not None:
+                st.markdown("---")
+                st.markdown("### ⚖️ Baseline Comparison")
+                st.caption("Percentage change vs simulation with default agent configuration")
+
+                bm = bl_data["metrics"]
+                bc1, bc2, bc3, bc4, bc5, bc6 = st.columns(6)
+                with bc1:
+                    st.metric("Volatility Δ", fmt_pct(pct_delta(metrics.volatility, bm.volatility)) or "N/A", delta_color=get_delta_color("volatility"), help="% change in volatility vs baseline")
+                with bc2:
+                    st.metric("Spread Δ", fmt_pct(pct_delta(metrics.mean_spread, bm.mean_spread)) or "N/A", delta_color=get_delta_color("mean_spread"), help="% change in mean spread vs baseline")
+                with bc3:
+                    st.metric(
+                        "Eff. Spread Δ",
+                        fmt_pct(pct_delta(metrics.effective_spread, bm.effective_spread)) or "N/A",
+                        delta_color=get_delta_color("effective_spread"),
+                        help="% change in effective spread vs baseline",
+                    )
+                with bc4:
+                    st.metric(
+                        "Bid Liq. Δ",
+                        fmt_pct(pct_delta(metrics.avg_bid_liquidity, bm.avg_bid_liquidity)) or "N/A",
+                        delta_color=get_delta_color("avg_bid_liquidity"),
+                        help="% change in bid liquidity vs baseline",
+                    )
+                with bc5:
+                    st.metric("VPIN Δ", fmt_pct(pct_delta(metrics.vpin, bm.vpin)) or "N/A", delta_color=get_delta_color("vpin"), help="% change in VPIN vs baseline")
+                with bc6:
+                    st.metric(
+                        "Volume Δ", fmt_pct(pct_delta(metrics.traded_volume, bm.traded_volume)) or "N/A", delta_color=get_delta_color("traded_volume"), help="% change in traded volume vs baseline"
+                    )
 
             st.markdown("---")
 

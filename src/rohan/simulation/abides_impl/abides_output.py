@@ -26,6 +26,7 @@ Caching strategy:
 """
 
 import functools
+import logging
 from typing import Any, override
 
 import numpy as np
@@ -41,6 +42,8 @@ from rohan.simulation.models.schemas import (
     OrderBookL1Schema,
     OrderBookL2Schema,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AbidesOutput(SimulationOutput):
@@ -100,7 +103,16 @@ class AbidesOutput(SimulationOutput):
         # Parsing all agent logs can be expensive; cached_property ensures it
         # runs once and is garbage-collected with the instance.
         df = parse_logs_df(self.end_state)
-        return AgentLogsSchema.validate(df)  # pyright: ignore[reportReturnType]
+        validated = AgentLogsSchema.validate(df)  # pyright: ignore[reportReturnType]
+
+        # Warn if no ORDER_EXECUTED events exist — all fill-based metrics
+        # (effective spread, VPIN, traded volume) will return None.
+        if "EventType" in validated.columns:
+            n_fills = int((validated["EventType"] == "ORDER_EXECUTED").sum())
+            if n_fills == 0:
+                logger.warning("Agent logs contain zero ORDER_EXECUTED events — fill-based metrics (effective spread, VPIN, volume) will be unavailable")
+
+        return validated  # pyright: ignore[reportReturnType]
 
     @override
     def get_logs_by_agent(self) -> dict[int, Any]:
@@ -153,11 +165,44 @@ class AbidesOutput(SimulationOutput):
         best_bids["time"] = best_bids["time"].apply(lambda x: x - ns_date(x))
         best_asks["time"] = best_asks["time"].apply(lambda x: x - ns_date(x))
 
-        # normalize column names and merge on time
+        # normalize column names
         best_bids.columns = ["time", "bid_price", "bid_qty"]
         best_asks.columns = ["time", "ask_price", "ask_qty"]
 
-        df = pd.merge(best_bids, best_asks, on="time", how="outer").sort_values("time").reset_index(drop=True)
+        # get_L1_snapshots() iterates book_log2 once, producing two
+        # parallel arrays of identical length and identical timestamps.
+        # Positional concatenation is the correct join.  The previous
+        # pd.merge(on="time") created an N×M cross product at duplicate
+        # timestamps — a data explosion bug that corrupted all downstream
+        # metrics (spreads, mid-prices, volatility).
+        if best_bids.empty and best_asks.empty:
+            df = pd.DataFrame(columns=["time", "bid_price", "bid_qty", "ask_price", "ask_qty"])  # pyright: ignore[reportArgumentType]
+        elif best_asks.empty:
+            logger.warning("L1 snapshot has bids but no asks — one-sided book for entire simulation")
+            df = best_bids.copy()
+            df["ask_price"] = np.nan
+            df["ask_qty"] = np.nan
+        elif best_bids.empty:
+            logger.warning("L1 snapshot has asks but no bids — one-sided book for entire simulation")
+            df = best_asks.copy()
+            df["bid_price"] = np.nan
+            df["bid_qty"] = np.nan
+        else:
+            if len(best_bids) != len(best_asks):
+                raise ValueError(
+                    f"L1 parallel-array invariant violated: len(best_bids)={len(best_bids)} != len(best_asks)={len(best_asks)}. This indicates a change in ABIDES get_L1_snapshots() return format."
+                )
+            df = best_bids.copy()
+            df["ask_price"] = best_asks["ask_price"].values
+            df["ask_qty"] = best_asks["ask_qty"].values
+
+        df = df.sort_values("time").reset_index(drop=True)
+
+        # Sanity check: after ns_date subtraction, times should be monotonically
+        # non-decreasing.  A violation means either a cross-midnight simulation
+        # or a bug in time normalisation.
+        if not df.empty and not df["time"].is_monotonic_increasing:
+            logger.warning("L1 time column is not monotonically increasing after ns_date subtraction — possible cross-midnight simulation or time normalisation bug")
 
         # Also provide a pandas Timestamp column (ns -> pd.Timestamp)
         df["timestamp"] = pd.to_datetime(df["time"].astype("int64"), unit="ns")
@@ -189,6 +234,14 @@ class AbidesOutput(SimulationOutput):
         asks = np.asarray(l2["asks"], dtype=float)  # shape (T, levels, 2)
         if asks.size == 0:
             asks = np.empty((0, n_levels, 2), dtype=float)
+
+        # Validate shapes — ragged lists (some timestamps with fewer levels)
+        # would produce an object array, not a 3D float array.  Catching this
+        # early prevents cryptic IndexErrors downstream.
+        if bids.size > 0 and (bids.ndim != 3 or bids.shape[1:] != (n_levels, 2)):
+            raise ValueError(f"Unexpected bids shape: {bids.shape} (expected (T, {n_levels}, 2)). ABIDES may have returned ragged depth levels.")
+        if asks.size > 0 and (asks.ndim != 3 or asks.shape[1:] != (n_levels, 2)):
+            raise ValueError(f"Unexpected asks shape: {asks.shape} (expected (T, {n_levels}, 2)). ABIDES may have returned ragged depth levels.")
 
         # Repeat/time and level indices to match flattened price/qty arrays
         time_rep = np.repeat(times, n_levels)
@@ -225,5 +278,12 @@ class AbidesOutput(SimulationOutput):
         df = pd.concat([df_bids, df_asks], ignore_index=True).sort_values(["time", "side", "level"]).reset_index(drop=True)
 
         df["timestamp"] = pd.to_datetime(df["time"].astype("int64"), unit="ns")
+
+        # Sanity check: L2 times should be monotonically non-decreasing
+        # (within each side, after sorting).
+        if not df.empty:
+            unique_times = pd.Series(times).sort_values()
+            if not unique_times.is_monotonic_increasing:
+                logger.warning("L2 time column is not monotonically increasing after ns_date subtraction — possible cross-midnight simulation or time normalisation bug")
 
         return df

@@ -159,6 +159,72 @@ class TestSingleSnapshot:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# L1 positional concat — duplicate timestamps must not inflate row count
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateTimestamps:
+    """get_L1_snapshots returns parallel arrays: positional concat must not
+    create cross-product rows at duplicate timestamps."""
+
+    def test_no_cross_product(self):
+        """5 book_log2 entries (3 at same time) → exactly 5 L1 rows."""
+        t0 = 34_200_000_000_000  # 09:30:00 in ns
+        bids = [
+            (t0, 10000, 100),
+            (t0, 10001, 110),
+            (t0, 10002, 120),
+            (t0 + 100, 10010, 130),
+            (t0 + 200, 10020, 140),
+        ]
+        asks = [
+            (t0, 10050, 200),
+            (t0, 10051, 210),
+            (t0, 10052, 220),
+            (t0 + 100, 10060, 230),
+            (t0 + 200, 10070, 240),
+        ]
+        output = _make_output(best_bids=bids, best_asks=asks)
+        l1 = output.get_order_book_l1()
+
+        # With correct positional concat: 5 rows.
+        # With the old pd.merge(on="time"): 3×3 + 1×1 + 1×1 = 11 rows.
+        assert len(l1) == 5
+
+    def test_positional_pairing(self):
+        """Row i of bids pairs with row i of asks (not by timestamp key)."""
+        t0 = 34_200_000_000_000
+        bids = [
+            (t0, 10000, 100),  # row 0
+            (t0, 10001, 110),  # row 1
+        ]
+        asks = [
+            (t0, 10050, 200),  # row 0
+            (t0, 10051, 210),  # row 1
+        ]
+        output = _make_output(best_bids=bids, best_asks=asks)
+        l1 = output.get_order_book_l1()
+
+        assert len(l1) == 2
+        # Row 0: first bid + first ask
+        assert l1.iloc[0]["bid_price"] == 10000
+        assert l1.iloc[0]["ask_price"] == 10050
+        # Row 1: second bid + second ask
+        assert l1.iloc[1]["bid_price"] == 10001
+        assert l1.iloc[1]["ask_price"] == 10051
+
+    def test_many_duplicates_linear(self):
+        """20 entries with 5 at each of 4 timestamps → exactly 20 rows."""
+        t0 = 34_200_000_000_000
+        bids = [(t0 + (i // 5) * 1000, 10000 + i, 100) for i in range(20)]
+        asks = [(t0 + (i // 5) * 1000, 10050 + i, 200) for i in range(20)]
+        output = _make_output(best_bids=bids, best_asks=asks)
+        l1 = output.get_order_book_l1()
+
+        assert len(l1) == 20
+
+
 class TestSchemaValidationBoundary:
     """Missing or malformed columns should raise SchemaError at validation."""
 

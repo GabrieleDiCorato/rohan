@@ -233,12 +233,28 @@ class AnalysisService:
         if pd.isna(sigma) or sigma == 0.0:
             return None
 
-        # Annualisation: infer observation frequency from timestamps
+        # Annualisation: infer observation frequency from timestamps.
+        # Filter to positive diffs only — zero-interval duplicates from
+        # multiple book state changes within the same nanosecond carry no
+        # timing information and would collapse the median to zero.
         diffs = time_col.diff().dropna()
+        diffs = pd.Series(diffs[diffs > 0])
         if diffs.empty:
             return None
         median_dt_ns = float(diffs.median())
         if median_dt_ns <= 0:
+            return None
+
+        # Minimum time-span guard: with less than 60 seconds of distinct
+        # timestamps the annualisation factor becomes astronomical and
+        # the resulting volatility number is statistically meaningless.
+        min_span_ns = 60 * 1e9  # 60 seconds
+        total_span_ns = float(diffs.sum())
+        if total_span_ns < min_span_ns:
+            logger.debug(
+                "Skipping volatility: total time span %.1f s < 60 s minimum",
+                total_span_ns / 1e9,
+            )
             return None
 
         trading_day_ns = 6.5 * 3600 * 1e9  # 6.5 trading hours
@@ -343,7 +359,12 @@ class AnalysisService:
             # Effective spread = 2 × |fill_price − mid|
             eff_spreads.append(2.0 * abs(fp - float(mid_at_fill)))  # type: ignore[arg-type]
 
-        effective_spread = float(np.mean(eff_spreads)) if eff_spreads else None
+        if not eff_spreads:
+            return None, volume
+        effective_spread = float(np.nanmean(eff_spreads))
+        # Guard against all-NaN effective spreads (entirely one-sided book)
+        if np.isnan(effective_spread):
+            return None, volume
         return effective_spread, volume
 
     @staticmethod
@@ -444,7 +465,14 @@ class AnalysisService:
                 continue
 
             nearest_t = min(candidates, key=lambda t: abs(t - t_midnight))
-            mid = float(mid_lookup.loc[nearest_t])
+            mid = mid_lookup.loc[nearest_t]
+            # .loc may return a Series if the index has duplicates — take first
+            if isinstance(mid, pd.Series):
+                mid = mid.iloc[0]
+            mid = float(mid)
+            if pd.isna(mid):
+                prev_price = fp
+                continue
 
             # Lee-Ready classification
             if fp > mid:
@@ -475,6 +503,11 @@ class AnalysisService:
         # Bucket into equal-volume bars
         n_buckets = min(_VPIN_N_BUCKETS, max(1, len(signed_qty) // 2))
         bucket_size = total_volume / n_buckets
+
+        # Guard against zero bucket size — would cause an infinite loop
+        # when all fill quantities are zero.
+        if bucket_size <= 0:
+            return None
 
         order_imbalances: list[float] = []
         bucket_buy = 0.0
