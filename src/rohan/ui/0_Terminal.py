@@ -83,6 +83,9 @@ if "baseline_comparison" not in st.session_state:
 if "baseline_scenario_id" not in st.session_state:
     st.session_state.baseline_scenario_id = None
 
+if "config_reset_counter" not in st.session_state:
+    st.session_state.config_reset_counter = 0
+
 # ============================================================================
 # CACHED DATA FUNCTIONS
 # ============================================================================
@@ -134,26 +137,27 @@ def compute_spread_data(_l1_df):
 
 def compact_input(label, widget_type, key, **kwargs):
     """Create a compact key-value input with label and widget on the same line."""
+    # Append reset counter to key to force widget recreation when loading presets
+    actual_key = f"{key}_{st.session_state.config_reset_counter}"
+
     col1, col2 = st.columns([1.2, 1])
     with col1:
         st.markdown(f"**{label}:**")
     with col2:
         if widget_type == "text":
-            return st.text_input("", key=key, label_visibility="collapsed", **kwargs)
+            return st.text_input("", key=actual_key, label_visibility="collapsed", **kwargs)
         if widget_type == "number":
-            return st.number_input("", key=key, label_visibility="collapsed", **kwargs)
+            return st.number_input("", key=actual_key, label_visibility="collapsed", **kwargs)
         if widget_type == "selectbox":
-            return st.selectbox("", key=key, label_visibility="collapsed", **kwargs)
+            return st.selectbox("", key=actual_key, label_visibility="collapsed", **kwargs)
         if widget_type == "checkbox":
-            return st.checkbox("", key=key, label_visibility="collapsed", **kwargs)
+            return st.checkbox("", key=actual_key, label_visibility="collapsed", **kwargs)
         raise ValueError(f"Unknown widget type: {widget_type}")
 
 
 def _clear_config_widget_keys():
     """Clear all config widget keys from session state so they re-initialize from draft_config."""
-    for k in list(st.session_state.keys()):
-        if isinstance(k, str) and k.startswith("cfg_"):
-            del st.session_state[k]
+    st.session_state.config_reset_counter += 1
 
 
 @st.fragment
@@ -188,17 +192,9 @@ def render_sidebar_config():
     if st.button("Load Preset", type="primary", use_container_width=True) and preset_name != "Custom":
         new_config = get_preset_config(preset_name)
         st.session_state.draft_config = new_config.model_copy(deep=True)
-        st.session_state.simulation_config = new_config.model_copy(deep=True)
         _clear_config_widget_keys()
 
-        st.session_state.simulation_result = None
-        st.session_state.simulation_metrics = None
-        st.session_state.baseline_comparison = None
-        st.session_state.pop("simulation_timestamp", None)
-        st.session_state.pop("simulation_duration", None)
-        st.session_state.pop("simulation_seed", None)
-
-        st.success(f"✅ Loaded and applied preset: {preset_name}")
+        st.success(f"✅ Loaded preset into draft: {preset_name}")
         st.rerun()
 
     st.markdown("---")
@@ -245,17 +241,9 @@ def render_sidebar_config():
                     from rohan.config import SimulationSettings as _SimSettings
 
                     st.session_state.draft_config = _SimSettings.model_validate(_sc.full_config)
-                    st.session_state.simulation_config = st.session_state.draft_config.model_copy(deep=True)
                     _clear_config_widget_keys()
 
-                    st.session_state.simulation_result = None
-                    st.session_state.simulation_metrics = None
-                    st.session_state.baseline_comparison = None
-                    st.session_state.pop("simulation_timestamp", None)
-                    st.session_state.pop("simulation_duration", None)
-                    st.session_state.pop("simulation_seed", None)
-
-                    st.toast(f"✅ Loaded: {_sc.name}")
+                    st.toast(f"✅ Loaded into draft: {_sc.name}")
                     st.rerun()
             with _sc_col3:
                 if st.button("🗑️", key=f"del_sc_{_sc.scenario_id}", use_container_width=True, help=f"Delete '{_sc.name}'"):
@@ -681,18 +669,9 @@ def render_sidebar_config():
 
     # Reset button
     if st.button("🔄 Reset to Default", use_container_width=True):
-        st.session_state.simulation_config = SimulationSettings()
         st.session_state.draft_config = SimulationSettings()
         _clear_config_widget_keys()
-        st.session_state.simulation_result = None
-        st.session_state.simulation_metrics = None
-        st.session_state.previous_metrics = None
-        st.session_state.last_run_metrics = None
-        st.session_state.baseline_comparison = None
-        st.session_state.pop("simulation_timestamp", None)
-        st.session_state.pop("simulation_duration", None)
-        st.session_state.pop("simulation_seed", None)
-        st.success("✅ Reset to defaults!")
+        st.success("✅ Draft reset to defaults!")
         st.rerun()
 
 
