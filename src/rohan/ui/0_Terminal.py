@@ -71,8 +71,17 @@ if "simulation_running" not in st.session_state:
 if "previous_metrics" not in st.session_state:
     st.session_state.previous_metrics = None
 
+if "last_run_metrics" not in st.session_state:
+    st.session_state.last_run_metrics = None
+
+if "compare_to_last_run" not in st.session_state:
+    st.session_state.compare_to_last_run = False
+
 if "baseline_comparison" not in st.session_state:
     st.session_state.baseline_comparison = None
+
+if "baseline_scenario_id" not in st.session_state:
+    st.session_state.baseline_scenario_id = None
 
 # ============================================================================
 # CACHED DATA FUNCTIONS
@@ -140,6 +149,13 @@ def compact_input(label, widget_type, key, **kwargs):
         raise ValueError(f"Unknown widget type: {widget_type}")
 
 
+def _clear_config_widget_keys():
+    """Clear all config widget keys from session state so they re-initialize from draft_config."""
+    for k in list(st.session_state.keys()):
+        if isinstance(k, str) and k.startswith("cfg_"):
+            del st.session_state[k]
+
+
 @st.fragment
 def render_sidebar_config():
     """Render configuration sidebar as a fragment for isolated updates."""
@@ -170,8 +186,19 @@ def render_sidebar_config():
     )
 
     if st.button("Load Preset", type="primary", use_container_width=True) and preset_name != "Custom":
-        st.session_state.draft_config = get_preset_config(preset_name)
-        st.success(f"✅ Loaded preset: {preset_name} (click 'Apply Configuration' to use it)")
+        new_config = get_preset_config(preset_name)
+        st.session_state.draft_config = new_config.model_copy(deep=True)
+        st.session_state.simulation_config = new_config.model_copy(deep=True)
+        _clear_config_widget_keys()
+
+        st.session_state.simulation_result = None
+        st.session_state.simulation_metrics = None
+        st.session_state.baseline_comparison = None
+        st.session_state.pop("simulation_timestamp", None)
+        st.session_state.pop("simulation_duration", None)
+        st.session_state.pop("simulation_seed", None)
+
+        st.success(f"✅ Loaded and applied preset: {preset_name}")
         st.rerun()
 
     st.markdown("---")
@@ -218,7 +245,16 @@ def render_sidebar_config():
                     from rohan.config import SimulationSettings as _SimSettings
 
                     st.session_state.draft_config = _SimSettings.model_validate(_sc.full_config)
-                    st.session_state.simulation_config = st.session_state.draft_config
+                    st.session_state.simulation_config = st.session_state.draft_config.model_copy(deep=True)
+                    _clear_config_widget_keys()
+
+                    st.session_state.simulation_result = None
+                    st.session_state.simulation_metrics = None
+                    st.session_state.baseline_comparison = None
+                    st.session_state.pop("simulation_timestamp", None)
+                    st.session_state.pop("simulation_duration", None)
+                    st.session_state.pop("simulation_seed", None)
+
                     st.toast(f"✅ Loaded: {_sc.name}")
                     st.rerun()
             with _sc_col3:
@@ -628,6 +664,15 @@ def render_sidebar_config():
             )
 
             st.session_state.simulation_config = new_config
+            st.session_state.draft_config = new_config.model_copy(deep=True)
+            # Clear stale results — the config has changed
+            st.session_state.simulation_result = None
+            st.session_state.simulation_metrics = None
+            # DO NOT clear previous_metrics or last_run_metrics here, so we can compare to them!
+            st.session_state.baseline_comparison = None
+            st.session_state.pop("simulation_timestamp", None)
+            st.session_state.pop("simulation_duration", None)
+            st.session_state.pop("simulation_seed", None)
             st.success("✅ Configuration applied!")
             st.rerun()  # Force full page refresh to update Execute tab
 
@@ -637,6 +682,16 @@ def render_sidebar_config():
     # Reset button
     if st.button("🔄 Reset to Default", use_container_width=True):
         st.session_state.simulation_config = SimulationSettings()
+        st.session_state.draft_config = SimulationSettings()
+        _clear_config_widget_keys()
+        st.session_state.simulation_result = None
+        st.session_state.simulation_metrics = None
+        st.session_state.previous_metrics = None
+        st.session_state.last_run_metrics = None
+        st.session_state.baseline_comparison = None
+        st.session_state.pop("simulation_timestamp", None)
+        st.session_state.pop("simulation_duration", None)
+        st.session_state.pop("simulation_seed", None)
         st.success("✅ Reset to defaults!")
         st.rerun()
 
@@ -843,6 +898,41 @@ def render_execute_tab():
 
     st.markdown("---")
 
+    # ── Comparison Options ──────────────────────────────────────────
+    st.markdown("### ⚖️ Comparison Options")
+
+    # Baseline scenario selector
+    try:
+        _saved_scenarios = _scenario_repo.list_scenarios()
+    except Exception:
+        _saved_scenarios = []
+
+    _baseline_options: list[str] = ["None"]
+    _baseline_id_map: dict[str, str] = {}  # display label → scenario_id
+    for _sc in _saved_scenarios:
+        _label = _sc.name
+        _baseline_options.append(_label)
+        _baseline_id_map[_label] = str(_sc.scenario_id)
+
+    _baseline_choice = st.selectbox(
+        "Baseline scenario",
+        options=_baseline_options,
+        index=0,
+        help="Pick a saved scenario to run alongside your config. Metrics will be compared automatically.",
+        key="baseline_selector",
+    )
+    st.session_state.baseline_scenario_id = _baseline_id_map.get(_baseline_choice)  # None when "None"
+
+    _compare_last = st.checkbox(
+        "Compare to last run",
+        value=st.session_state.compare_to_last_run,
+        help="Show metric deltas vs the previous simulation run.",
+        key="compare_last_run_cb",
+    )
+    st.session_state.compare_to_last_run = _compare_last
+
+    st.markdown("---")
+
     # Run Simulation
     st.markdown("### 🚀 Run Simulation")
 
@@ -895,18 +985,16 @@ def render_execute_tab():
 
                 st.write("✓ Results processed successfully")
 
-                # Track previous run for delta display
-                st.session_state.previous_metrics = st.session_state.simulation_metrics
+                # Always track previous run for delta display
+                st.session_state.previous_metrics = st.session_state.last_run_metrics
 
                 # Save to session state
                 st.session_state.simulation_result = result
                 st.session_state.simulation_metrics = metrics
+                st.session_state.last_run_metrics = metrics
                 st.session_state.simulation_duration = duration
                 st.session_state.simulation_timestamp = datetime.now()
                 st.session_state.simulation_seed = config.seed  # 2.7.9 reproducibility
-
-                # Clear stale baseline (agent mix may have changed)
-                st.session_state.baseline_comparison = None
 
                 # Clear caches to force fresh data
                 get_l1_data.clear()
@@ -919,10 +1007,57 @@ def render_execute_tab():
 
             st.success(f"🎉 Simulation completed successfully in {duration:.2f} seconds!")
 
+            # ── Baseline run (if a saved scenario was selected) ─────
+            _bl_scenario_id = st.session_state.baseline_scenario_id
+            if _bl_scenario_id is not None:
+                from uuid import UUID as _UUID
+
+                _bl_scenario = _scenario_repo.get_scenario(_UUID(_bl_scenario_id))
+                if _bl_scenario is not None and _bl_scenario.full_config is not None:
+                    bl_status = st.status(f"🔄 Running baseline: {_bl_scenario.name}…", expanded=True)
+                    try:
+                        with bl_status:
+                            st.write(f"⏳ Running baseline scenario **{_bl_scenario.name}**…")
+
+                            baseline_config = SimulationSettings.model_validate(_bl_scenario.full_config)
+                            bl_service = SimulationService()
+                            bl_start = datetime.now()
+                            bl_result = bl_service.run_simulation(baseline_config)
+
+                            if bl_result.error is not None:
+                                raise bl_result.error
+
+                            bl_output = bl_result.result
+                            assert bl_output is not None
+
+                            bl_duration = (datetime.now() - bl_start).total_seconds()
+                            st.write(f"✓ Baseline completed in {bl_duration:.2f}s")
+
+                            st.write("⏳ Computing comparison…")
+                            bl_metrics = AnalysisService.compute_metrics(bl_output)
+
+                            st.session_state.baseline_comparison = {
+                                "name": _bl_scenario.name,
+                                "metrics": bl_metrics,
+                                "timestamp": datetime.now(),
+                            }
+                            st.write("✓ Comparison ready.")
+
+                        bl_status.update(label="✅ Baseline Complete!", state="complete", expanded=False)
+
+                    except Exception as bl_err:
+                        bl_status.update(label="❌ Baseline Failed", state="error", expanded=True)
+                        st.error(f"Baseline comparison failed: {bl_err}")
+                else:
+                    st.warning("⚠️ Selected baseline scenario not found — skipping comparison.")
+                    st.session_state.baseline_comparison = None
+            else:
+                st.session_state.baseline_comparison = None
+
             # Show quick metrics (with deltas vs previous run)
             st.markdown("### 📊 Quick Metrics")
 
-            prev = st.session_state.previous_metrics
+            prev = st.session_state.previous_metrics if st.session_state.compare_to_last_run else None
 
             col1, col2, col3, col4 = st.columns(4)
 
@@ -1008,80 +1143,27 @@ def render_execute_tab():
         finally:
             st.session_state.simulation_running = False
 
-    # ── Baseline Comparison ─────────────────────────────────────────
-    # Run the same time range / seed with default agents to see how the
-    # user's agent mix changes the market microstructure.
-    if st.session_state.simulation_metrics is not None:
+    # ── Baseline summary (compact, shown outside the run block) ────
+    bl_data = st.session_state.baseline_comparison
+    if bl_data is not None and st.session_state.simulation_metrics is not None:
         st.markdown("---")
-        st.markdown("### ⚖️ Baseline Comparison")
-        st.caption("Run the same time range with default agents to see how your agent configuration changes the market.")
+        bl_name = bl_data.get("name", "baseline")
+        st.markdown(f"### ⚖️ Baseline Comparison — *{bl_name}*")
 
-        baseline_btn = st.button(
-            "⚖️ COMPARE WITH BASELINE",
-            use_container_width=True,
-            disabled=st.session_state.simulation_running,
-            help="Runs the same simulation with default agent settings for comparison",
-        )
+        bm = bl_data["metrics"]
+        cur = st.session_state.simulation_metrics
 
-        if baseline_btn:
-            st.session_state.simulation_running = True
-            bl_status = st.status("🔄 Running baseline…", expanded=True)
-
-            try:
-                with bl_status:
-                    st.write("⏳ Running baseline with default agent configuration…")
-
-                    baseline_config = config.model_copy(deep=True)
-                    baseline_config.agents = AgentSettings()  # reset to defaults
-
-                    bl_service = SimulationService()
-                    bl_start = datetime.now()
-                    bl_result = bl_service.run_simulation(baseline_config)
-
-                    if bl_result.error is not None:
-                        raise bl_result.error
-
-                    bl_output = bl_result.result
-                    assert bl_output is not None
-
-                    bl_duration = (datetime.now() - bl_start).total_seconds()
-                    st.write(f"✓ Baseline completed in {bl_duration:.2f}s")
-
-                    st.write("⏳ Computing comparison…")
-                    bl_metrics = AnalysisService.compute_metrics(bl_output)
-
-                    st.session_state.baseline_comparison = {
-                        "metrics": bl_metrics,
-                        "timestamp": datetime.now(),
-                    }
-                    st.write("✓ Comparison ready — see the Analyze tab.")
-
-                bl_status.update(label="✅ Baseline Complete!", state="complete", expanded=False)
-
-            except Exception as bl_err:
-                bl_status.update(label="❌ Baseline Failed", state="error", expanded=True)
-                st.error(f"Baseline comparison failed: {bl_err}")
-            finally:
-                st.session_state.simulation_running = False
-
-        # Show compact baseline summary if available
-        bl_data = st.session_state.baseline_comparison
-        if bl_data is not None:
-            bm = bl_data["metrics"]
-            cur = st.session_state.simulation_metrics
-
-            st.markdown("##### Δ vs Baseline (default agents)")
-            bc1, bc2, bc3, bc4, bc5 = st.columns(5)
-            with bc1:
-                st.metric("Volatility", fmt_pct(pct_delta(cur.volatility, bm.volatility)) or "N/A", delta_color=get_delta_color("volatility"))
-            with bc2:
-                st.metric("Spread", fmt_pct(pct_delta(cur.mean_spread, bm.mean_spread)) or "N/A", delta_color=get_delta_color("mean_spread"))
-            with bc3:
-                st.metric("Bid Liq.", fmt_pct(pct_delta(cur.avg_bid_liquidity, bm.avg_bid_liquidity)) or "N/A", delta_color=get_delta_color("avg_bid_liquidity"))
-            with bc4:
-                st.metric("VPIN", fmt_pct(pct_delta(cur.vpin, bm.vpin)) or "N/A", delta_color=get_delta_color("vpin"))
-            with bc5:
-                st.metric("Volume", fmt_pct(pct_delta(cur.traded_volume, bm.traded_volume)) or "N/A", delta_color=get_delta_color("traded_volume"))
+        bc1, bc2, bc3, bc4, bc5 = st.columns(5)
+        with bc1:
+            st.metric("Volatility", fmt_pct(pct_delta(cur.volatility, bm.volatility)) or "N/A", delta_color=get_delta_color("volatility"))
+        with bc2:
+            st.metric("Spread", fmt_pct(pct_delta(cur.mean_spread, bm.mean_spread)) or "N/A", delta_color=get_delta_color("mean_spread"))
+        with bc3:
+            st.metric("Bid Liq.", fmt_pct(pct_delta(cur.avg_bid_liquidity, bm.avg_bid_liquidity)) or "N/A", delta_color=get_delta_color("avg_bid_liquidity"))
+        with bc4:
+            st.metric("VPIN", fmt_pct(pct_delta(cur.vpin, bm.vpin)) or "N/A", delta_color=get_delta_color("vpin"))
+        with bc5:
+            st.metric("Volume", fmt_pct(pct_delta(cur.traded_volume, bm.traded_volume)) or "N/A", delta_color=get_delta_color("traded_volume"))
 
     # Execution History
     if "simulation_timestamp" in st.session_state:
@@ -1142,7 +1224,7 @@ with tab2:
             """Render metrics tab as a fragment."""
             st.markdown("### 📊 Key Metrics")
 
-            prev = st.session_state.previous_metrics
+            prev = st.session_state.previous_metrics if st.session_state.compare_to_last_run else None
 
             def _mv(v: float | None, fmt: str = ".6f") -> str:
                 return f"{v:{fmt}}" if v is not None else "N/A"
@@ -1234,9 +1316,10 @@ with tab2:
             # ── Baseline Comparison (if available) ──────────────────
             bl_data = st.session_state.get("baseline_comparison")
             if bl_data is not None:
+                bl_name = bl_data.get("name", "baseline")
                 st.markdown("---")
-                st.markdown("### ⚖️ Baseline Comparison")
-                st.caption("Percentage change vs simulation with default agent configuration")
+                st.markdown(f"### ⚖️ Baseline Comparison — *{bl_name}*")
+                st.caption(f"Percentage change vs saved scenario: {bl_name}")
 
                 bm = bl_data["metrics"]
                 bc1, bc2, bc3, bc4, bc5, bc6 = st.columns(6)
