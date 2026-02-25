@@ -48,6 +48,7 @@ Create a `.env` file in the root directory and add your LLM provider keys:
 OPENROUTER_API_KEY=your_api_key_here
 # Or OPENAI_API_KEY, ANTHROPIC_API_KEY, etc. depending on your configuration
 ```
+Your API key is not required to run and explore market simulations in the Terminal page of the UI.
 
 ### Usage
 
