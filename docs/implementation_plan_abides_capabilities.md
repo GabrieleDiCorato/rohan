@@ -66,7 +66,9 @@ The current API surface is deliberately small: 5 models, 5 protocol methods, 2 e
 
 ### 4. ABIDES Coupling
 
-Current coupling inventory — ABIDES imports exist in exactly 4 files, all inside `abides_impl/`:
+#### 4.1 Import-Level Coupling (Current State)
+
+ABIDES imports exist in exactly 4 files, all inside `abides_impl/`:
 
 | File | ABIDES Imports |
 |------|----------------|
@@ -84,7 +86,99 @@ Plus one leak: `analysis_service.py` imports `abides_markets.order_book.ns_date`
 - **Oracle access:** Introduces a runtime reach into `self.kernel.oracle` and calls `observe_price()`. This is a new coupling point to ABIDES kernel internals, but it's guarded by a flag, wrapped in try/except, and only used within `_build_market_state()`. **Coupling: slightly increased**, contained.
 - **L2 subscription:** Requires importing `L2SubReqMsg` and overriding `handle_market_data()`. **Coupling: moderately increased** — a new ABIDES message type enters the adapter.
 
-**Verdict:** The decoupling boundary holds. All new ABIDES interaction stays inside `strategic_agent_adapter.py`. The clean separation between `strategy_api.py` (pure Pydantic, zero ABIDES) and `abides_impl/` (all ABIDES) is preserved.
+#### 4.2 Semantic Coupling — Does the Protocol Reflect ABIDES or Markets?
+
+Import-level isolation is necessary but insufficient. The deeper question is whether `strategy_api.py` — the protocol that strategies code against — mirrors **ABIDES-specific semantics** or **general market semantics**. If the protocol is just a thin translation of ABIDES's `TradingAgent`, then a second adapter (e.g., FIX gateway, live broker API) would find the interface awkward or impossible to implement.
+
+**Assessment of each protocol concept:**
+
+| Protocol Concept | ABIDES-Specific? | Industry Standard? | FIX Equivalent |
+|------------------|-------------------|---------------------|----------------|
+| `Side` (BID/ASK) | No | Yes — universal | FIX tag 54 (`Side`): 1=Buy, 2=Sell |
+| `OrderType` (LIMIT/MARKET) | No | Yes — FIX OrdType | FIX tag 40: 1=Market, 2=Limit |
+| `OrderStatus` (NEW/PARTIAL/FILLED/CANCELLED/REJECTED) | No | Yes — matches FIX OrdStatus | FIX tag 39: 0=New, 1=PartialFill, 2=Filled, 4=Cancelled, 8=Rejected |
+| `Order` fields (id, symbol, side, qty, price, status, filled_qty, fill_price) | No | Yes — FIX ExecutionReport | FIX tags 37, 55, 54, 38, 44, 39, 14, 31 |
+| `MarketState` (L1 bid/ask, L2 depth, last trade, inventory, cash) | No | Yes — standard market data + position snapshot | FIX MarketDataSnapshotFullRefresh (tag 35=W) + PositionReport (tag 35=AP) |
+| `OrderAction` (place/cancel with price/qty/side) | No | Yes — FIX NewOrderSingle + OrderCancelRequest | FIX tag 35=D (new), 35=F (cancel) |
+| `cancel_order_id` sentinel for cancel | Slightly | Partial — FIX uses `OrigClOrdID` (tag 41) for cancels, but doesn't have a "cancel all" sentinel | FIX MassCancelRequest (tag 35=q) exists but is structurally separate |
+| `AgentConfig` (starting_cash, symbol, latency_ns) | Partially | `starting_cash` is simulation-specific; real brokers don't pass this at session init | No direct FIX equivalent — session setup is different |
+| Prices in integer cents | No | Yes — FIX uses `LastPx` (float), but integer-cents is common in practice (e.g., CME) | Adapter would convert float ↔ int |
+| Timestamps in nanoseconds | Partial | FIX uses UTC timestamps (tag 60), not ns-since-epoch. But ns precision is standard in modern exchanges | Adapter would convert |
+| `on_tick` / `on_market_data` split | Slightly ABIDES-flavored | Conceptually common (timer vs event), but FIX doesn't have "wakeup" — a FIX strategy would be purely event-driven | FIX adapter would drive `on_market_data` from MarketDataIncrementalRefresh; `on_tick` from an internal timer |
+| `on_simulation_end` | Simulation-specific | No FIX equivalent — live systems don't "end" | A FIX adapter could call this on session logout or EOD |
+| Proposed: `is_hidden`, `is_post_only` | No | Yes — FIX `DisplayMethod` (tag 1084), `ExecInst` (tag 18)='6' (post-only in some venues) | Direct mapping exists |
+| Proposed: `modify` / `replace` | No | Yes — FIX OrderCancelReplaceRequest (tag 35=G) is the standard mechanism | FIX `replace` maps cleanly; ABIDES `modify` has no exact FIX equivalent (FIX only does cancel-replace) |
+| Proposed: `partial_cancel` | Slightly | Rare — some venues support qty reduction via amend, but FIX doesn't have a dedicated message for it | Would map to FIX OrderCancelReplaceRequest with reduced qty |
+| Proposed: `portfolio_value`, `unrealized_pnl` | No | Yes — standard risk/PMS fields | No FIX market data equivalent, but all broker APIs provide this |
+| Proposed: `time_remaining_ns` | No | Yes — market hours are public data | Derivable from exchange session schedule |
+| Proposed: `fundamental_value` (oracle) | **Yes — ABIDES-specific** | **No** — real markets don't have an oracle. This is a simulation concept | **No FIX mapping.** A FIX adapter would leave this field as `None` permanently |
+| Proposed: `wake_interval_ns` | **Yes — ABIDES-specific** | **No** — this is a simulator scheduling concept. In live markets, the strategy controls its own timer | A FIX adapter would need to implement its own timer loop. Doable, but the ns granularity is simulation-flavored |
+| Proposed: L2 push subscription | No (adapter-internal) | Yes — FIX MarketDataRequest (tag 35=V) with SubscriptionRequestType=1 (snapshot+updates) | Clean mapping |
+
+**Summary of semantic coupling:**
+
+The core protocol (`MarketState`, `OrderAction`, `Order`, `StrategicAgent`) is essentially a simplified version of standard electronic trading concepts. There is no ABIDES-specific vocabulary leaking into these models. The naming (`BID`/`ASK` rather than ABIDES's internal class names, `LIMIT`/`MARKET` rather than `LimitOrder`/`MarketOrder` classes) confirms that the abstraction is at the right level.
+
+**Concepts that are genuinely ABIDES-flavored:**
+
+1. **`fundamental_value` (oracle)** — This has no real-market equivalent. It is an information-theoretic construct unique to agent-based simulation. A FIX adapter would always return `None`. This is acceptable because it's opt-in (`oracle_access=False` by default), but it means the field is meaningless outside ABIDES.
+
+2. **`wake_interval_ns`** — The concept of a strategy controlling its own polling frequency is a simulator artifact. In a live system, the strategy runs its own event loop. A FIX adapter could honor this as a timer interval, but the semantics are different: in ABIDES, the kernel controls scheduling; in FIX, the strategy is autonomous. This leaks the ABIDES execution model.
+
+3. **`CANCEL_ALL` sentinel (`-1`)** — The use of a magic integer rather than a separate action type is a minor design smell. FIX has `MassCancelRequest` as a distinct message type. The proposed `OrderActionType.CANCEL_ALL` fixes this by making it explicit.
+
+4. **`AgentConfig.starting_cash`** — Simulation-specific. A live broker adapter wouldn't know starting cash at session init. However, this is initialization-time configuration, not runtime state, so it doesn't affect the trading loop.
+
+5. **`on_simulation_end`** — By name, this is simulation-specific. A FIX adapter could map it to session close or EOD. The semantics ("no further orders, compute final metrics") are transferable.
+
+**Concepts that map cleanly to FIX/live trading:**
+
+Everything in Steps 1-3 of the implementation plan, except `fundamental_value`, maps directly to FIX or standard broker API concepts. Specifically:
+- `mid_price`, `spread` → derived from L1 data in any venue
+- `portfolio_value`, `unrealized_pnl` → standard PMS data
+- `time_remaining_ns` → derivable from exchange session schedule
+- `is_market_closed` → FIX TradingSessionStatus (tag 35=h)
+- `is_hidden`, `is_post_only` → FIX order qualifiers
+- `modify`/`replace` → FIX OrderCancelReplaceRequest
+- `partial_cancel` → FIX amend with reduced quantity
+- `ACCEPTED`/`MODIFIED`/`REPLACED` statuses → FIX ExecutionReport states
+- `bid_liquidity`, `ask_liquidity` → derivable from any L2 feed
+
+#### 4.3 FIX Adapter Feasibility Assessment
+
+**Could a `FixGatewayAdapter` implement the `StrategicAgent` protocol as a second backend?**
+
+Yes, with some caveats. The adapter would:
+
+| Protocol Method | FIX Implementation |
+|-----------------|-------------------|
+| `initialize(config)` | FIX Logon (35=A), ignore `starting_cash` (query from broker), map `symbol` to FIX SecurityID |
+| `on_tick(state)` | Internal timer fires, build `MarketState` from cached L1/L2 + position query |
+| `on_market_data(state)` | FIX MarketDataIncrementalRefresh (35=X) triggers rebuild of `MarketState` |
+| `on_order_update(order)` | FIX ExecutionReport (35=8) maps to `Order` with status translation |
+| `on_simulation_end(state)` | FIX Logout (35=5) or EOD event, build final `MarketState` from last cache |
+| `_execute_actions` | `PLACE` → NewOrderSingle (35=D), `CANCEL` → OrderCancelRequest (35=F), `REPLACE` → OrderCancelReplaceRequest (35=G), `MODIFY` → same as REPLACE (FIX has no in-place modify), `PARTIAL_CANCEL` → OrderCancelReplaceRequest with reduced qty |
+
+**Fields that would not be populated by a FIX adapter:**
+- `fundamental_value` → always `None` (no oracle in real markets)
+- `starting_cash` in `AgentConfig` → would need to be queried from broker or set externally
+
+**Fields that change semantics:**
+- `wake_interval_ns` → a FIX adapter would implement this as an application-level timer, not kernel-scheduled wakeup. The behavior is equivalent but the control mechanism differs
+- `timestamp_ns` → FIX timestamps are UTC microseconds; conversion to ns-since-epoch is trivial
+
+**Structural concerns for a FIX adapter:**
+- The `StrategicAgent` protocol is **synchronous** — each callback returns a list of actions immediately. This works in ABIDES (single-threaded event loop) and would work in a FIX adapter (execute actions after each event). No async/await is needed.
+- The `MarketState` snapshot model (immutable, rebuilt each callback) is compatible with both backends. A FIX adapter would maintain internal caches and build the snapshot on each event, exactly as the ABIDES adapter does.
+- The `Order.order_id` is an `int`. FIX uses `ClOrdID` (string, tag 11). A FIX adapter would need an internal mapping between integer IDs and string ClOrdIDs. This is a minor friction point but not a blocker.
+
+**Verdict on FIX feasibility:** The protocol is portable. A FIX adapter is implementable without changing `strategy_api.py`. The two ABIDES-specific concepts (`fundamental_value`, `wake_interval_ns`) are opt-in and defaulted to `None`/not-used, so a FIX adapter simply ignores them. The `CANCEL_ALL` sentinel is cleaned up by the proposed `OrderActionType` enum. The `Order.order_id` int-vs-string mismatch is the only structural friction, and it's easily bridged with an internal mapping.
+
+**Recommendation:** To future-proof the protocol for a FIX adapter:
+1. Keep `fundamental_value` gated behind `oracle_access` (Step 4a). A FIX adapter would never set this flag.
+2. If `wake_interval_ns` is implemented, document it as "advisory" — the backend may implement it differently or ignore it.
+3. The `ns_date` import leak in `analysis_service.py` should be fixed — replace with a stdlib datetime conversion. This is unrelated to the current plan but is the only ABIDES import outside `abides_impl/`.
+4. Consider whether `Order.order_id` should be `str` instead of `int` to align with FIX `ClOrdID`. This is a breaking change and should only be considered if a FIX adapter is actively planned. For now, `int` is fine — ABIDES uses integer order IDs natively.
 
 ### 5. Value for the AI Agent Loop
 
