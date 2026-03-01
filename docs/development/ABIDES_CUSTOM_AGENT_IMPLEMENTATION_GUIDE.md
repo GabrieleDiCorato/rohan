@@ -151,34 +151,34 @@ Every agent in ABIDES goes through a strict lifecycle managed by the Kernel:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Phase 1: kernel_initializing(kernel)                            │
+│ Phase 1: kernel_initializing (kernel)                           │
 │   • Kernel reference stored (self.kernel = kernel)              │
 │   • No other agents guaranteed to exist yet                     │
 │   • DO NOT send messages here                                   │
 ├─────────────────────────────────────────────────────────────────┤
-│ Phase 2: kernel_starting(start_time)                            │
+│ Phase 2: kernel_starting (start_time)                           │
 │   • All agents exist now                                        │
 │   • TradingAgent discovers ExchangeAgent via                    │
 │     kernel.find_agents_by_type(ExchangeAgent)                   │
 │   • First wakeup scheduled via set_wakeup(start_time)           │
 │   • Override get_wake_frequency() to control first-wake delay   │
 ├─────────────────────────────────────────────────────────────────┤
-│ Phase 3: wakeup(current_time) — MAIN STRATEGY ENTRY POINT      │
+│ Phase 3: wakeup(current_time) — MAIN STRATEGY ENTRY POINT       │
 │   • Called when your scheduled alarm fires                      │
 │   • First wakeup: TradingAgent requests market hours            │
 │   • Subsequent wakeups: your strategy logic runs here           │
 │   • MUST call super().wakeup(current_time) first                │
 │   • Schedule next wakeup with self.set_wakeup(next_time)        │
 ├─────────────────────────────────────────────────────────────────┤
-│ Phase 4: receive_message(current_time, sender_id, message)      │
-│   • Called when incoming messages arrive (order fills, data, ..) │
+│ Phase 4: receive_message (current_time, sender_id, message)     │
+│   • Called when incoming messages arrive (order fills, data, ..)│
 │   • TradingAgent routes messages to typed handlers              │
-│   • Override order_executed(), query_spread(), etc.              │
-│   • MUST call super().receive_message(...) first                 │
+│   • Override order_executed(), query_spread(), etc.             │
+│   • MUST call super().receive_message(...) first                │
 ├─────────────────────────────────────────────────────────────────┤
 │ Phase 5: kernel_stopping()                                      │
 │   • All agents still exist                                      │
-│   • TradingAgent logs final holdings, marks to market            │
+│   • TradingAgent logs final holdings, marks to market           │
 │   • Good place to compute your strategy metrics                 │
 ├─────────────────────────────────────────────────────────────────┤
 │ Phase 6: kernel_terminating()                                   │
