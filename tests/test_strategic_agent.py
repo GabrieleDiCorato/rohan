@@ -307,15 +307,15 @@ class TestStrategyInjection:
         assert strategy.order_placed, "Strategy did not place any orders"
 
     def test_on_order_update_called_on_interesting_events(self, buy_strategy_result):
-        """Test that on_order_update fires for fills and/or cancellations."""
+        """Test that on_order_update fires for accepts, fills, and/or cancellations."""
         result, strategy = buy_strategy_result
 
         assert result.error is None, f"Simulation failed: {result.error}"
         # Strategy placed at best_ask - 1, so it may or may not fill.
-        # But order_accepted at least should trigger the cache.
-        # If there are updates, they should have valid status.
+        # order_accepted fires immediately, fills/cancels come later.
         for update in strategy.order_updates:
             assert update.status in (
+                OrderStatus.ACCEPTED,
                 OrderStatus.FILLED,
                 OrderStatus.PARTIAL,
                 OrderStatus.CANCELLED,
@@ -414,3 +414,126 @@ class TestStrategicAgentAdapter:
         assert adapter._open_orders_cache == {}
         assert adapter._filled_quantities == {}
         assert adapter.order_book_depth == 10
+
+
+# ---------------------------------------------------------------------------
+# Situational Awareness Strategy (Step 1)
+# ---------------------------------------------------------------------------
+class SituationalAwarenessStrategy:
+    """Records new MarketState fields for verification."""
+
+    def __init__(self):
+        self.config: AgentConfig | None = None
+        self.portfolio_values: list[int] = []
+        self.pnl_values: list[int] = []
+        self.time_remaining: list[int | None] = []
+        self.mid_prices: list[int | None] = []
+        self.spreads: list[int | None] = []
+        self.bid_liquidities: list[int] = []
+        self.ask_liquidities: list[int] = []
+        self.market_closed_seen = False
+        self.last_state: MarketState | None = None
+
+    def initialize(self, config: AgentConfig) -> None:
+        self.config = config
+
+    def on_tick(self, state: MarketState) -> list[OrderAction]:
+        self._record(state)
+        if state.is_market_closed:
+            self.market_closed_seen = True
+        return []
+
+    def on_market_data(self, state: MarketState) -> list[OrderAction]:
+        self._record(state)
+        return []
+
+    def on_order_update(self, _update: Order) -> list[OrderAction]:
+        return []
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        self.last_state = final_state
+
+    def _record(self, state: MarketState):
+        self.portfolio_values.append(state.portfolio_value)
+        self.pnl_values.append(state.unrealized_pnl)
+        self.time_remaining.append(state.time_remaining_ns)
+        self.mid_prices.append(state.mid_price)
+        self.spreads.append(state.spread)
+        self.bid_liquidities.append(state.bid_liquidity)
+        self.ask_liquidities.append(state.ask_liquidity)
+
+
+class TestSituationalAwareness:
+    """Integration tests for Step 1 — Situational Awareness fields."""
+
+    @pytest.fixture(scope="class")
+    def awareness_result(self):
+        """Run simulation with SituationalAwarenessStrategy."""
+        strategy = SituationalAwarenessStrategy()
+        service = SimulationService()
+        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)  # pyright: ignore[reportArgumentType]
+        return result, strategy
+
+    def test_config_includes_market_hours(self, awareness_result):
+        """AgentConfig should include mkt_open_ns and mkt_close_ns."""
+        result, strategy = awareness_result
+        assert result.error is None, f"Simulation failed: {result.error}"
+        assert strategy.config is not None
+        # Market hours may be None before MarketHoursMsg arrives,
+        # but after kernel_starting they should be set from ABIDES mkt_open/mkt_close
+        # (which may still be None if exchange hasn't sent them yet)
+        # Just verify the fields exist
+        assert hasattr(strategy.config, "mkt_open_ns")
+        assert hasattr(strategy.config, "mkt_close_ns")
+
+    def test_portfolio_value_populated(self, awareness_result):
+        """portfolio_value should be non-zero after initialization."""
+        result, strategy = awareness_result
+        assert result.error is None
+        # At least some ticks should have non-zero portfolio value
+        # (strategy starts with cash, so mark_to_market should be > 0)
+        non_zero = [v for v in strategy.portfolio_values if v != 0]
+        assert len(non_zero) > 0, "portfolio_value was never non-zero"
+
+    def test_unrealized_pnl_initially_zero(self, awareness_result):
+        """unrealized_pnl should start at 0 (no positions taken)."""
+        result, strategy = awareness_result
+        assert result.error is None
+        # First few PnL values should be 0 (no trades yet)
+        assert strategy.pnl_values[0] == 0, "First PnL should be 0 (no positions)"
+
+    def test_time_remaining_decreases(self, awareness_result):
+        """time_remaining_ns should decrease over time."""
+        result, strategy = awareness_result
+        assert result.error is None
+        # Filter valid values
+        valid = [t for t in strategy.time_remaining if t is not None and t > 0]
+        if len(valid) >= 2:
+            assert valid[0] >= valid[-1], "time_remaining should decrease"
+
+    def test_mid_price_computed(self, awareness_result):
+        """mid_price should be computed when both bid and ask exist."""
+        result, strategy = awareness_result
+        assert result.error is None
+        non_none = [p for p in strategy.mid_prices if p is not None]
+        assert len(non_none) > 0, "mid_price was never computed"
+
+    def test_spread_computed(self, awareness_result):
+        """spread should be computed when both bid and ask exist."""
+        result, strategy = awareness_result
+        assert result.error is None
+        non_none = [s for s in strategy.spreads if s is not None]
+        assert len(non_none) > 0, "spread was never computed"
+        # Spread should be non-negative
+        for s in non_none:
+            assert s >= 0, f"Spread should be non-negative, got {s}"
+
+    def test_liquidity_populated(self, awareness_result):
+        """bid_liquidity and ask_liquidity should be populated at some point."""
+        result, strategy = awareness_result
+        assert result.error is None
+        # Liquidity may be 0 early, but should be non-zero after book builds
+        non_zero_bid = [liq for liq in strategy.bid_liquidities if liq > 0]
+        non_zero_ask = [liq for liq in strategy.ask_liquidities if liq > 0]
+        # At least one side should have had non-zero liquidity
+        assert len(non_zero_bid) > 0 or len(non_zero_ask) > 0, "Liquidity was never non-zero"

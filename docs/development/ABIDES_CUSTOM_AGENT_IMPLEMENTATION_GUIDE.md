@@ -133,6 +133,11 @@ classDiagram
         +strategy: StrategicAgent
         +wakeup(current_time)
         +receive_message(...)
+        +order_accepted(order)
+        +order_modified(order)
+        +order_partial_cancelled(order)
+        +order_replaced(old, new)
+        +market_closed()
     }
 
     Agent <|-- FinancialAgent
@@ -309,7 +314,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Protocol
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class Side(str, Enum):
@@ -323,11 +328,15 @@ class OrderType(str, Enum):
 
 
 class OrderStatus(str, Enum):
-    NEW = "NEW"
-    PARTIAL = "PARTIAL"
-    FILLED = "FILLED"
-    CANCELLED = "CANCELLED"
-    REJECTED = "REJECTED"
+    ACCEPTED = "ACCEPTED"       # Exchange accepted the order
+    NEW = "NEW"                 # Live and resting on the book
+    PARTIAL = "PARTIAL"         # Partially filled
+    FILLED = "FILLED"           # Fully filled
+    CANCELLED = "CANCELLED"     # Cancelled (by strategy or exchange)
+    REJECTED = "REJECTED"       # Exchange rejected
+    MODIFIED = "MODIFIED"       # Order price/quantity changed
+    PARTIAL_CANCELLED = "PARTIAL_CANCELLED"  # Quantity reduced
+    REPLACED = "REPLACED"       # Atomically replaced by a new order
 
 
 class Order(BaseModel):
@@ -349,6 +358,7 @@ class Order(BaseModel):
 class MarketState(BaseModel):
     """Snapshot of the market visible to the strategy at a given instant."""
 
+    # ── Core market data ─────────────────────────────────────────────────
     timestamp_ns: int = Field(description="Nanoseconds since epoch")
     best_bid: int | None = Field(default=None, description="Best bid price in cents")
     best_ask: int | None = Field(default=None, description="Best ask price in cents")
@@ -360,39 +370,103 @@ class MarketState(BaseModel):
         default_factory=list,
         description="Order book ask levels: [(price_cents, qty), ...], best first",
     )
-    last_trade: int | None = Field(
-        default=None, description="Last trade price in cents"
-    )
+    last_trade: int | None = Field(default=None, description="Last trade price in cents")
+
+    # ── Portfolio ────────────────────────────────────────────────────────
     inventory: int = Field(description="Signed position in shares")
     cash: int = Field(description="Available cash in cents")
     open_orders: list[Order]
+    portfolio_value: int = Field(default=0, description="Mark-to-market value in cents")
+    unrealized_pnl: int = Field(default=0, description="portfolio_value - starting_cash, in cents")
+
+    # ── Situational awareness ────────────────────────────────────────────
+    time_remaining_ns: int | None = Field(
+        default=None, description="Nanoseconds until market close (None if unknown)"
+    )
+    is_market_closed: bool = Field(
+        default=False, description="True when the market has closed"
+    )
+
+    # ── Near-touch liquidity ─────────────────────────────────────────────
+    bid_liquidity: int = Field(default=0, description="Bid volume within 0.5% of best bid")
+    ask_liquidity: int = Field(default=0, description="Ask volume within 0.5% of best ask")
+
+    # ── Computed convenience ─────────────────────────────────────────────
+    @computed_field
+    @property
+    def mid_price(self) -> int | None:
+        """Midpoint price in cents, or None if either side is missing."""
+        if self.best_bid is not None and self.best_ask is not None:
+            return (self.best_bid + self.best_ask) // 2
+        return None
+
+    @computed_field
+    @property
+    def spread(self) -> int | None:
+        """Bid-ask spread in cents, or None if either side is missing."""
+        if self.best_bid is not None and self.best_ask is not None:
+            return self.best_ask - self.best_bid
+        return None
 
 
-# Cancellation sentinel: cancel_order_id = CANCEL_ALL cancels every open order.
-CANCEL_ALL: int = -1
+CANCEL_ALL: int = -1  # Sentinel: cancel_order_id = CANCEL_ALL cancels all open orders.
+
+
+class OrderActionType(str, Enum):
+    """Discriminator for order action intent."""
+    PLACE = "PLACE"
+    CANCEL = "CANCEL"
+    CANCEL_ALL = "CANCEL_ALL"
+    MODIFY = "MODIFY"
+    PARTIAL_CANCEL = "PARTIAL_CANCEL"
+    REPLACE = "REPLACE"
 
 
 class OrderAction(BaseModel):
-    """An order instruction returned by the strategy."""
+    """An order instruction returned by the strategy.
 
-    side: Side = Field(
-        default=Side.BID, description="Order side (ignored for cancellations)"
-    )
-    quantity: int = Field(
-        default=1, ge=1, description="Number of shares (ignored for cancellations)"
-    )
-    price: int | None = Field(
-        default=None, description="Limit price in cents (required for LIMIT)"
-    )
-    order_type: OrderType = Field(
-        default=OrderType.LIMIT, description="Order type (ignored for cancellations)"
-    )
+    Examples:
+        OrderAction(side=Side.BID, quantity=100, price=10050)       # Place limit order
+        OrderAction.cancel(order_id=123)                            # Cancel one order
+        OrderAction.cancel_all()                                    # Cancel all
+        OrderAction.modify(order_id=123, new_price=10050)           # Change price
+        OrderAction.partial_cancel(order_id=123, reduce_by=50)      # Reduce quantity
+        OrderAction.replace(order_id=123, side=Side.BID, quantity=100, price=10050)
+    """
+
+    action_type: OrderActionType = Field(default=OrderActionType.PLACE)
+    side: Side = Field(default=Side.BID)
+    quantity: int = Field(default=1, ge=1)
+    price: int | None = Field(default=None, description="Limit price in cents")
+    order_type: OrderType = Field(default=OrderType.LIMIT)
     cancel_order_id: int | None = Field(
-        default=None,
-        description="If set, cancel this order instead of placing a new one. Use -1 to cancel all.",
+        default=None, description="Target order ID for CANCEL/MODIFY/PARTIAL_CANCEL/REPLACE"
+    )
+    is_hidden: bool = Field(default=False, description="Iceberg order (LIMIT only)")
+    is_post_only: bool = Field(default=False, description="Reject if would fill (LIMIT only)")
+    new_price: int | None = Field(default=None, description="New price for MODIFY/REPLACE")
+    new_quantity: int | None = Field(
+        default=None, description="New qty for MODIFY/REPLACE, or reduction for PARTIAL_CANCEL"
     )
 
-    # ... validators omitted for brevity (see source) ...
+    # Validators: _validate_price_for_order_type, _validate_hidden_post_only, _infer_action_type
+    # (see source for full implementations)
+
+    # ── Convenience factories ────────────────────────────────────────────
+    @classmethod
+    def cancel(cls, order_id: int) -> OrderAction: ...
+
+    @classmethod
+    def cancel_all(cls) -> OrderAction: ...
+
+    @classmethod
+    def modify(cls, order_id: int, *, new_price=None, new_quantity=None) -> OrderAction: ...
+
+    @classmethod
+    def partial_cancel(cls, order_id: int, reduce_by: int) -> OrderAction: ...
+
+    @classmethod
+    def replace(cls, order_id: int, *, side: Side, quantity: int, price: int) -> OrderAction: ...
 
 
 class AgentConfig(BaseModel):
@@ -401,13 +475,15 @@ class AgentConfig(BaseModel):
     starting_cash: int = Field(description="Initial cash in cents")
     symbol: str = Field(description="Ticker symbol to trade")
     latency_ns: int = Field(description="Simulated network latency in nanoseconds")
+    mkt_open_ns: int | None = Field(default=None, description="Market open (nanoseconds)")
+    mkt_close_ns: int | None = Field(default=None, description="Market close (nanoseconds)")
 
 
 class StrategicAgent(Protocol):
     """Protocol for LLM-generated trading strategies."""
 
     def initialize(self, config: AgentConfig) -> None:
-        """Called once at the start of the simulation."""
+        """Called once at simulation start."""
         ...
 
     def on_tick(self, state: MarketState) -> list[OrderAction]:
@@ -419,11 +495,11 @@ class StrategicAgent(Protocol):
         ...
 
     def on_order_update(self, update: Order) -> list[OrderAction]:
-        """Called when an order is filled, partially filled, or cancelled."""
+        """Called on order fills, cancellations, modifications, and replacements."""
         ...
 
     def on_simulation_end(self, final_state: MarketState) -> None:
-        """Called once at the end of the simulation for cleanup and logging."""
+        """Called once at the end of the simulation (market is closed)."""
         ...
 ```
 
@@ -433,9 +509,12 @@ class StrategicAgent(Protocol):
 |----------|-----|
 | `pydantic` models | Runtime validation and clear schema definition |
 | `Protocol` | Loose coupling — agents can be any class implementing the interface |
-| `OrderAction` | Unifies placement and cancellation into a single return type |
-| `MarketState` | Consolidates portfolio and market data into one object |
+| `OrderAction` | Unifies placement, cancellation, and modification into a single return type |
+| `OrderActionType` | Explicit action intent; backward-compatible via `_infer_action_type` validator |
+| `MarketState` | Consolidates portfolio, market data, and situational signals into one snapshot |
+| `computed_field` | `mid_price` and `spread` derived from L1 data without manual computation |
 | `on_market_data` | Explicit hook for data-driven strategies (vs time-driven `on_tick`) |
+| Factories | `cancel()`, `modify()`, `replace()` ensure valid field combinations |
 
 ---
 
@@ -445,14 +524,15 @@ class StrategicAgent(Protocol):
 """strategic_agent_adapter.py — Bridges the StrategicAgent protocol into ABIDES."""
 
 import logging
-from typing import List
 
-from abides_core import Message
+from abides_core.utils import str_to_ns
 from abides_markets.agents import TradingAgent
 from abides_markets.messages.query import QuerySpreadResponseMsg
+from abides_markets.orders import LimitOrder, Side as AbidesSide
 
 from rohan.simulation.models.strategy_api import (
-    StrategicAgent, MarketState, OrderAction, AgentConfig
+    CANCEL_ALL, AgentConfig, MarketState, Order, OrderAction, OrderActionType,
+    OrderStatus, OrderType, Side, StrategicAgent,
 )
 
 logger = logging.getLogger(__name__)
@@ -462,95 +542,133 @@ class StrategicAgentAdapter(TradingAgent):
     """
     ABIDES TradingAgent that wraps a StrategicAgent implementation.
 
-    This adapter:
-    1. Requests market data on every wakeup
-    2. Translates ABIDES messages/state to MarketState
-    3. Executes OrderActions returned by the strategy
+    Lifecycle mapping:
+        kernel_starting  → strategy.initialize()
+        wakeup           → strategy.on_tick()
+        receive_message  → strategy.on_market_data()
+        order_accepted / order_executed / order_cancelled
+           / order_modified / order_partial_cancelled
+           / order_replaced  → strategy.on_order_update()
+        market_closed    → strategy.on_tick(is_market_closed=True)
+        kernel_stopping  → strategy.on_simulation_end()
+
+    Features:
+        • Incremental _open_orders_cache (avoids rebuilding every tick)
+        • Cumulative fill tracking via _filled_quantities
+        • Portfolio valuation via mark_to_market()
+        • Near-touch liquidity via get_known_liquidity()
+        • match-based action dispatch (PLACE/CANCEL/MODIFY/...)
     """
 
-    def __init__(
-        self,
-        id: int,
-        strategy: StrategicAgent,
-        symbol: str = "ABM",
-        starting_cash: int = 10000000,
-        name: str | None = None,
-        # ... other args ...
-    ) -> None:
-        super().__init__(id, name=name, starting_cash=starting_cash)
+    def __init__(self, id, strategy, symbol, starting_cash, wake_up_freq="1S",
+                 order_book_depth=10, log_orders=True, random_state=None):
+        super().__init__(id=id, name=f"StrategicAgent_{id}", type="StrategicAgent",
+                         starting_cash=starting_cash, log_orders=log_orders,
+                         random_state=random_state)
         self.strategy = strategy
         self.symbol = symbol
-        self._initialized = False
+        self.wake_up_freq_ns = str_to_ns(wake_up_freq)
+        self.order_book_depth = order_book_depth
+        self._open_orders_cache: dict[int, Order] = {}
+        self._filled_quantities: dict[int, int] = {}
 
     # ── Lifecycle ──────────────────────────────────────────────────
 
-    def kernel_starting(self, start_time: int) -> None:
+    def kernel_starting(self, start_time):
         super().kernel_starting(start_time)
         cfg = AgentConfig(
-            starting_cash=self.starting_cash,
-            symbol=self.symbol,
-            latency_ns=0,  # Or config value
+            starting_cash=self.starting_cash, symbol=self.symbol, latency_ns=0,
+            mkt_open_ns=self.mkt_open,   # None until MarketHoursMsg arrives
+            mkt_close_ns=self.mkt_close, # None until MarketHoursMsg arrives
         )
         self.strategy.initialize(cfg)
+        self.set_wakeup(start_time + self.wake_up_freq_ns)
 
-    def kernel_stopping(self) -> None:
-        state = self._build_market_state()
+    def kernel_stopping(self):
+        state = self._build_market_state(self.current_time)
         self.strategy.on_simulation_end(state)
         super().kernel_stopping()
 
     # ── Wakeup & Message Handling ─────────────────────────────────
 
-    def wakeup(self, current_time: int) -> None:
-        can_trade = super().wakeup(current_time)
-        if not can_trade:
-            return
+    def wakeup(self, current_time):
+        super().wakeup(current_time)
+        state = self._build_market_state(current_time)
+        actions = self.strategy.on_tick(state)
+        self._execute_actions(actions)
+        self.get_current_spread(self.symbol, depth=self.order_book_depth)
+        self.set_wakeup(current_time + self.wake_up_freq_ns)
 
-        # Request fresh data
-        self.get_known_bid_ask(self.symbol)
+    def receive_message(self, current_time, sender_id, message):
+        super().receive_message(current_time, sender_id, message)
+        if isinstance(message, QuerySpreadResponseMsg):
+            self._handle_market_data(current_time)
 
-        # Call strategy
-        state = self._build_market_state()
+    # ── Order lifecycle overrides ─────────────────────────────────
+
+    def order_accepted(self, order):     # Exchange accepted → ACCEPTED
+        super().order_accepted(order)
+        self._cache_add(order)
+        actions = self.strategy.on_order_update(
+            self._abides_to_proto(order, status=OrderStatus.ACCEPTED))
+        self._execute_actions(actions)
+
+    def order_executed(self, order):     # Fill → PARTIAL or FILLED
+        # ... cumulative fill tracking, cache update, protocol conversion ...
+        ...
+
+    def order_cancelled(self, order):    # → CANCELLED
+        ...
+
+    def order_modified(self, order):     # → MODIFIED
+        ...
+
+    def order_partial_cancelled(self, order):  # → PARTIAL_CANCELLED
+        ...
+
+    def order_replaced(self, old_order, new_order):  # → REPLACED
+        ...
+
+    def market_closed(self):             # → on_tick(is_market_closed=True)
+        super().market_closed()
+        state = self._build_market_state(self.current_time)
+        state = state.model_copy(update={"is_market_closed": True})
         actions = self.strategy.on_tick(state)
         self._execute_actions(actions)
 
-    def receive_message(self, current_time: int, sender_id: int, message: Message) -> None:
-        super().receive_message(current_time, sender_id, message)
+    # ── Internal helpers ──────────────────────────────────────────
 
-        if isinstance(message, QuerySpreadResponseMsg):
-            # Market data arrival
-            state = self._build_market_state()
-            actions = self.strategy.on_market_data(state)
-            self._execute_actions(actions)
+    def _build_market_state(self, current_time) -> MarketState:
+        """Build MarketState from TradingAgent caches.
 
-    def order_executed(self, order) -> None:
-        super().order_executed(order)
-        # Convert ABIDES order to API Order
-        # ... implementation details omitted ...
-        actions = self.strategy.on_order_update(converted_order)
-        self._execute_actions(actions)
+        Includes: L1/L2 data, portfolio (inventory, cash, portfolio_value,
+        unrealized_pnl), time_remaining_ns, bid/ask_liquidity.
+        """
+        ...
 
-    # ── Helper Methods ────────────────────────────────────────────
-
-    def _build_market_state(self) -> MarketState:
-        """Constructs safe snapshot of current state for the strategy."""
-        # ... reads self.known_bids, self.holdings, self.orders ...
-        return MarketState(...)
-
-    def _execute_actions(self, actions: List[OrderAction]) -> None:
-        """Applies strategy decisions to the exchange."""
+    def _execute_actions(self, actions: list[OrderAction]) -> None:
+        """Dispatch on action_type using match statement."""
         for action in actions:
-            if action.cancel_order_id == -1:
-                self.cancel_all_orders()
-            elif action.cancel_order_id:
-                self.cancel_order(action.cancel_order_id)
-            else:
-                self.place_limit_order(
-                    self.symbol,
-                    quantity=action.quantity,
-                    side=action.side,
-                    limit_price=action.price
-                )
+            match action.action_type:
+                case OrderActionType.CANCEL:          self._handle_cancel(...)
+                case OrderActionType.CANCEL_ALL:      self._handle_cancel(CANCEL_ALL)
+                case OrderActionType.MODIFY:          self._handle_modify(action)
+                case OrderActionType.PARTIAL_CANCEL:  self._handle_partial_cancel(action)
+                case OrderActionType.REPLACE:         self._handle_replace(action)
+                case OrderActionType.PLACE:           self._handle_place(action)
+
+    def _handle_place(self, action):  # LIMIT with is_hidden/is_post_only, or MARKET
+        ...
+    def _handle_modify(self, action):  # Modify price/quantity of existing order
+        ...
+    def _handle_partial_cancel(self, action):  # Reduce quantity
+        ...
+    def _handle_replace(self, action):  # Atomic cancel + place
+        ...
 ```
+
+> **Note**: The above is a structural overview. See the full implementation in
+> `src/rohan/simulation/abides_impl/strategic_agent_adapter.py` (461 lines).
 
 ---
 
@@ -581,10 +699,9 @@ class SimpleSpreadStrategy(StrategicAgent):
         self.tick_size = 10_000_000_000  # 10 seconds
 
     def on_tick(self, state: MarketState) -> list[OrderAction]:
-        if state.best_bid is None or state.best_ask is None:
+        if state.mid_price is None:
             return []
 
-        mid = (state.best_bid + state.best_ask) // 2
         spread_offset = 50  # 50 cents = $0.50
 
         return [
@@ -592,13 +709,13 @@ class SimpleSpreadStrategy(StrategicAgent):
                 side=Side.BID,
                 quantity=10,
                 order_type=OrderType.LIMIT,
-                price=mid - spread_offset,
+                price=state.mid_price - spread_offset,
             ),
             OrderAction(
                 side=Side.ASK,
                 quantity=10,
                 order_type=OrderType.LIMIT,
-                price=mid + spread_offset,
+                price=state.mid_price + spread_offset,
             ),
         ]
 
@@ -609,8 +726,8 @@ class SimpleSpreadStrategy(StrategicAgent):
         return []
 
     def on_simulation_end(self, final_state: MarketState) -> None:
-        pnl = final_state.cash - 10_000_000  # Assuming known starting cash
-        print(f"Strategy PnL: ${pnl / 100:.2f}")
+        # unrealized_pnl tracks portfolio_value - starting_cash automatically
+        print(f"Strategy PnL: ${final_state.unrealized_pnl / 100:.2f}")
 
 
 # ── Step 2: Build config and inject adapter ──────────────────────
@@ -798,7 +915,46 @@ def on_market_data(self, state: MarketState) -> list[OrderAction]:
     return []
 ```
 
-### 13.3 Extending the Adapter
+### 13.3 Order Management — Modify, Partial Cancel, Replace
+
+```python
+def on_order_update(self, update: Order) -> list[OrderAction]:
+    """React to order events with advanced order management."""
+    if update.status == OrderStatus.PARTIAL:
+        # Reduce remaining quantity by half after partial fill
+        remaining = update.quantity - update.filled_quantity
+        if remaining > 10:
+            return [OrderAction.partial_cancel(update.order_id, reduce_by=remaining // 2)]
+
+    if update.status == OrderStatus.ACCEPTED:
+        # Modify price closer to midpoint after acceptance
+        return [OrderAction.modify(update.order_id, new_price=update.price - 10)]
+
+    return []
+```
+
+### 13.4 Portfolio-Aware Risk Management
+
+```python
+def on_tick(self, state: MarketState) -> list[OrderAction]:
+    """Use situational awareness to manage risk."""
+    # Flatten positions near market close
+    if state.time_remaining_ns is not None and state.time_remaining_ns < 60_000_000_000:  # <1 min
+        if state.inventory != 0:
+            side = Side.ASK if state.inventory > 0 else Side.BID
+            return [OrderAction(
+                side=side, quantity=abs(state.inventory),
+                order_type=OrderType.MARKET, price=None,
+            )]
+
+    # Stop trading if losing too much
+    if state.unrealized_pnl < -500_00:  # -$500
+        return [OrderAction.cancel_all()]
+
+    return []
+```
+
+### 13.5 Extending the Adapter
 
 If you need additional ABIDES functionality (e.g., oracle access), subclass the adapter:
 
@@ -816,8 +972,8 @@ class ExtendedAdapter(StrategicAgentAdapter):
 
 | Layer | File | Responsibility |
 |-------|------|---------------|
-| **Strategy Protocol** | `strategy_api.py` | Pure financial logic, no ABIDES dependency |
-| **Adapter** | `strategic_agent_adapter.py` | Translates events, manages lifecycle, places orders |
+| **Strategy Protocol** | `strategy_api.py` | Pure financial logic, no ABIDES dependency. Enums, models, computed fields, order factories, validators. |
+| **Adapter** | `strategic_agent_adapter.py` | Translates all ABIDES lifecycle events, manages order cache, dispatches actions (place/cancel/modify/replace). |
 | **Config** | `simulation_runner.py` | Wires adapter into ABIDES config, runs simulation |
 
 The key insight: **ABIDES agents are event reactors, not loop runners.** Your strategy sees clean snapshots and returns order actions. The adapter handles the event-driven complexity, async message passing, and lifecycle management that makes ABIDES work.

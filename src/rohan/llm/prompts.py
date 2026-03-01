@@ -45,19 +45,38 @@ class MyStrategy:
 ## Types (all prices in **integer cents**, quantities in **shares**)
 - ``MarketState``: timestamp_ns, best_bid, best_ask, bid_depth (list of
   (price, qty) tuples), ask_depth (list of (price, qty) tuples),
-  last_trade, inventory, cash, open_orders (list[Order])
+  last_trade, inventory, cash, open_orders (list[Order]),
+  mid_price (computed, int|None), spread (computed, int|None),
+  portfolio_value (mark-to-market, int), unrealized_pnl (int),
+  time_remaining_ns (int|None — nanoseconds until market close),
+  is_market_closed (bool), bid_liquidity (int — shares within 0.5% of best),
+  ask_liquidity (int — shares within 0.5% of best)
 - ``OrderAction``: side (BID/ASK), quantity, price (required for LIMIT,
-  forbidden for MARKET), order_type (LIMIT/MARKET), cancel_order_id (optional)
-- ``AgentConfig``: starting_cash, symbol, latency_ns
+  forbidden for MARKET), order_type (LIMIT/MARKET), cancel_order_id (optional),
+  is_hidden (bool, LIMIT only — iceberg order),
+  is_post_only (bool, LIMIT only — reject if would immediately match)
+- ``AgentConfig``: starting_cash, symbol, latency_ns, mkt_open_ns (int|None),
+  mkt_close_ns (int|None)
 - ``Order``: order_id, side, quantity, price, order_type, status,
   filled_quantity, fill_price
+- ``OrderStatus``: ACCEPTED, NEW, PARTIAL, FILLED, CANCELLED, REJECTED,
+  MODIFIED, PARTIAL_CANCELLED, REPLACED
 
-## Order Cancellation
-- Cancel a specific order: ``OrderAction.cancel(order_id=123)``
-- Cancel ALL open orders: ``OrderAction.cancel_all()``
+## Order Management
+- **Cancel** a specific order: ``OrderAction.cancel(order_id=123)``
+- **Cancel ALL** open orders: ``OrderAction.cancel_all()``
+- **Modify** an order's price/quantity: ``OrderAction.modify(order_id=123, new_price=10050)``
+- **Partially cancel** (reduce quantity): ``OrderAction.partial_cancel(order_id=123, reduce_by=50)``
+- **Replace** (atomic cancel+new): ``OrderAction.replace(order_id=123, side=Side.BID, quantity=100, price=10050)``
 - ``on_order_update(update)`` is called when an order is filled,
-  partially filled, or cancelled. Use ``update.fill_price`` and
-  ``update.status`` to track inventory changes.
+  partially filled, cancelled, modified, partially cancelled, or replaced.
+  Use ``update.fill_price`` and ``update.status`` to track changes.
+
+## Market Awareness
+- Use ``state.mid_price`` and ``state.spread`` for quick pricing decisions.
+- Use ``state.time_remaining_ns`` to adjust aggressiveness near close.
+- When ``state.is_market_closed`` is True, do NOT place orders.
+- Use ``state.bid_liquidity`` / ``state.ask_liquidity`` to gauge depth.
 
 ## Allowed imports
 Only: math, random, statistics, numpy, pandas, datetime, typing,

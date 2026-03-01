@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Protocol
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class Side(str, Enum):
@@ -29,11 +29,15 @@ class OrderType(str, Enum):
 
 
 class OrderStatus(str, Enum):
+    ACCEPTED = "ACCEPTED"
     NEW = "NEW"
     PARTIAL = "PARTIAL"
     FILLED = "FILLED"
     CANCELLED = "CANCELLED"
     REJECTED = "REJECTED"
+    MODIFIED = "MODIFIED"
+    PARTIAL_CANCELLED = "PARTIAL_CANCELLED"
+    REPLACED = "REPLACED"
 
 
 class Order(BaseModel):
@@ -77,11 +81,70 @@ class MarketState(BaseModel):
     cash: int = Field(description="Available cash in cents")
     open_orders: list[Order]
 
+    # ── Step 1: Situational Awareness ────────────────────────────────────
+
+    portfolio_value: int = Field(
+        default=0,
+        description="Mark-to-market portfolio value (cash + positions) in cents",
+    )
+    unrealized_pnl: int = Field(
+        default=0,
+        description="Unrealized PnL = portfolio_value - starting_cash, in cents",
+    )
+    time_remaining_ns: int | None = Field(
+        default=None,
+        description="Nanoseconds until market close. None if market hours unknown.",
+    )
+    is_market_closed: bool = Field(
+        default=False,
+        description="True when the market has closed. No further orders can be placed.",
+    )
+
+    # ── Step 2: Liquidity ────────────────────────────────────────────────
+
+    bid_liquidity: int = Field(
+        default=0,
+        description="Total bid-side volume within 0.5%% of best bid (in shares)",
+    )
+    ask_liquidity: int = Field(
+        default=0,
+        description="Total ask-side volume within 0.5%% of best ask (in shares)",
+    )
+
+    # ── Computed convenience fields ──────────────────────────────────────
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def mid_price(self) -> int | None:
+        """Midpoint price in cents, or None if either side is missing."""
+        if self.best_bid is not None and self.best_ask is not None:
+            return (self.best_bid + self.best_ask) // 2
+        return None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def spread(self) -> int | None:
+        """Bid-ask spread in cents, or None if either side is missing."""
+        if self.best_bid is not None and self.best_ask is not None:
+            return self.best_ask - self.best_bid
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Cancellation sentinel: cancel_order_id = CANCEL_ALL cancels every open order.
 # ---------------------------------------------------------------------------
 CANCEL_ALL: int = -1
+
+
+class OrderActionType(str, Enum):
+    """Discriminator for order action intent."""
+
+    PLACE = "PLACE"
+    CANCEL = "CANCEL"
+    CANCEL_ALL = "CANCEL_ALL"
+    MODIFY = "MODIFY"
+    PARTIAL_CANCEL = "PARTIAL_CANCEL"
+    REPLACE = "REPLACE"
 
 
 class OrderAction(BaseModel):
@@ -97,20 +160,61 @@ class OrderAction(BaseModel):
     To cancel **all** open orders::
 
         OrderAction.cancel_all()
+
+    To modify an existing order::
+
+        OrderAction.modify(order_id=123, new_price=10050)
+
+    To partially cancel (reduce quantity)::
+
+        OrderAction.partial_cancel(order_id=123, reduce_by=50)
+
+    To atomically replace an order::
+
+        OrderAction.replace(order_id=123, side=Side.BID, quantity=100, price=10050)
     """
 
+    action_type: OrderActionType = Field(
+        default=OrderActionType.PLACE,
+        description="What this action does. Default is PLACE (new order).",
+    )
     side: Side = Field(default=Side.BID, description="Order side (ignored for cancellations)")
     quantity: int = Field(default=1, ge=1, description="Number of shares (ignored for cancellations)")
     price: int | None = Field(default=None, description="Limit price in cents (required for LIMIT)")
     order_type: OrderType = Field(default=OrderType.LIMIT, description="Order type (ignored for cancellations)")
     cancel_order_id: int | None = Field(
         default=None,
-        description="If set, cancel this order instead of placing a new one. Use -1 to cancel all.",
+        description="Target order ID for CANCEL/MODIFY/PARTIAL_CANCEL/REPLACE. Use -1 to cancel all.",
+    )
+
+    # ── Step 2: Order qualifiers ─────────────────────────────────────────
+
+    is_hidden: bool = Field(
+        default=False,
+        description="Iceberg order: quantity is hidden from the book (LIMIT only)",
+    )
+    is_post_only: bool = Field(
+        default=False,
+        description="Reject if order would immediately execute (LIMIT only)",
+    )
+
+    # ── Step 3: Modification fields ──────────────────────────────────────
+
+    new_price: int | None = Field(
+        default=None,
+        description="New limit price for MODIFY/REPLACE actions (cents)",
+    )
+    new_quantity: int | None = Field(
+        default=None,
+        description="New quantity for MODIFY/REPLACE, or reduction amount for PARTIAL_CANCEL",
     )
 
     @model_validator(mode="after")
     def _validate_price_for_order_type(self) -> OrderAction:
-        # Skip price validation for cancellation actions
+        # Skip price validation for non-PLACE actions
+        if self.action_type != OrderActionType.PLACE:
+            return self
+        # Legacy: skip when cancel_order_id is set (backward compat)
         if self.cancel_order_id is not None:
             return self
         if self.order_type == OrderType.LIMIT and self.price is None:
@@ -119,17 +223,84 @@ class OrderAction(BaseModel):
             raise ValueError("price must be None for MARKET orders")
         return self
 
+    @model_validator(mode="after")
+    def _validate_hidden_post_only(self) -> OrderAction:
+        """Warn when hidden/post-only flags are used with MARKET orders."""
+        if self.action_type != OrderActionType.PLACE:
+            return self
+        if self.cancel_order_id is not None:
+            return self
+        if self.order_type == OrderType.MARKET and (self.is_hidden or self.is_post_only):
+            raise ValueError("is_hidden and is_post_only are only valid for LIMIT orders")
+        return self
+
+    @model_validator(mode="after")
+    def _infer_action_type(self) -> OrderAction:
+        """Auto-infer action_type from cancel_order_id for backward compatibility."""
+        if self.action_type == OrderActionType.PLACE and self.cancel_order_id is not None:
+            if self.cancel_order_id == CANCEL_ALL:
+                self.action_type = OrderActionType.CANCEL_ALL
+            else:
+                self.action_type = OrderActionType.CANCEL
+        return self
+
     # ── Convenience factories ────────────────────────────────────────────
 
     @classmethod
     def cancel(cls, order_id: int) -> OrderAction:
         """Create a cancellation action for the given *order_id*."""
-        return cls(cancel_order_id=order_id)
+        return cls(action_type=OrderActionType.CANCEL, cancel_order_id=order_id)
 
     @classmethod
     def cancel_all(cls) -> OrderAction:
         """Create a cancellation action that cancels **every** open order."""
-        return cls(cancel_order_id=CANCEL_ALL)
+        return cls(action_type=OrderActionType.CANCEL_ALL, cancel_order_id=CANCEL_ALL)
+
+    @classmethod
+    def modify(
+        cls,
+        order_id: int,
+        *,
+        new_price: int | None = None,
+        new_quantity: int | None = None,
+    ) -> OrderAction:
+        """Modify an existing order's price and/or quantity."""
+        if new_price is None and new_quantity is None:
+            raise ValueError("At least one of new_price or new_quantity must be specified")
+        return cls(
+            action_type=OrderActionType.MODIFY,
+            cancel_order_id=order_id,
+            new_price=new_price,
+            new_quantity=new_quantity,
+        )
+
+    @classmethod
+    def partial_cancel(cls, order_id: int, reduce_by: int) -> OrderAction:
+        """Reduce an existing order's quantity by *reduce_by* shares."""
+        return cls(
+            action_type=OrderActionType.PARTIAL_CANCEL,
+            cancel_order_id=order_id,
+            new_quantity=reduce_by,
+        )
+
+    @classmethod
+    def replace(
+        cls,
+        order_id: int,
+        *,
+        side: Side,
+        quantity: int,
+        price: int,
+    ) -> OrderAction:
+        """Atomically cancel an order and place a new one."""
+        return cls(
+            action_type=OrderActionType.REPLACE,
+            cancel_order_id=order_id,
+            side=side,
+            quantity=quantity,
+            price=price,
+            order_type=OrderType.LIMIT,
+        )
 
 
 class AgentConfig(BaseModel):
@@ -138,6 +309,14 @@ class AgentConfig(BaseModel):
     starting_cash: int = Field(description="Initial cash in cents")
     symbol: str = Field(description="Ticker symbol to trade")
     latency_ns: int = Field(description="Simulated network latency in nanoseconds")
+    mkt_open_ns: int | None = Field(
+        default=None,
+        description="Market open timestamp in nanoseconds (None until known)",
+    )
+    mkt_close_ns: int | None = Field(
+        default=None,
+        description="Market close timestamp in nanoseconds (None until known)",
+    )
 
 
 class StrategicAgent(Protocol):

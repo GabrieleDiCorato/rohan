@@ -11,10 +11,12 @@ import pytest
 from pydantic import ValidationError
 
 from rohan.simulation.models.strategy_api import (
+    CANCEL_ALL,
     AgentConfig,
     MarketState,
     Order,
     OrderAction,
+    OrderActionType,
     OrderStatus,
     OrderType,
     Side,
@@ -369,6 +371,387 @@ class TestAgentConfigValidation:
             latency_ns=0,
         )
         assert config.symbol == "CUSTOM_SYMBOL"
+
+    def test_market_hours_optional(self):
+        """mkt_open_ns and mkt_close_ns default to None."""
+        config = AgentConfig(starting_cash=10_000_000, symbol="ABM", latency_ns=0)
+        assert config.mkt_open_ns is None
+        assert config.mkt_close_ns is None
+
+    def test_market_hours_set(self):
+        """mkt_open_ns and mkt_close_ns can be set."""
+        config = AgentConfig(
+            starting_cash=10_000_000,
+            symbol="ABM",
+            latency_ns=0,
+            mkt_open_ns=34_200_000_000_000,
+            mkt_close_ns=57_600_000_000_000,
+        )
+        assert config.mkt_open_ns == 34_200_000_000_000
+        assert config.mkt_close_ns == 57_600_000_000_000
+
+
+# ---------------------------------------------------------------------------
+# Computed Fields (Step 1)
+# ---------------------------------------------------------------------------
+class TestMarketStateComputedFields:
+    """Test mid_price and spread computed fields."""
+
+    def test_mid_price_both_sides_present(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=10000,
+            best_ask=10100,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        assert state.mid_price == 10050
+
+    def test_mid_price_none_when_bid_missing(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=None,
+            best_ask=10100,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        assert state.mid_price is None
+
+    def test_mid_price_none_when_ask_missing(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=10000,
+            best_ask=None,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        assert state.mid_price is None
+
+    def test_spread_both_sides_present(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=10000,
+            best_ask=10100,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        assert state.spread == 100
+
+    def test_spread_none_when_missing_side(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=None,
+            best_ask=None,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        assert state.spread is None
+
+    def test_mid_price_integer_division(self):
+        """Mid-price uses integer division (floor)."""
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=10001,
+            best_ask=10002,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        assert state.mid_price == 10001  # (10001 + 10002) // 2
+
+    def test_computed_fields_in_serialization(self):
+        """Computed fields appear in model_dump()."""
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=10000,
+            best_ask=10100,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        data = state.model_dump()
+        assert "mid_price" in data
+        assert "spread" in data
+        assert data["mid_price"] == 10050
+        assert data["spread"] == 100
+
+
+# ---------------------------------------------------------------------------
+# Situational Awareness Fields (Step 1)
+# ---------------------------------------------------------------------------
+class TestSituationalAwareness:
+    """Test portfolio_value, unrealized_pnl, time_remaining_ns, is_market_closed."""
+
+    def test_defaults(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        assert state.portfolio_value == 0
+        assert state.unrealized_pnl == 0
+        assert state.time_remaining_ns is None
+        assert state.is_market_closed is False
+
+    def test_portfolio_value_and_pnl(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            inventory=100,
+            cash=9_000_000,
+            open_orders=[],
+            portfolio_value=10_050_000,
+            unrealized_pnl=50_000,
+        )
+        assert state.portfolio_value == 10_050_000
+        assert state.unrealized_pnl == 50_000
+
+    def test_time_remaining(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+            time_remaining_ns=3_600_000_000_000,  # 1 hour
+        )
+        assert state.time_remaining_ns == 3_600_000_000_000
+
+    def test_market_closed_flag(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+            is_market_closed=True,
+        )
+        assert state.is_market_closed is True
+
+    def test_liquidity_fields(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=10000,
+            best_ask=10100,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+            bid_liquidity=5000,
+            ask_liquidity=3000,
+        )
+        assert state.bid_liquidity == 5000
+        assert state.ask_liquidity == 3000
+
+    def test_liquidity_defaults_to_zero(self):
+        state = MarketState(
+            timestamp_ns=1_000_000_000,
+            inventory=0,
+            cash=1_000_000,
+            open_orders=[],
+        )
+        assert state.bid_liquidity == 0
+        assert state.ask_liquidity == 0
+
+
+# ---------------------------------------------------------------------------
+# OrderAction — Hidden / Post-Only (Step 2)
+# ---------------------------------------------------------------------------
+class TestOrderActionQualifiers:
+    """Test is_hidden and is_post_only qualifiers."""
+
+    def test_hidden_limit_order(self):
+        action = OrderAction(
+            side=Side.BID,
+            quantity=100,
+            price=10000,
+            order_type=OrderType.LIMIT,
+            is_hidden=True,
+        )
+        assert action.is_hidden is True
+
+    def test_post_only_limit_order(self):
+        action = OrderAction(
+            side=Side.ASK,
+            quantity=50,
+            price=10100,
+            order_type=OrderType.LIMIT,
+            is_post_only=True,
+        )
+        assert action.is_post_only is True
+
+    def test_hidden_market_order_rejected(self):
+        with pytest.raises(ValidationError, match="is_hidden and is_post_only are only valid for LIMIT"):
+            OrderAction(
+                side=Side.BID,
+                quantity=100,
+                order_type=OrderType.MARKET,
+                is_hidden=True,
+            )
+
+    def test_post_only_market_order_rejected(self):
+        with pytest.raises(ValidationError, match="is_hidden and is_post_only are only valid for LIMIT"):
+            OrderAction(
+                side=Side.BID,
+                quantity=100,
+                order_type=OrderType.MARKET,
+                is_post_only=True,
+            )
+
+    def test_defaults_are_false(self):
+        action = OrderAction(
+            side=Side.BID,
+            quantity=100,
+            price=10000,
+            order_type=OrderType.LIMIT,
+        )
+        assert action.is_hidden is False
+        assert action.is_post_only is False
+
+
+# ---------------------------------------------------------------------------
+# OrderActionType & Advanced Order Management (Step 3)
+# ---------------------------------------------------------------------------
+class TestOrderActionType:
+    """Test OrderActionType enum and action_type dispatching."""
+
+    def test_default_is_place(self):
+        action = OrderAction(
+            side=Side.BID,
+            quantity=100,
+            price=10000,
+            order_type=OrderType.LIMIT,
+        )
+        assert action.action_type == OrderActionType.PLACE
+
+    def test_cancel_factory_sets_action_type(self):
+        action = OrderAction.cancel(order_id=123)
+        assert action.action_type == OrderActionType.CANCEL
+
+    def test_cancel_all_factory_sets_action_type(self):
+        action = OrderAction.cancel_all()
+        assert action.action_type == OrderActionType.CANCEL_ALL
+
+    def test_modify_factory(self):
+        action = OrderAction.modify(order_id=42, new_price=10050)
+        assert action.action_type == OrderActionType.MODIFY
+        assert action.cancel_order_id == 42
+        assert action.new_price == 10050
+        assert action.new_quantity is None
+
+    def test_modify_factory_quantity_only(self):
+        action = OrderAction.modify(order_id=42, new_quantity=200)
+        assert action.action_type == OrderActionType.MODIFY
+        assert action.new_quantity == 200
+        assert action.new_price is None
+
+    def test_modify_factory_requires_at_least_one(self):
+        with pytest.raises(ValueError, match="At least one"):
+            OrderAction.modify(order_id=42)
+
+    def test_partial_cancel_factory(self):
+        action = OrderAction.partial_cancel(order_id=42, reduce_by=50)
+        assert action.action_type == OrderActionType.PARTIAL_CANCEL
+        assert action.cancel_order_id == 42
+        assert action.new_quantity == 50
+
+    def test_replace_factory(self):
+        action = OrderAction.replace(
+            order_id=42,
+            side=Side.ASK,
+            quantity=200,
+            price=10500,
+        )
+        assert action.action_type == OrderActionType.REPLACE
+        assert action.cancel_order_id == 42
+        assert action.side == Side.ASK
+        assert action.quantity == 200
+        assert action.price == 10500
+
+    def test_backward_compat_cancel_inferred(self):
+        """Legacy: setting cancel_order_id without action_type infers CANCEL."""
+        action = OrderAction(
+            side=Side.BID,
+            quantity=1,
+            cancel_order_id=123,
+        )
+        assert action.action_type == OrderActionType.CANCEL
+
+    def test_backward_compat_cancel_all_inferred(self):
+        """Legacy: setting cancel_order_id=-1 without action_type infers CANCEL_ALL."""
+        action = OrderAction(
+            side=Side.BID,
+            quantity=1,
+            cancel_order_id=CANCEL_ALL,
+        )
+        assert action.action_type == OrderActionType.CANCEL_ALL
+
+    def test_modify_skips_price_validation(self):
+        """MODIFY action should not require price (it's not a new order)."""
+        action = OrderAction.modify(order_id=42, new_price=10050)
+        # Should not raise even though price is None and order_type is LIMIT
+        assert action.price is None
+
+
+# ---------------------------------------------------------------------------
+# New OrderStatus Values (Step 3)
+# ---------------------------------------------------------------------------
+class TestNewOrderStatuses:
+    """Test new OrderStatus values added in Step 3."""
+
+    def test_accepted_status(self):
+        order = Order(
+            order_id=1,
+            symbol="ABM",
+            side=Side.BID,
+            quantity=100,
+            price=10000,
+            order_type=OrderType.LIMIT,
+            status=OrderStatus.ACCEPTED,
+            filled_quantity=0,
+        )
+        assert order.status == OrderStatus.ACCEPTED
+
+    def test_modified_status(self):
+        order = Order(
+            order_id=1,
+            symbol="ABM",
+            side=Side.BID,
+            quantity=100,
+            price=10000,
+            order_type=OrderType.LIMIT,
+            status=OrderStatus.MODIFIED,
+            filled_quantity=0,
+        )
+        assert order.status == OrderStatus.MODIFIED
+
+    def test_partial_cancelled_status(self):
+        order = Order(
+            order_id=1,
+            symbol="ABM",
+            side=Side.BID,
+            quantity=100,
+            price=10000,
+            order_type=OrderType.LIMIT,
+            status=OrderStatus.PARTIAL_CANCELLED,
+            filled_quantity=0,
+        )
+        assert order.status == OrderStatus.PARTIAL_CANCELLED
+
+    def test_replaced_status(self):
+        order = Order(
+            order_id=1,
+            symbol="ABM",
+            side=Side.BID,
+            quantity=100,
+            price=10000,
+            order_type=OrderType.LIMIT,
+            status=OrderStatus.REPLACED,
+            filled_quantity=0,
+        )
+        assert order.status == OrderStatus.REPLACED
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ All prices and cash values are in **integer cents**, matching ABIDES internals.
 No unit conversion is performed by this adapter.
 """
 
+import contextlib
 import logging
 
 from abides_core.utils import str_to_ns
@@ -22,6 +23,7 @@ from rohan.simulation.models.strategy_api import (
     MarketState,
     Order,
     OrderAction,
+    OrderActionType,
     OrderStatus,
     OrderType,
     Side,
@@ -100,6 +102,8 @@ class StrategicAgentAdapter(TradingAgent):
             starting_cash=self.starting_cash,
             symbol=self.symbol,
             latency_ns=0,
+            mkt_open_ns=self.mkt_open,  # None until MarketHoursMsg arrives
+            mkt_close_ns=self.mkt_close,  # None until MarketHoursMsg arrives
         )
         self.strategy.initialize(config)
         self._initialized = True
@@ -157,6 +161,11 @@ class StrategicAgentAdapter(TradingAgent):
         """Called by the kernel when the exchange accepts a new order."""
         super().order_accepted(order)
         self._cache_add(order)
+        # Notify strategy that order was accepted by the exchange
+        if self._initialized:
+            proto = self._abides_to_proto(order, status=OrderStatus.ACCEPTED)
+            actions = self.strategy.on_order_update(proto)
+            self._execute_actions(actions)
 
     def order_executed(self, order) -> None:
         """Called when an order is (partially) filled.
@@ -217,6 +226,60 @@ class StrategicAgentAdapter(TradingAgent):
         actions = self.strategy.on_order_update(proto_order)
         self._execute_actions(actions)
 
+    def order_modified(self, order) -> None:
+        """Called when an order is successfully modified by the exchange."""
+        super().order_modified(order)
+        # Update cache with new order state
+        self._open_orders_cache[order.order_id] = self._abides_to_proto(
+            order,
+            status=OrderStatus.NEW,
+            filled_quantity=self._filled_quantities.get(order.order_id, 0),
+        )
+        proto = self._abides_to_proto(
+            order,
+            status=OrderStatus.MODIFIED,
+            filled_quantity=self._filled_quantities.get(order.order_id, 0),
+        )
+        actions = self.strategy.on_order_update(proto)
+        self._execute_actions(actions)
+
+    def order_partial_cancelled(self, order) -> None:
+        """Called when an order's quantity is partially reduced."""
+        super().order_partial_cancelled(order)
+        self._open_orders_cache[order.order_id] = self._abides_to_proto(
+            order,
+            status=OrderStatus.NEW,
+            filled_quantity=self._filled_quantities.get(order.order_id, 0),
+        )
+        proto = self._abides_to_proto(
+            order,
+            status=OrderStatus.PARTIAL_CANCELLED,
+            filled_quantity=self._filled_quantities.get(order.order_id, 0),
+        )
+        actions = self.strategy.on_order_update(proto)
+        self._execute_actions(actions)
+
+    def order_replaced(self, old_order, new_order) -> None:
+        """Called when an order is atomically replaced."""
+        super().order_replaced(old_order, new_order)
+        # Remove old from cache, add new
+        self._open_orders_cache.pop(old_order.order_id, None)
+        self._filled_quantities.pop(old_order.order_id, None)
+        self._cache_add(new_order)
+        # Notify strategy about old order being replaced
+        proto = self._abides_to_proto(old_order, status=OrderStatus.REPLACED)
+        actions = self.strategy.on_order_update(proto)
+        self._execute_actions(actions)
+
+    def market_closed(self) -> None:
+        """Called when the exchange signals market closure."""
+        super().market_closed()
+        if self._initialized:
+            state = self._build_market_state(self.current_time)
+            state = state.model_copy(update={"is_market_closed": True})
+            actions = self.strategy.on_tick(state)
+            self._execute_actions(actions)
+
     # ── Internal helpers ──────────────────────────────────────────────────
 
     def _handle_market_data(self, current_time: int) -> None:
@@ -256,6 +319,21 @@ class StrategicAgentAdapter(TradingAgent):
             if lt is not None:
                 last_trade_price = int(lt) if not isinstance(lt, int) else lt
 
+        # Portfolio valuation (Step 1)
+        portfolio_value = self.mark_to_market(self.holdings)
+        unrealized_pnl = portfolio_value - self.starting_cash
+
+        # Time remaining (Step 1)
+        time_remaining: int | None = None
+        if self.mkt_close is not None:
+            time_remaining = max(0, self.mkt_close - current_time)
+
+        # Near-touch liquidity (Step 2)
+        bid_liq, ask_liq = 0, 0
+        if self.symbol in self.known_bids:
+            with contextlib.suppress(KeyError, ZeroDivisionError):
+                bid_liq, ask_liq = self.get_known_liquidity(self.symbol, within=0.005)
+
         return MarketState(
             timestamp_ns=current_time,
             best_bid=bid,
@@ -266,21 +344,29 @@ class StrategicAgentAdapter(TradingAgent):
             inventory=self.holdings.get(self.symbol, 0),
             cash=self.holdings.get("CASH", 0),
             open_orders=list(self._open_orders_cache.values()),
+            portfolio_value=portfolio_value,
+            unrealized_pnl=unrealized_pnl,
+            time_remaining_ns=time_remaining,
+            bid_liquidity=bid_liq,
+            ask_liquidity=ask_liq,
         )
 
     def _execute_actions(self, actions: list[OrderAction]) -> None:
-        """Execute a list of OrderActions by placing / cancelling orders."""
+        """Execute a list of OrderActions by dispatching on action_type."""
         for action in actions:
-            if action.cancel_order_id is not None:
-                self._handle_cancel(action.cancel_order_id)
-            elif action.order_type == OrderType.MARKET:
-                side = AbidesSide.BID if action.side == Side.BID else AbidesSide.ASK
-                self.place_market_order(self.symbol, action.quantity, side)
-            else:
-                if action.price is None:
-                    continue
-                side = AbidesSide.BID if action.side == Side.BID else AbidesSide.ASK
-                self.place_limit_order(self.symbol, action.quantity, side, action.price)
+            match action.action_type:
+                case OrderActionType.CANCEL:
+                    self._handle_cancel(action.cancel_order_id)  # type: ignore[arg-type]
+                case OrderActionType.CANCEL_ALL:
+                    self._handle_cancel(CANCEL_ALL)
+                case OrderActionType.MODIFY:
+                    self._handle_modify(action)
+                case OrderActionType.PARTIAL_CANCEL:
+                    self._handle_partial_cancel(action)
+                case OrderActionType.REPLACE:
+                    self._handle_replace(action)
+                case OrderActionType.PLACE:
+                    self._handle_place(action)
 
     def _handle_cancel(self, cancel_id: int) -> None:
         """Cancel a single order or all open orders (when *cancel_id* == CANCEL_ALL)."""
@@ -293,6 +379,57 @@ class StrategicAgentAdapter(TradingAgent):
             order_to_cancel = self.orders.get(cancel_id)
             if order_to_cancel is not None and isinstance(order_to_cancel, LimitOrder):
                 self.cancel_order(order_to_cancel)
+
+    def _handle_place(self, action: OrderAction) -> None:
+        """Place a new LIMIT or MARKET order."""
+        side = AbidesSide.BID if action.side == Side.BID else AbidesSide.ASK
+        if action.order_type == OrderType.MARKET:
+            self.place_market_order(self.symbol, action.quantity, side)
+        elif action.price is not None:
+            self.place_limit_order(
+                self.symbol,
+                action.quantity,
+                side,
+                action.price,
+                is_hidden=action.is_hidden,
+                is_post_only=action.is_post_only,
+            )
+
+    def _handle_modify(self, action: OrderAction) -> None:
+        """Modify an existing order's price and/or quantity."""
+        old = self.orders.get(action.cancel_order_id)  # type: ignore[arg-type]
+        if old is None or not isinstance(old, LimitOrder):
+            return
+        new_order = self.create_limit_order(
+            self.symbol,
+            quantity=action.new_quantity or old.quantity,
+            side=old.side,
+            limit_price=action.new_price or old.limit_price,
+        )
+        self.modify_order(old, new_order)
+
+    def _handle_partial_cancel(self, action: OrderAction) -> None:
+        """Reduce an existing order's quantity."""
+        order = self.orders.get(action.cancel_order_id)  # type: ignore[arg-type]
+        if order is None or not isinstance(order, LimitOrder):
+            return
+        if action.new_quantity is None or action.new_quantity <= 0:
+            return
+        self.partial_cancel_order(order, action.new_quantity)
+
+    def _handle_replace(self, action: OrderAction) -> None:
+        """Atomically cancel an order and place a new one."""
+        old = self.orders.get(action.cancel_order_id)  # type: ignore[arg-type]
+        if old is None or not isinstance(old, LimitOrder):
+            return
+        side = AbidesSide.BID if action.side == Side.BID else AbidesSide.ASK
+        new_order = self.create_limit_order(
+            self.symbol,
+            quantity=action.quantity,
+            side=side,
+            limit_price=action.price,  # type: ignore[arg-type]
+        )
+        self.replace_order(old, new_order)
 
     # ── Conversion helpers ────────────────────────────────────────────────
 

@@ -39,11 +39,27 @@ Defined in `src/rohan/simulation/models/strategy_api.py`. This is the **ONLY** i
 *   **Timestamps:** `int`, nanoseconds since epoch.
 
 It defines:
-*   `MarketState`: The agent's view of the market (prices, inventory, orders). All monetary fields are `int` cents.
-*   `OrderAction`: The actions the agent can take. Includes a `@model_validator` enforcing:
+
+*   `MarketState`: The agent's view of the market (prices, inventory, orders, situational awareness). Key fields:
+    *   L1/L2: `best_bid`, `best_ask`, `bid_depth`, `ask_depth`, `last_trade`
+    *   Portfolio: `inventory`, `cash`, `portfolio_value` (mark-to-market), `unrealized_pnl`
+    *   Liquidity: `bid_liquidity`, `ask_liquidity` (near-touch volume within 0.5%)
+    *   Time: `timestamp_ns`, `time_remaining_ns` (until market close), `is_market_closed`
+    *   Orders: `open_orders` (list of `Order`)
+    *   Computed: `mid_price`, `spread` (derived from L1 via `@computed_field`)
+
+*   `OrderAction`: The actions the agent can take. Discriminated by `action_type` (`OrderActionType` enum: `PLACE`, `CANCEL`, `CANCEL_ALL`, `MODIFY`, `PARTIAL_CANCEL`, `REPLACE`). Includes `@model_validator`s enforcing:
     *   `LIMIT` orders **must** specify a `price`.
     *   `MARKET` orders **must not** specify a `price`.
-*   `StrategicAgent` Protocol: The interface (`initialize`, `on_market_data`, `on_order_update`) that generated strategies must implement.
+    *   `is_hidden` and `is_post_only` are only valid for `LIMIT` orders.
+    *   Auto-infers `action_type` from `cancel_order_id` for backward compatibility.
+    *   Convenience factories: `OrderAction.cancel()`, `cancel_all()`, `modify()`, `partial_cancel()`, `replace()`.
+
+*   `OrderStatus` enum: `ACCEPTED`, `NEW`, `PARTIAL`, `FILLED`, `CANCELLED`, `REJECTED`, `MODIFIED`, `PARTIAL_CANCELLED`, `REPLACED`.
+
+*   `AgentConfig`: Configuration passed at simulation start. Fields: `starting_cash`, `symbol`, `latency_ns`, `mkt_open_ns` (optional), `mkt_close_ns` (optional).
+
+*   `StrategicAgent` Protocol: The interface (`initialize`, `on_tick`, `on_market_data`, `on_order_update`, `on_simulation_end`) that generated strategies must implement.
 
 ### 3.2 Data Exchange Objects (DXOs)
 To balance type safety within the Agent Logic and performance for Simulation Data, we use a tiered approach:
@@ -117,7 +133,7 @@ Defined in `src/rohan/framework/database/models.py`.
 
 ### 5.2 Minimal Vertical Prototype
 *   **StrategicAgent API Redesign:** Defined in `src/rohan/simulation/models/strategy_api.py`. Mapped to ABIDES internals.
-*   **ABIDES Adapter & Injection:** Implemented in `src/rohan/simulation/abides_impl/strategic_agent_adapter.py`. Allows dynamic injection of strategies.
+*   **ABIDES Adapter & Injection:** Implemented in `src/rohan/simulation/abides_impl/strategic_agent_adapter.py`. Wraps a `StrategicAgent` inside an ABIDES `TradingAgent`. Translates ABIDES events to protocol callbacks, builds `MarketState` snapshots (including portfolio valuation, liquidity, time remaining), dispatches `OrderAction`s via `match` on `OrderActionType` (with handlers for place, modify, partial-cancel, replace), and forwards order lifecycle events (`order_accepted`, `order_modified`, `order_partial_cancelled`, `order_replaced`, `market_closed`) to the strategy.
 *   **Sandboxed Execution:** Implemented in `src/rohan/simulation/strategy_validator.py`. AST validation and restricted environment execution.
 *   **Agent-Specific KPIs:** Implemented in `src/rohan/simulation/models/simulation_metrics.py`.
 *   **Structured Summary for LLM:** `RunSummary` model and `generate_summary` in `analysis_service.py`. Prompt templates in `src/rohan/framework/prompts.py`.
