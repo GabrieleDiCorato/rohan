@@ -78,6 +78,41 @@ class MyStrategy:
 - When ``state.is_market_closed`` is True, do NOT place orders.
 - Use ``state.bid_liquidity`` / ``state.ask_liquidity`` to gauge depth.
 
+## Example Pattern
+```python
+def on_market_data(self, state: MarketState) -> list[OrderAction]:
+    actions: list[OrderAction] = []
+    if state.is_market_closed:
+        return actions
+    if state.open_orders:
+        actions.append(OrderAction.cancel_all())
+    if state.mid_price is None:
+        return actions
+
+    # Inventory-skewed quoting: shift fair value against position
+    skew = int(0.5 * state.inventory)
+    fair = state.mid_price - skew
+    half = max(1, state.spread // 2)
+
+    # Widen when liquidity is thin
+    if state.bid_liquidity < 50:
+        half += 1
+
+    # Time-aware: flatten near close instead of quoting
+    if state.time_remaining_ns is not None and state.time_remaining_ns < 60_000_000_000:
+        if state.inventory > 0 and state.best_bid is not None:
+            actions.append(OrderAction(side=Side.ASK, order_type=OrderType.LIMIT,
+                                       quantity=state.inventory, price=state.best_bid))
+        return actions
+
+    # Post-only to guarantee maker fills
+    actions.append(OrderAction(side=Side.BID, order_type=OrderType.LIMIT,
+                               quantity=1, price=fair - half, is_post_only=True))
+    actions.append(OrderAction(side=Side.ASK, order_type=OrderType.LIMIT,
+                               quantity=1, price=fair + half, is_post_only=True))
+    return actions
+```
+
 ## Allowed imports
 Only: math, random, statistics, numpy, pandas, datetime, typing,
 rohan.simulation.models.strategy_api, rohan.config

@@ -61,17 +61,60 @@ _refinement_repo = RefinementRepository()
 
 EXAMPLE_GOALS: dict[str, str] = {
     "📊 Market Making": (
-        "Create a market-making strategy that captures the bid-ask spread "
-        "while keeping inventory risk low and maintaining a near-neutral "
-        "position. Cancel stale quotes every tick and skew pricing based "
-        "on current inventory."
+        "Create an adaptive market-making strategy that captures the bid-ask spread "
+        "while keeping inventory risk low. Use state.mid_price for fair-value "
+        "quoting and state.spread to set competitive quote widths. Skew quotes "
+        "against inventory (Avellaneda-Stoikov: shift mid by −κ×inventory). "
+        "Widen quotes when state.bid_liquidity or state.ask_liquidity is thin. "
+        "Use is_post_only=True on all limit orders to guarantee maker fills. "
+        "Cancel stale quotes with OrderAction.cancel_all() each tick. "
+        "Monitor state.unrealized_pnl and stop quoting if drawdown exceeds a threshold. "
+        "In the last 60 seconds (state.time_remaining_ns < 60e9), aggressively "
+        "flatten inventory by crossing the spread. Never place orders when "
+        "state.is_market_closed is True. Log final PnL via state.unrealized_pnl "
+        "and state.portfolio_value in on_simulation_end."
     ),
-    "📈 Momentum": ("Design a momentum-following strategy that detects short-term price trends using recent trade data and places directional limit orders slightly ahead of the move."),
+    "📈 Momentum": (
+        "Design a momentum-following strategy that detects short-term price trends "
+        "from recent state.last_trade values and places directional limit orders "
+        "slightly ahead of the move. Use state.mid_price as a baseline and "
+        "state.spread to avoid crossing the spread unnecessarily. Confirm trend "
+        "strength with state.bid_liquidity vs state.ask_liquidity imbalance — "
+        "heavy ask-side liquidity with rising prices suggests strong momentum. "
+        "Size positions proportionally to conviction. Use OrderAction.modify() "
+        "to chase price on existing orders instead of cancel-replace. "
+        "Enforce a maximum position using state.inventory. Monitor "
+        "state.unrealized_pnl for a trailing stop: if PnL drops more than 50%% "
+        "from peak, cancel all orders and stop trading. Flatten positions in the "
+        "last 60 seconds via state.time_remaining_ns. Track fills via "
+        "on_order_update and update.fill_price to compute entry versus exit PnL."
+    ),
     "🔄 Mean Reversion": (
-        "Build a mean-reversion strategy that identifies when the price deviates significantly from its recent moving average and places contrarian limit orders to profit from the reversion."
+        "Build a mean-reversion strategy that identifies when state.mid_price "
+        "deviates significantly from its recent moving average and places "
+        "contrarian limit orders to profit from the reversion. Use bid_depth "
+        "and ask_depth to measure order book imbalance and confirm reversion "
+        "signals. Set is_post_only=True on all limit orders to avoid crossing "
+        "the spread. Use state.spread to set limit prices just inside the book. "
+        "When an order fills, use OrderAction.replace() to atomically place a "
+        "take-profit order at the mean. Risk-manage with state.unrealized_pnl: "
+        "cut positions if drawdown exceeds a threshold. Reduce position size "
+        "as state.time_remaining_ns decreases to avoid holding into the close. "
+        "Track state.portfolio_value in on_simulation_end to evaluate performance."
     ),
     "⚡ Aggressive PnL": (
-        "Create an aggressive strategy that maximises PnL by detecting order-flow imbalance from the bid/ask volume ratio and taking directional positions ahead of anticipated price moves."
+        "Create an aggressive strategy that maximises PnL by detecting order-flow "
+        "imbalance from state.bid_liquidity vs state.ask_liquidity and bid_depth "
+        "vs ask_depth ratios, then taking directional positions ahead of anticipated "
+        "price moves. Use state.mid_price as a reference and state.spread to set "
+        "limits efficiently. Manage open orders with OrderAction.modify() to "
+        "adjust prices when signals change, avoiding the latency of cancel-replace. "
+        "Use OrderAction.partial_cancel() to reduce oversized positions without "
+        "full cancellation. Track state.unrealized_pnl each tick and lock in "
+        "profits when PnL exceeds a target — cancel all with OrderAction.cancel_all() "
+        "and stop trading. Guard against state.is_market_closed. Flatten all "
+        "positions in the last 30 seconds using state.time_remaining_ns. "
+        "Report final state.portfolio_value and state.inventory in on_simulation_end."
     ),
 }
 

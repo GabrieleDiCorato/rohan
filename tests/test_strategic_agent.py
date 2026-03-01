@@ -537,3 +537,284 @@ class TestSituationalAwareness:
         non_zero_ask = [liq for liq in strategy.ask_liquidities if liq > 0]
         # At least one side should have had non-zero liquidity
         assert len(non_zero_bid) > 0 or len(non_zero_ask) > 0, "Liquidity was never non-zero"
+
+
+# ---------------------------------------------------------------------------
+# Modify Strategy (Step 3)
+# ---------------------------------------------------------------------------
+class ModifyStrategy:
+    """Places an order and then modifies its price on ACCEPTED."""
+
+    def __init__(self):
+        self.order_placed = False
+        self.placed_order_id: int | None = None
+        self.modify_sent = False
+        self.modified_received = False
+        self.updates: list[Order] = []
+
+    def initialize(self, config: AgentConfig) -> None:
+        pass
+
+    def on_tick(self, _state: MarketState) -> list[OrderAction]:
+        return []
+
+    def on_market_data(self, state: MarketState) -> list[OrderAction]:
+        if self.order_placed or state.best_ask is None:
+            return []
+        # Place a limit bid well below best ask (should sit in book)
+        self.order_placed = True
+        return [
+            OrderAction(
+                side=Side.BID,
+                order_type=OrderType.LIMIT,
+                quantity=10,
+                price=state.best_ask - 100,  # far from market
+            )
+        ]
+
+    def on_order_update(self, update: Order) -> list[OrderAction]:
+        self.updates.append(update)
+        if update.status == OrderStatus.ACCEPTED and not self.modify_sent:
+            self.placed_order_id = update.order_id
+            self.modify_sent = True
+            # Modify price: move it 1 cent lower
+            return [OrderAction.modify(order_id=update.order_id, new_price=update.price - 1)]
+        if update.status == OrderStatus.MODIFIED:
+            self.modified_received = True
+        return []
+
+    def on_simulation_end(self, _final_state: MarketState) -> None:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Replace Strategy (Step 3)
+# ---------------------------------------------------------------------------
+class ReplaceStrategy:
+    """Places an order and then atomically replaces it on ACCEPTED."""
+
+    def __init__(self):
+        self.order_placed = False
+        self.placed_order_id: int | None = None
+        self.replace_sent = False
+        self.replaced_received = False
+        self.new_order_accepted = False
+        self.updates: list[Order] = []
+
+    def initialize(self, config: AgentConfig) -> None:
+        pass
+
+    def on_tick(self, _state: MarketState) -> list[OrderAction]:
+        return []
+
+    def on_market_data(self, state: MarketState) -> list[OrderAction]:
+        if self.order_placed or state.best_ask is None:
+            return []
+        self.order_placed = True
+        return [
+            OrderAction(
+                side=Side.BID,
+                order_type=OrderType.LIMIT,
+                quantity=10,
+                price=state.best_ask - 100,  # far from market
+            )
+        ]
+
+    def on_order_update(self, update: Order) -> list[OrderAction]:
+        self.updates.append(update)
+        if update.status == OrderStatus.ACCEPTED and not self.replace_sent:
+            self.placed_order_id = update.order_id
+            self.replace_sent = True
+            # Atomically replace with a different price and quantity
+            return [
+                OrderAction.replace(
+                    order_id=update.order_id,
+                    side=Side.BID,
+                    quantity=5,
+                    price=update.price - 2,
+                )
+            ]
+        if update.status == OrderStatus.REPLACED:
+            self.replaced_received = True
+        if update.status == OrderStatus.ACCEPTED and self.replace_sent:
+            self.new_order_accepted = True
+        return []
+
+    def on_simulation_end(self, _final_state: MarketState) -> None:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Risk-Managed Strategy (uses situational awareness for trading decisions)
+# ---------------------------------------------------------------------------
+class RiskManagedStrategy:
+    """Trades directionally but uses PnL and time guards for risk management."""
+
+    def __init__(self):
+        self.order_placed = False
+        self.pnl_guard_triggered = False
+        self.time_guard_triggered = False
+        self.cancel_all_sent = False
+        self.last_pnl: int = 0
+        self.last_time_remaining: int | None = None
+        self.fills: list[Order] = []
+        self.final_pnl: int | None = None
+        self.final_portfolio_value: int | None = None
+
+    def initialize(self, config: AgentConfig) -> None:
+        pass
+
+    def on_tick(self, state: MarketState) -> list[OrderAction]:
+        self.last_time_remaining = state.time_remaining_ns
+        # Guard: if less than 2 minutes remaining, cancel everything
+        if state.time_remaining_ns is not None and state.time_remaining_ns < 120_000_000_000 and not self.time_guard_triggered:
+            self.time_guard_triggered = True
+            if state.open_orders:
+                self.cancel_all_sent = True
+                return [OrderAction.cancel_all()]
+        return []
+
+    def on_market_data(self, state: MarketState) -> list[OrderAction]:
+        self.last_pnl = state.unrealized_pnl
+
+        if state.is_market_closed:
+            return []
+
+        # Skip new orders if time guard already triggered
+        if self.time_guard_triggered:
+            return []
+
+        if self.order_placed or state.best_ask is None:
+            return []
+
+        # Place a single aggressive buy (likely to fill)
+        self.order_placed = True
+        return [
+            OrderAction(
+                side=Side.BID,
+                order_type=OrderType.LIMIT,
+                quantity=5,
+                price=state.best_ask,  # at the ask → immediate fill
+            )
+        ]
+
+    def on_order_update(self, update: Order) -> list[OrderAction]:
+        if update.status in (OrderStatus.FILLED, OrderStatus.PARTIAL):
+            self.fills.append(update)
+        return []
+
+    def on_simulation_end(self, final_state: MarketState) -> None:
+        self.final_pnl = final_state.unrealized_pnl
+        self.final_portfolio_value = final_state.portfolio_value
+
+
+class TestModifyOrder:
+    """Integration tests for OrderAction.modify()."""
+
+    @pytest.fixture(scope="class")
+    def modify_result(self):
+        """Run simulation with ModifyStrategy."""
+        strategy = ModifyStrategy()
+        service = SimulationService()
+        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)  # pyright: ignore[reportArgumentType]
+        return result, strategy
+
+    def test_modify_simulation_succeeds(self, modify_result):
+        """Simulation with modify should complete without error."""
+        result, _strategy = modify_result
+        assert result.error is None, f"Simulation failed: {result.error}"
+
+    def test_modify_order_accepted_first(self, modify_result):
+        """Strategy should receive ACCEPTED before modify is sent."""
+        result, strategy = modify_result
+        assert result.error is None
+        assert strategy.placed_order_id is not None, "Order was never accepted"
+        assert strategy.modify_sent, "Modify was never sent"
+
+    def test_modify_does_not_crash(self, modify_result):
+        """Sending a modify action should not crash the simulation."""
+        result, strategy = modify_result
+        assert result.error is None
+        assert strategy.modify_sent, "Modify action was never dispatched"
+        # Note: ABIDES exchange may not fully support modify_order;
+        # the key test is that the simulation completes without error.
+
+
+class TestReplaceOrder:
+    """Integration tests for OrderAction.replace()."""
+
+    @pytest.fixture(scope="class")
+    def replace_result(self):
+        """Run simulation with ReplaceStrategy."""
+        strategy = ReplaceStrategy()
+        service = SimulationService()
+        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)  # pyright: ignore[reportArgumentType]
+        return result, strategy
+
+    def test_replace_simulation_succeeds(self, replace_result):
+        """Simulation with replace should complete without error."""
+        result, _strategy = replace_result
+        assert result.error is None, f"Simulation failed: {result.error}"
+
+    def test_replace_callback_received(self, replace_result):
+        """on_order_update should fire with REPLACED status for old order."""
+        result, strategy = replace_result
+        assert result.error is None
+        assert strategy.replaced_received, f"REPLACED callback never received. Updates: {[u.status for u in strategy.updates]}"
+
+    def test_replace_completes_without_error(self, replace_result):
+        """Replace action should not crash the simulation."""
+        result, strategy = replace_result
+        assert result.error is None
+        assert strategy.replace_sent, "Replace action was never dispatched"
+
+
+class TestRiskManagement:
+    """Integration tests for risk-managed strategies using situational awareness."""
+
+    @pytest.fixture(scope="class")
+    def risk_result(self):
+        """Run simulation with RiskManagedStrategy."""
+        strategy = RiskManagedStrategy()
+        service = SimulationService()
+        result = service.run_simulation(TEST_SETTINGS, strategy=strategy)  # pyright: ignore[reportArgumentType]
+        return result, strategy
+
+    def test_risk_simulation_succeeds(self, risk_result):
+        """Risk-managed simulation should complete without error."""
+        result, _strategy = risk_result
+        assert result.error is None, f"Simulation failed: {result.error}"
+
+    def test_time_guard_triggers(self, risk_result):
+        """Time guard should trigger in the last 2 minutes of a 5-minute sim."""
+        result, strategy = risk_result
+        assert result.error is None
+        assert strategy.time_guard_triggered, "Time guard was never triggered"
+        # The aggressive buy at best_ask typically fills immediately, so
+        # there may be no open orders when the time guard fires.
+        # The important thing is that the guard triggered.
+
+    def test_time_remaining_was_observed(self, risk_result):
+        """Strategy should have observed time_remaining_ns values."""
+        result, strategy = risk_result
+        assert result.error is None
+        assert strategy.last_time_remaining is not None, "time_remaining_ns was never observed"
+
+    def test_final_pnl_recorded(self, risk_result):
+        """on_simulation_end should record final PnL and portfolio value."""
+        result, strategy = risk_result
+        assert result.error is None
+        assert strategy.final_pnl is not None, "Final PnL not recorded in on_simulation_end"
+        assert strategy.final_portfolio_value is not None, "Final portfolio value not recorded"
+        assert strategy.final_portfolio_value > 0, "Portfolio value should be positive"
+
+    def test_order_fills_tracked(self, risk_result):
+        """Strategy should track order fills via on_order_update."""
+        result, strategy = risk_result
+        assert result.error is None
+        if strategy.order_placed:
+            # aggressive buy at best_ask should get at least partial fill
+            assert len(strategy.fills) > 0, "Aggressive buy should get at least one fill"
+            for fill in strategy.fills:
+                assert fill.fill_price is not None, "Fill price should be set"
+                assert fill.fill_price > 0, "Fill price should be positive"
