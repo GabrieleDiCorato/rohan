@@ -168,6 +168,60 @@ class StrategyValidator:
 
         return strategy_class
 
+    def smoke_test(self, strategy_class: type) -> None:
+        """Instantiate the strategy and call its core methods with mock data.
+
+        This catches runtime errors (NameError, TypeError, AttributeError)
+        that static AST validation and ``hasattr`` checks miss.  It runs
+        in milliseconds, far cheaper than a full ABIDES simulation.
+
+        Raises
+        ------
+        StrategyExecutionError
+            If ``__init__``, ``initialize``, ``on_tick``, or
+            ``on_market_data`` raise any exception.
+        """
+        from rohan.simulation.models.strategy_api import (
+            AgentConfig,
+            MarketState,
+        )
+
+        # 1. Instantiate
+        try:
+            instance = strategy_class()
+        except Exception as e:
+            raise StrategyExecutionError(f"Strategy __init__ failed: {e}") from e
+
+        # 2. Call initialize() with a minimal config
+        mock_config = AgentConfig(
+            starting_cash=10_000_000,  # $100k in cents
+            symbol="TEST",
+            latency_ns=1_000_000,  # 1ms
+        )
+        try:
+            instance.initialize(mock_config)
+        except Exception as e:
+            raise StrategyExecutionError(f"Strategy initialize() failed: {e}") from e
+
+        # 3. Dry-run on_market_data and on_tick with a bare-minimum state
+        mock_state = MarketState(
+            timestamp_ns=1_000_000_000,
+            best_bid=10000,  # $100.00
+            best_ask=10010,  # $100.10
+            inventory=0,
+            cash=10_000_000,
+            open_orders=[],
+        )
+        try:
+            instance.on_market_data(mock_state)
+        except Exception as e:
+            raise StrategyExecutionError(f"Strategy on_market_data() failed on smoke test: {e}") from e
+
+        try:
+            instance.on_tick(mock_state)
+        except Exception as e:
+            raise StrategyExecutionError(f"Strategy on_tick() failed on smoke test: {e}") from e
+
 
 def _run_simulation_in_thread(
     strategy_code: str,

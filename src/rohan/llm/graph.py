@@ -19,7 +19,11 @@ Usage::
 
 from __future__ import annotations
 
+import functools
 import logging
+import os
+import time
+from collections.abc import Callable
 from typing import Any, Literal
 
 from langgraph.graph import END, StateGraph
@@ -37,6 +41,45 @@ logger = logging.getLogger(__name__)
 
 # Maximum validation retries before giving up
 MAX_VALIDATION_RETRIES = 3
+
+# Maximum graph steps before LangGraph raises a recursion error.
+# writer→validator→executor→explainer→aggregator = 5 steps per iteration,
+# plus potential validation retries.
+_DEFAULT_RECURSION_LIMIT = 50
+
+# ── Suppress LangSmith tracing unless explicitly enabled ──────────────────
+# LangSmith tracing can block the main thread with synchronous HTTP calls
+# when transmitting large state payloads.  Disable by default to prevent
+# hidden network hangs during the refinement loop.
+if "LANGCHAIN_TRACING_V2" not in os.environ:
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
+
+# ── Node instrumentation ─────────────────────────────────────────────────
+
+
+def _timed_node(name: str, fn: Callable) -> Callable:
+    """Wrap a LangGraph node function with entry/exit logging and timing.
+
+    This makes every state transition visible in logs, which is critical
+    for diagnosing hangs between nodes.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(state: RefinementState) -> dict:
+        logger.info("[graph] >>> entering node %r", name)
+        t0 = time.monotonic()
+        try:
+            result = fn(state)
+            elapsed = time.monotonic() - t0
+            logger.info("[graph] <<< leaving  node %r  (%.2fs)", name, elapsed)
+            return result
+        except Exception:
+            elapsed = time.monotonic() - t0
+            logger.exception("[graph] !!! node %r raised after %.2fs", name, elapsed)
+            raise
+
+    return wrapper
 
 
 # ── Routing functions ─────────────────────────────────────────────────────
@@ -76,12 +119,12 @@ def build_refinement_graph() -> Any:
     """
     graph = StateGraph(RefinementState)  # type: ignore[invalid-argument-type]
 
-    # ── Nodes ──
-    graph.add_node("writer", writer_node)
-    graph.add_node("validator", validator_node)
-    graph.add_node("executor", scenario_executor_node)
-    graph.add_node("explainer", explainer_node)
-    graph.add_node("aggregator", aggregator_node)
+    # ── Nodes (wrapped with timing instrumentation) ──
+    graph.add_node("writer", _timed_node("writer", writer_node))
+    graph.add_node("validator", _timed_node("validator", validator_node))
+    graph.add_node("executor", _timed_node("executor", scenario_executor_node))
+    graph.add_node("explainer", _timed_node("explainer", explainer_node))
+    graph.add_node("aggregator", _timed_node("aggregator", aggregator_node))
 
     # ── Edges ──
     graph.add_edge("writer", "validator")
@@ -111,7 +154,10 @@ def build_refinement_graph() -> Any:
     # ── Entry point ──
     graph.set_entry_point("writer")
 
-    return graph.compile()
+    return graph.compile(
+        # Prevent infinite loops: 5 nodes/iter × max_iters + retries
+        checkpointer=None,  # no checkpoint persistence (avoids SQLite locks)
+    )
 
 
 # ── Convenience runner ────────────────────────────────────────────────────
@@ -164,7 +210,10 @@ def run_refinement(
     graph = build_refinement_graph()
     logger.info("Starting refinement loop: goal=%r, max_iterations=%d", goal, max_iterations)
 
-    final_state = graph.invoke(initial_state)
+    config = {
+        "recursion_limit": _DEFAULT_RECURSION_LIMIT,
+    }
+    final_state = graph.invoke(initial_state, config=config)
 
     # Log summary
     iterations = final_state.get("iterations", [])

@@ -35,9 +35,12 @@ from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.theme import COLORS, apply_theme
 from rohan.utils.formatting import fmt_dollar
 
-# Ensure DB tables exist
-with contextlib.suppress(Exception):  # DB may not be configured; features degrade gracefully
-    initialize_database()
+# Ensure DB tables exist (once per session — avoids noisy re-creation
+# logs on every Streamlit rerun).
+if not st.session_state.get("_db_initialised"):
+    with contextlib.suppress(Exception):  # DB may not be configured; features degrade gracefully
+        initialize_database()
+    st.session_state["_db_initialised"] = True
 
 _scenario_repo = ScenarioRepository()
 
@@ -145,13 +148,13 @@ def compact_input(label, widget_type, key, **kwargs):
         st.markdown(f"**{label}:**")
     with col2:
         if widget_type == "text":
-            return st.text_input("", key=actual_key, label_visibility="collapsed", **kwargs)
+            return st.text_input(label, key=actual_key, label_visibility="collapsed", **kwargs)
         if widget_type == "number":
-            return st.number_input("", key=actual_key, label_visibility="collapsed", **kwargs)
+            return st.number_input(label, key=actual_key, label_visibility="collapsed", **kwargs)
         if widget_type == "selectbox":
-            return st.selectbox("", key=actual_key, label_visibility="collapsed", **kwargs)
+            return st.selectbox(label, key=actual_key, label_visibility="collapsed", **kwargs)
         if widget_type == "checkbox":
-            return st.checkbox("", key=actual_key, label_visibility="collapsed", **kwargs)
+            return st.checkbox(label, key=actual_key, label_visibility="collapsed", **kwargs)
         raise ValueError(f"Unknown widget type: {widget_type}")
 
 
@@ -189,7 +192,7 @@ def render_sidebar_config():
         key="preset_selector",
     )
 
-    if st.button("Load Preset", type="primary", use_container_width=True) and preset_name != "Custom":
+    if st.button("Load Preset", type="primary", width="stretch") and preset_name != "Custom":
         new_config = get_preset_config(preset_name)
         st.session_state.draft_config = new_config.model_copy(deep=True)
         _clear_config_widget_keys()
@@ -237,7 +240,7 @@ def render_sidebar_config():
                 st.caption(" · ".join(_detail_parts))
                 st.caption(f"👥 Noise: {_noise_n} · Value: {_value_n} · MM: {_mm_n} · Momentum: {_mom_n}   | Created: {_sc.created_at:%Y-%m-%d %H:%M}")
             with _sc_col2:
-                if st.button("Load", key=f"load_sc_{_sc.scenario_id}", use_container_width=True, type="primary"):
+                if st.button("Load", key=f"load_sc_{_sc.scenario_id}", width="stretch", type="primary"):
                     from rohan.config import SimulationSettings as _SimSettings
 
                     st.session_state.draft_config = _SimSettings.model_validate(_sc.full_config)
@@ -246,12 +249,12 @@ def render_sidebar_config():
                     st.toast(f"✅ Loaded into draft: {_sc.name}")
                     st.rerun()
             with _sc_col3:
-                if st.button("🗑️", key=f"del_sc_{_sc.scenario_id}", use_container_width=True, help=f"Delete '{_sc.name}'"):
+                if st.button("🗑️", key=f"del_sc_{_sc.scenario_id}", width="stretch", help=f"Delete '{_sc.name}'"):
                     _scenario_repo.delete_scenario(_sc.scenario_id)
                     st.rerun()
             st.divider()
 
-    if st.button("Load Configuration", use_container_width=True):
+    if st.button("Load Configuration", width="stretch"):
         load_scenario_dialog()
 
     st.markdown("---")
@@ -580,7 +583,7 @@ def render_sidebar_config():
     st.markdown("---")
 
     # Save configuration button
-    if st.button("🚀 Apply Configuration", type="primary", use_container_width=True):
+    if st.button("🚀 Apply Configuration", type="primary", width="stretch"):
         try:
             # Build configuration
             agents = AgentSettings(
@@ -668,7 +671,7 @@ def render_sidebar_config():
             st.error(f"❌ Error: {str(e)}")
 
     # Reset button
-    if st.button("🔄 Reset to Default", use_container_width=True):
+    if st.button("🔄 Reset to Default", width="stretch"):
         st.session_state.draft_config = SimulationSettings()
         _clear_config_widget_keys()
         st.success("✅ Draft reset to defaults!")
@@ -740,7 +743,7 @@ def render_execute_tab():
         )
     with save_sc_col2:
         st.markdown("<div style='height: 2px'></div>", unsafe_allow_html=True)
-        _save_clicked = st.button("💾 Save", use_container_width=True, disabled=not bool(_save_name and _save_name.strip()))
+        _save_clicked = st.button("💾 Save", width="stretch", disabled=not bool(_save_name and _save_name.strip()))
     if _save_clicked and _save_name and _save_name.strip():
         try:
             _scenario_repo.save_scenario(
@@ -918,7 +921,7 @@ def render_execute_tab():
     run_button = st.button(
         "▶️ RUN SIMULATION",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=st.session_state.simulation_running,
     )
 
@@ -1336,7 +1339,7 @@ with tab2:
                 l1_df = get_l1_data(result)
 
                 if not l1_df.empty:
-                    st.dataframe(l1_df.head(20), use_container_width=True)
+                    st.dataframe(l1_df.head(20), width="stretch")
 
                     csv = l1_df.to_csv(index=True)
                     st.download_button(
@@ -1459,7 +1462,7 @@ with tab2:
                         col=1,
                     )
 
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
                     # Price statistics
                     st.markdown("### 📊 Price Statistics")
@@ -1596,7 +1599,7 @@ with tab2:
                         col=1,
                     )
 
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
                     # Volume statistics
                     st.markdown("### 📊 Volume Statistics")
@@ -1727,7 +1730,7 @@ with tab2:
                     fig.update_xaxes(gridcolor=COLORS["border"], showgrid=True)
                     fig.update_yaxes(gridcolor=COLORS["border"], showgrid=True)
 
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
                     # Spread statistics
                     st.markdown("### 📊 Spread Statistics")

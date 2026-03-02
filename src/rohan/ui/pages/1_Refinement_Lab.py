@@ -48,9 +48,12 @@ st.set_page_config(
 
 apply_theme()
 
-# Ensure DB tables exist
-with contextlib.suppress(Exception):
-    initialize_database()
+# Ensure DB tables exist (once per session — avoids noisy re-creation
+# logs on every Streamlit rerun).
+if not st.session_state.get("_db_initialised"):
+    with contextlib.suppress(Exception):
+        initialize_database()
+    st.session_state["_db_initialised"] = True
 
 _scenario_repo = ScenarioRepository()
 _refinement_repo = RefinementRepository()
@@ -124,6 +127,7 @@ EXAMPLE_GOALS: dict[str, str] = {
 # ============================================================================
 
 _DEFAULTS: dict[str, Any] = {
+    "goal_input": "",
     "refine_goal": "",
     "refine_max_iterations": 3,
     "refine_running": False,
@@ -368,7 +372,7 @@ with st.sidebar:
                 st.caption(_s.goal)
                 st.caption(f"🏆 Score: {_score_str} · 🔄 {_s.iteration_count} iter · 📌 {_s.status} · 📅 {_s.created_at:%Y-%m-%d %H:%M}")
             with _s_col2:
-                if st.button("Load", key=f"sb_load_{_s.session_id}", use_container_width=True, type="primary"):
+                if st.button("Load", key=f"sb_load_{_s.session_id}", width="stretch", type="primary"):
                     _loaded = _refinement_repo.load_session(_s.session_id)
                     if _loaded:
                         for _k, _v in _loaded.items():
@@ -381,12 +385,12 @@ with st.sidebar:
                     else:
                         st.error("Failed to load run.")
             with _s_col3:
-                if st.button("🗑️", key=f"sb_del_{_s.session_id}", use_container_width=True, help="Delete this run"):
+                if st.button("🗑️", key=f"sb_del_{_s.session_id}", width="stretch", help="Delete this run"):
                     _refinement_repo.delete_session(_s.session_id)
                     st.rerun()
             st.divider()
 
-    if st.button("Load Past Run", use_container_width=True):
+    if st.button("Load Past Run", width="stretch"):
         _sidebar_load_run_dialog()
 
     st.markdown("---")
@@ -394,7 +398,7 @@ with st.sidebar:
     # ── Example goals ─────────────────────────────────────────────────
     st.markdown("### 💡 Example Goals")
     for _name, _goal_text in EXAMPLE_GOALS.items():
-        if st.button(_name, use_container_width=True, key=f"eg_{_name}"):
+        if st.button(_name, width="stretch", key=f"eg_{_name}"):
             st.session_state.refine_goal = _goal_text
             st.session_state.goal_input = _goal_text
             st.rerun()
@@ -444,7 +448,6 @@ st.markdown("### 🎯 Strategy Goal")
 
 goal = st.text_area(
     "Describe your trading strategy",
-    value=st.session_state.refine_goal,
     height=120,
     placeholder=("e.g. Create a market-making strategy that captures the bid-ask spread while keeping inventory risk low…"),
     key="goal_input",
@@ -491,7 +494,7 @@ with ctrl_col3:
     launch_pressed = st.button(
         "🚀 LAUNCH",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         disabled=not can_launch,
     )
 
@@ -499,7 +502,7 @@ with ctrl_col4:
     st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
     load_pressed = st.button(
         "📂 Load Run",
-        use_container_width=True,
+        width="stretch",
     )
 
 if not (goal and goal.strip()) and st.session_state.refine_final_state is None:
@@ -530,7 +533,7 @@ def _unsaved_changes_dialog(action: str) -> None:
 
     d_col1, d_col2, d_col3 = st.columns(3)
     with d_col1:
-        if st.button("💾 Save & Continue", use_container_width=True, type="primary"):
+        if st.button("💾 Save & Continue", width="stretch", type="primary"):
             if _save_current_run():
                 st.toast("✅ Run saved!")
             _reset_run_state()
@@ -540,7 +543,7 @@ def _unsaved_changes_dialog(action: str) -> None:
                 st.session_state._pending_load = True
             st.rerun()
     with d_col2:
-        if st.button("🗑️ Discard", use_container_width=True):
+        if st.button("🗑️ Discard", width="stretch"):
             _reset_run_state()
             if action == "launch":
                 st.session_state._pending_launch = True
@@ -548,7 +551,7 @@ def _unsaved_changes_dialog(action: str) -> None:
                 st.session_state._pending_load = True
             st.rerun()
     with d_col3:
-        if st.button("Cancel", use_container_width=True):
+        if st.button("Cancel", width="stretch"):
             st.rerun()
 
 
@@ -575,7 +578,7 @@ def _load_run_dialog() -> None:
             st.markdown(f"**{s.name}**")
             st.caption(f"Score: {score_str} · {s.iteration_count} iter · {s.status} · {s.created_at:%Y-%m-%d %H:%M}")
         with s_col2:
-            if st.button("Load", key=f"dlg_load_{s.session_id}", use_container_width=True, type="primary"):
+            if st.button("Load", key=f"dlg_load_{s.session_id}", width="stretch", type="primary"):
                 loaded = _refinement_repo.load_session(s.session_id)
                 if loaded:
                     for k, v in loaded.items():
@@ -589,7 +592,7 @@ def _load_run_dialog() -> None:
                 else:
                     st.error("Failed to load run.")
         with s_col3:
-            if st.button("🗑️", key=f"dlg_del_{s.session_id}", use_container_width=True, help="Delete this run"):
+            if st.button("🗑️", key=f"dlg_del_{s.session_id}", width="stretch", help="Delete this run"):
                 _refinement_repo.delete_session(s.session_id)
                 st.rerun()
 
@@ -669,7 +672,9 @@ def _run_refinement(
             iter_display = 1
             st.write(f"### Iteration {iter_display}")
 
-            for event in graph.stream(initial_state, stream_mode="updates"):
+            config = {"recursion_limit": 50}
+
+            for event in graph.stream(initial_state, config=config, stream_mode="updates"):
                 if not event:
                     continue
                 node_name = next(iter(event))
@@ -770,6 +775,8 @@ def _run_refinement(
         st.session_state.refine_prev_goal = goal
         st.session_state.refine_prev_scenarios = sorted(selected_scenarios)
 
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except Exception as exc:
         total = time.time() - t0
         status_container.update(
@@ -782,6 +789,29 @@ def _run_refinement(
             st.code(traceback.format_exc())
 
         st.session_state.refine_error = str(exc)
+    except BaseException as stop_exc:
+        # Catch Streamlit's internal StopException / RerunException which
+        # silently abort the script when a rerun is triggered (e.g. by
+        # the file-watcher or user interaction mid-loop).  These inherit
+        # from BaseException, not Exception.
+        exc_name = type(stop_exc).__name__
+        if exc_name in ("StopException", "RerunException", "RerunData"):
+            logger.warning("Streamlit %s — refinement loop aborted by rerun", exc_name)
+            total = time.time() - t0
+            status_container.update(
+                label=f"⚠️ Interrupted by Streamlit rerun ({total:.1f}s)",
+                state="error",
+                expanded=True,
+            )
+            st.warning(
+                "The refinement loop was interrupted by a Streamlit rerun. Try launching with `streamlit run ... --server.fileWatcherType none` to prevent file-watcher triggers during long runs."
+            )
+            st.session_state.refine_final_state = accumulated
+            st.session_state.refine_duration = total
+            st.session_state.refine_progress = progress
+            st.session_state.refine_error = f"Interrupted by Streamlit ({exc_name})"
+        else:
+            raise
 
     finally:
         st.session_state.refine_running = False
@@ -817,7 +847,7 @@ if final_state is not None:
     with save_col2:
         _save_btn = st.button(
             "✅ Saved" if st.session_state.refine_saved else "💾 Save Run",
-            use_container_width=True,
+            width="stretch",
             disabled=st.session_state.refine_saved,
             type="primary" if not st.session_state.refine_saved else "secondary",
         )
@@ -927,7 +957,7 @@ if final_state is not None:
                 )
 
             df = pd.DataFrame(history_rows)
-            st.dataframe(df.set_index("Iteration"), use_container_width=True)
+            st.dataframe(df.set_index("Iteration"), width="stretch")
 
             st.markdown("---")
 
@@ -981,7 +1011,7 @@ if final_state is not None:
                     margin={"l": 60, "r": 30, "t": 30, "b": 50},
                 )
 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.info("No scores recorded.")
 
@@ -1063,7 +1093,7 @@ if final_state is not None:
                     data=final_code,
                     file_name="strategy.py",
                     mime="text/x-python",
-                    use_container_width=True,
+                    width="stretch",
                 )
             with dl_col2:
                 class_name = final_state.get("current_class_name", "?")

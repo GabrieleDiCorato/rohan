@@ -154,7 +154,11 @@ def validator_node(state: RefinementState) -> dict:
             }
 
         # This will exec the code in a sandbox and check the protocol
-        validator.execute_strategy(code, class_name)
+        strategy_class = validator.execute_strategy(code, class_name)
+
+        # Smoke-test: instantiate + call initialize/on_market_data/on_tick
+        # to catch runtime errors before spending minutes on a full sim.
+        validator.smoke_test(strategy_class)
     except Exception as exc:
         logger.warning("Instantiation check failed: %s", exc)
         return {
@@ -433,11 +437,37 @@ def _build_history_table(iterations: list[IterationSummary]) -> str:
     return "\n".join(rows)
 
 
-def _format_explanations(explanations: list[ScenarioExplanation]) -> str:
-    """Format scenario explanations for the aggregator prompt."""
+def _format_explanations(
+    explanations: list[ScenarioExplanation],
+    scenario_results: list[ScenarioResult] | None = None,
+) -> str:
+    """Format scenario explanations for the aggregator prompt.
+
+    When *scenario_results* is provided the output includes a
+    **Factual Metrics** block for each scenario so the judge has
+    ground-truth numbers to work with, not just the explainer's
+    (potentially hallucinated) text.
+    """
+    # Build a quick lookup: scenario_name → ScenarioResult
+    sr_map: dict[str, ScenarioResult] = {}
+    if scenario_results:
+        for sr in scenario_results:
+            sr_map[sr.scenario_name] = sr
+
     parts = []
     for exp in explanations:
         part = f"### {exp.scenario_name}\n"
+
+        # ── Inject ground-truth metrics when available ──
+        sr = sr_map.get(exp.scenario_name)
+        if sr and not sr.error:
+            pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
+            vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
+            spread_str = f"{(sr.spread_delta_pct or 0):+.1%}"
+            part += f"**Factual Metrics (from simulation):** PnL={pnl_str}, Trades={sr.trade_count}, Volatility Δ={vol_str}, Spread Δ={spread_str}\n"
+        elif sr and sr.error:
+            part += f"**Simulation Error:** {sr.error[:120]}\n"
+
         if exp.strengths:
             part += "**Strengths:** " + "; ".join(exp.strengths) + "\n"
         if exp.weaknesses:
@@ -460,12 +490,28 @@ def aggregator_node(state: RefinementState) -> dict:
     logger.info("Aggregator node — iteration %d, %d explanation(s)", iteration_number, len(explanations))
 
     history_table = _build_history_table(iterations)
-    explanations_text = _format_explanations(explanations)
+    explanations_text = _format_explanations(explanations, scenario_results)
+
+    # Build a concise current-iteration metrics summary so the judge
+    # can cross-check the explainer's textual analysis against hard
+    # numbers.  Without this the judge tends to hallucinate or
+    # confuse current-iteration data with past iterations.
+    current_metrics_lines: list[str] = []
+    for sr in scenario_results:
+        if sr.error:
+            current_metrics_lines.append(f"- **{sr.scenario_name}:** ERROR — {sr.error[:100]}")
+        else:
+            pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
+            vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
+            spread_str = f"{(sr.spread_delta_pct or 0):+.1%}"
+            current_metrics_lines.append(f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, Vol Δ={vol_str}, Spread Δ={spread_str}")
+    current_metrics_block = "\n".join(current_metrics_lines) if current_metrics_lines else "(no results)"
 
     human_msg = AGGREGATOR_HUMAN.format(
         goal=state.get("goal", ""),
         history_table=history_table,
         iteration_number=iteration_number,
+        current_metrics=current_metrics_block,
         explanations=explanations_text,
     )
 

@@ -204,9 +204,16 @@ strategy iteration.  Your job is to:
 3. Compare to previous iterations — is it improving?
 4. Recommend: continue, stop (converged), or stop (no progress).
 
+## CRITICAL — use factual data only
+The section **Current Iteration Metrics** contains the GROUND-TRUTH numbers
+from the simulation.  ALWAYS cite those numbers in your reasoning.
+Do NOT contradict them.  If the metrics say PnL = -$740.97 and
+Trades = 1099, you must NOT say "the strategy fails to trade" or
+"PnL remains at $0.00".
+
 Convergence criteria:
-- ``stop_converged``: Score ≥ 8 AND improvement plateaued (diminishing returns).
-- ``stop_plateau``: Score similar (±0.5) for 3+ consecutive iterations.
+- ``stop_converged``: Score >= 8 AND improvement plateaued (diminishing returns).
+- ``stop_plateau``: Score similar (+-0.5) for 3+ consecutive iterations.
 - ``continue``: Otherwise, keep refining.
 """
 
@@ -219,10 +226,14 @@ AGGREGATOR_HUMAN = """\
 
 ## Current Iteration ({iteration_number})
 
+### Current Iteration Metrics (GROUND TRUTH — do not contradict)
+{current_metrics}
+
 ### Scenario Explanations
 {explanations}
 
 Provide your structured verdict and unified feedback for the Writer.
+Base your score and reasoning on the factual metrics above, not assumptions.
 """
 
 HISTORY_ROW_TEMPLATE = "| {iter} | {pnl} | {vol_delta} | {spread_delta} | {score} | {summary} |"
