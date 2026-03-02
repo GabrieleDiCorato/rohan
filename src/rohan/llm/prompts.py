@@ -252,7 +252,10 @@ strategy iteration.  Your job is to:
 
 1. Synthesise insights across scenarios into unified feedback.
 2. Score this iteration (1-10) relative to the GOAL.
-3. Compare to previous iterations — is it improving?
+3. Compare to **the best iteration so far** (shown in the human message) —
+   is this iteration better, worse, or similar?  After a rollback the
+   "previous" row in the history table may be a regressed attempt; always
+   compare vs. the best.
 4. Recommend: continue, stop (converged), or stop (no progress).
 
 ## CRITICAL — use factual data only
@@ -293,6 +296,9 @@ AGGREGATOR_HUMAN = """\
 ## Goal
 {goal}
 
+## Best Iteration So Far
+{best_iteration_line}
+
 ## Previous Iterations
 {history_table}
 
@@ -306,6 +312,8 @@ AGGREGATOR_HUMAN = """\
 
 Provide your structured verdict and unified feedback for the Writer.
 Base your score and reasoning on the factual metrics above, not assumptions.
+For the `comparison` field compare this iteration against the **Best Iteration
+So Far** (shown above), not merely the previous row in the history table.
 """
 
 HISTORY_ROW_TEMPLATE = "| {iter} | {pnl} | {trades} | {fill_rate} | {vol_delta} | {spread_delta} | {score} | {summary} |"

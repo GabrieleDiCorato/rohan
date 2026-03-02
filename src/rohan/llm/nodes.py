@@ -87,13 +87,16 @@ def writer_node(state: RefinementState) -> dict:
             else:
                 pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
                 fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
+                ott_str = f"{sr.order_to_trade_ratio:.1f}" if sr.order_to_trade_ratio is not None else "N/A"
                 sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
                 drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
+                inv_std_str = f"{sr.inventory_std:.1f}" if sr.inventory_std is not None else "N/A"
                 vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
                 metrics_lines.append(
                     f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, "
-                    f"Fill Rate={fill_str}, Sharpe={sharpe_str}, Max Drawdown={drawdown_str}, "
-                    f"End Inventory={sr.end_inventory}, Vol Δ={vol_str}"
+                    f"Fill Rate={fill_str}, OTT={ott_str}, Sharpe={sharpe_str}, "
+                    f"Max Drawdown={drawdown_str}, End Inventory={sr.end_inventory}, "
+                    f"Inventory Std={inv_std_str}, Vol Δ={vol_str}"
                 )
         metrics_summary = "\n".join(metrics_lines) if metrics_lines else "(no simulation results available)"
 
@@ -419,9 +422,11 @@ def scenario_executor_node(state: RefinementState) -> dict:
                     spread_delta_pct=impact.spread_delta_pct,
                     trade_count=strategy_agent_metrics.trade_count,
                     fill_rate=strategy_agent_metrics.fill_rate,
+                    order_to_trade_ratio=strategy_agent_metrics.order_to_trade_ratio,
                     sharpe_ratio=strategy_agent_metrics.sharpe_ratio,
                     max_drawdown=strategy_agent_metrics.max_drawdown,
                     end_inventory=strategy_agent_metrics.end_inventory,
+                    inventory_std=strategy_agent_metrics.inventory_std,
                     price_chart_b64=price_chart_b64,
                     spread_chart_b64=spread_chart_b64,
                     volume_chart_b64=volume_chart_b64,
@@ -566,13 +571,16 @@ def _format_explanations(
             vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
             spread_str = f"{(sr.spread_delta_pct or 0):+.1%}"
             fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
+            ott_str = f"{sr.order_to_trade_ratio:.1f}" if sr.order_to_trade_ratio is not None else "N/A"
             sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
             drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
+            inv_std_str = f"{sr.inventory_std:.1f}" if sr.inventory_std is not None else "N/A"
             part += (
                 f"**Factual Metrics (from simulation):** "
-                f"PnL={pnl_str}, Trades={sr.trade_count}, Fill Rate={fill_str}, "
+                f"PnL={pnl_str}, Trades={sr.trade_count}, Fill Rate={fill_str}, OTT={ott_str}, "
                 f"Sharpe={sharpe_str}, Max Drawdown={drawdown_str}, "
-                f"End Inventory={sr.end_inventory}, Vol Δ={vol_str}, Spread Δ={spread_str}\n"
+                f"End Inventory={sr.end_inventory}, Inventory Std={inv_std_str}, "
+                f"Vol Δ={vol_str}, Spread Δ={spread_str}\n"
             )
         elif sr and sr.error:
             part += f"**Simulation Error:** {sr.error[:120]}\n"
@@ -606,6 +614,12 @@ def aggregator_node(state: RefinementState) -> dict:
     history_table = _build_history_table(iterations)
     explanations_text = _format_explanations(explanations, scenario_results)
 
+    # Best-iteration context line for the judge
+    if best_score > 0.0:
+        best_iteration_line = f"Iteration {best_iteration_number} — Score {best_score:.1f}/10 (this is the benchmark for the `comparison` field)"
+    else:
+        best_iteration_line = "None yet (this is the first iteration)"
+
     # Build concise current-iteration metrics block (ground-truth for the judge)
     current_metrics_lines: list[str] = []
     for sr in scenario_results:
@@ -616,17 +630,21 @@ def aggregator_node(state: RefinementState) -> dict:
             vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
             spread_str = f"{(sr.spread_delta_pct or 0):+.1%}"
             fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
+            ott_str = f"{sr.order_to_trade_ratio:.1f}" if sr.order_to_trade_ratio is not None else "N/A"
             sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
             drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
+            inv_std_str = f"{sr.inventory_std:.1f}" if sr.inventory_std is not None else "N/A"
             current_metrics_lines.append(
                 f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, "
-                f"Fill Rate={fill_str}, Sharpe={sharpe_str}, Max Drawdown={drawdown_str}, "
-                f"End Inventory={sr.end_inventory}, Vol Δ={vol_str}, Spread Δ={spread_str}"
+                f"Fill Rate={fill_str}, OTT={ott_str}, Sharpe={sharpe_str}, "
+                f"Max Drawdown={drawdown_str}, End Inventory={sr.end_inventory}, "
+                f"Inventory Std={inv_std_str}, Vol Δ={vol_str}, Spread Δ={spread_str}"
             )
     current_metrics_block = "\n".join(current_metrics_lines) if current_metrics_lines else "(no results)"
 
     human_msg = AGGREGATOR_HUMAN.format(
         goal=state.get("goal", ""),
+        best_iteration_line=best_iteration_line,
         history_table=history_table,
         iteration_number=iteration_number,
         current_metrics=current_metrics_block,
@@ -671,6 +689,8 @@ def aggregator_node(state: RefinementState) -> dict:
             sharpe_ratio=sr.sharpe_ratio,
             max_drawdown=sr.max_drawdown,
             fill_rate=sr.fill_rate,
+            order_to_trade_ratio=sr.order_to_trade_ratio,
+            inventory_std=sr.inventory_std,
             end_inventory=sr.end_inventory,
             volatility_delta_pct=sr.volatility_delta_pct,
             spread_delta_pct=sr.spread_delta_pct,
@@ -717,7 +737,7 @@ def aggregator_node(state: RefinementState) -> dict:
         iteration_number=iteration_number,
         strategy_code=current_code,
         scenario_metrics=scenario_metrics,
-        aggregated_explanation=feedback.unified_feedback,
+        aggregated_explanation=verdict.reasoning,  # judge reasoning, not recommendations boilerplate
         judge_score=verdict.score,
         judge_reasoning=verdict.reasoning,
         rolled_back=is_regression,

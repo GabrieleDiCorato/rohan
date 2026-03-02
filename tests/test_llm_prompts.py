@@ -78,6 +78,7 @@ class TestAggregatorPrompts:
 
     def test_human_prompt_has_slots(self):
         assert "{goal}" in AGGREGATOR_HUMAN
+        assert "{best_iteration_line}" in AGGREGATOR_HUMAN
         assert "{history_table}" in AGGREGATOR_HUMAN
         assert "{iteration_number}" in AGGREGATOR_HUMAN
         assert "{explanations}" in AGGREGATOR_HUMAN
