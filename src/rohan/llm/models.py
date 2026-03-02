@@ -71,6 +71,8 @@ class ScenarioMetrics(BaseModel):
     total_pnl: float | None = None
     sharpe_ratio: float | None = None
     max_drawdown: float | None = None
+    fill_rate: float | None = None
+    end_inventory: int = 0
     trade_count: int = 0
     volatility_delta_pct: float | None = None
     spread_delta_pct: float | None = None

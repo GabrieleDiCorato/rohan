@@ -39,6 +39,10 @@ class ScenarioResult(BaseModel):
     volatility_delta_pct: float | None = None
     spread_delta_pct: float | None = None
     trade_count: int = 0
+    fill_rate: float | None = None
+    sharpe_ratio: float | None = None
+    max_drawdown: float | None = None
+    end_inventory: int = 0
     error: str | None = None
 
     # Base64-encoded PNG charts (populated by executor)

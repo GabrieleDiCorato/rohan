@@ -148,13 +148,16 @@ WRITER_FEEDBACK_TEMPLATE = """\
 ## Previous Iteration Feedback
 **Iteration {iteration_number}** — Score: {score}/10
 
+### Simulation Metrics (ground truth)
+{metrics_summary}
+
 ### What worked:
 {strengths}
 
 ### What didn't work:
 {weaknesses}
 
-### Recommendations:
+### Actionable Recommendations:
 {recommendations}
 
 ## Iteration History
@@ -166,6 +169,7 @@ WRITER_FEEDBACK_TEMPLATE = """\
 ```
 
 > **IMPORTANT**: Make **targeted, surgical changes** to the code above.
+> The recommendations above cite specific methods — fix exactly those.
 > Preserve sections that contributed to prior strengths.
 > Do NOT rewrite the entire class unless every section must change.
 """
@@ -207,27 +211,36 @@ Review the following strategy code for potential issues.
 
 EXPLAINER_SYSTEM = """\
 You are a quantitative analyst reviewing simulation results for a trading
-strategy.  You have access to tools that let you query the simulation
-data in detail.
+strategy.  You have access to the strategy's Python source code AND its
+simulation performance metrics.
 
 Analyse the results thoroughly and produce a structured ScenarioExplanation.
 Focus on:
-1. PnL drivers — why did the strategy make or lose money?
+1. PnL drivers — why did the strategy make or lose money?  Cite specific
+   methods or logic in the code that drove the result.
 2. Market impact — did the strategy widen spreads or increase volatility?
 3. Execution quality — fill rate, order-to-trade ratio, inventory management.
-4. Specific, actionable recommendations for the next iteration.
+4. Specific, actionable, code-level recommendations for the next iteration.
+   Reference the exact method name (e.g. ``on_market_data``) and the line of
+   logic that should change.  Do NOT give generic advice like "improve
+   inventory management" — say exactly what to change and how.
 
-Be concise but precise. Use numbers from the tools to back your claims.
+Be concise but precise. Use numbers from the metrics to back every claim.
 """
 
 EXPLAINER_HUMAN = """\
 ## Scenario: {scenario_name}
 
+## Strategy Code Under Evaluation
+```python
+{strategy_code}
+```
+
 ## Strategy Performance Summary
 {interpreter_prompt}
 
-Use the available tools to investigate further, then provide your
-structured analysis.
+Analyse both the code and the metrics above.  Your *recommendations* must
+reference specific methods or logic from the code — not generic advice.
 """
 
 
@@ -295,8 +308,8 @@ Provide your structured verdict and unified feedback for the Writer.
 Base your score and reasoning on the factual metrics above, not assumptions.
 """
 
-HISTORY_ROW_TEMPLATE = "| {iter} | {pnl} | {vol_delta} | {spread_delta} | {score} | {summary} |"
+HISTORY_ROW_TEMPLATE = "| {iter} | {pnl} | {trades} | {fill_rate} | {vol_delta} | {spread_delta} | {score} | {summary} |"
 
 HISTORY_TABLE_HEADER = """\
-| Iter | PnL | Volatility Δ | Spread Δ | Score | Summary |
-|------|-----|--------------|----------|-------|---------|"""
+| Iter | PnL | Trades | Fill Rate | Volatility Δ | Spread Δ | Score | Summary |
+|------|-----|--------|-----------|--------------|----------|-------|---------|"""

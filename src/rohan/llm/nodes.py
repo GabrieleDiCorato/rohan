@@ -77,9 +77,30 @@ def writer_node(state: RefinementState) -> dict:
     elif feedback and current_code:
         # Build full history table (excluding the last entry which IS current_code)
         history_text = _build_history_table(iterations[:-1]) if len(iterations) > 1 else "(No previous iterations)"
+
+        # Build concise metrics summary from the most recent scenario results
+        scenario_results: list[ScenarioResult] = state.get("scenario_results", [])
+        metrics_lines: list[str] = []
+        for sr in scenario_results:
+            if sr.error:
+                metrics_lines.append(f"- **{sr.scenario_name}:** ERROR")
+            else:
+                pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
+                fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
+                sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
+                drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
+                vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
+                metrics_lines.append(
+                    f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, "
+                    f"Fill Rate={fill_str}, Sharpe={sharpe_str}, Max Drawdown={drawdown_str}, "
+                    f"End Inventory={sr.end_inventory}, Vol Δ={vol_str}"
+                )
+        metrics_summary = "\n".join(metrics_lines) if metrics_lines else "(no simulation results available)"
+
         feedback_section = WRITER_FEEDBACK_TEMPLATE.format(
             iteration_number=state.get("iteration_number", 1) - 1,
             score=feedback.verdict.score if feedback else "N/A",
+            metrics_summary=metrics_summary,
             strengths="\n".join(f"- {s}" for s in (feedback.cross_scenario_patterns or [])),
             weaknesses=feedback.verdict.reasoning if feedback else "",
             recommendations=feedback.unified_feedback if feedback else "",
@@ -397,6 +418,10 @@ def scenario_executor_node(state: RefinementState) -> dict:
                     volatility_delta_pct=impact.volatility_delta_pct,
                     spread_delta_pct=impact.spread_delta_pct,
                     trade_count=strategy_agent_metrics.trade_count,
+                    fill_rate=strategy_agent_metrics.fill_rate,
+                    sharpe_ratio=strategy_agent_metrics.sharpe_ratio,
+                    max_drawdown=strategy_agent_metrics.max_drawdown,
+                    end_inventory=strategy_agent_metrics.end_inventory,
                     price_chart_b64=price_chart_b64,
                     spread_chart_b64=spread_chart_b64,
                     volume_chart_b64=volume_chart_b64,
@@ -449,6 +474,7 @@ def explainer_node(state: RefinementState) -> dict:
 
         human_msg = EXPLAINER_HUMAN.format(
             scenario_name=sr.scenario_name,
+            strategy_code=state.get("current_code") or "(code unavailable)",
             interpreter_prompt=sr.interpreter_prompt,
         )
 
@@ -494,13 +520,15 @@ def _build_history_table(iterations: list[IterationSummary]) -> str:
     for it in iterations:
         # Pick first scenario metrics for the table
         first_metrics = next(iter(it.scenario_metrics.values()), None)
-        summary = it.aggregated_explanation[:80] if it.aggregated_explanation else ""
+        summary = it.aggregated_explanation[:100] if it.aggregated_explanation else ""
         if it.rolled_back:
             summary = "⚠️ ROLLED BACK — " + summary
         rows.append(
             HISTORY_ROW_TEMPLATE.format(
                 iter=it.iteration_number,
                 pnl=f"${(first_metrics.total_pnl or 0) / 100:,.2f}" if first_metrics else "N/A",
+                trades=str(first_metrics.trade_count) if first_metrics else "N/A",
+                fill_rate=f"{(first_metrics.fill_rate or 0):.1%}" if first_metrics and first_metrics.fill_rate is not None else "N/A",
                 vol_delta=f"{(first_metrics.volatility_delta_pct or 0):+.1%}" if first_metrics else "N/A",
                 spread_delta=f"{(first_metrics.spread_delta_pct or 0):+.1%}" if first_metrics else "N/A",
                 score=f"{it.judge_score:.1f}" if it.judge_score else "N/A",
@@ -537,7 +565,15 @@ def _format_explanations(
             pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
             vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
             spread_str = f"{(sr.spread_delta_pct or 0):+.1%}"
-            part += f"**Factual Metrics (from simulation):** PnL={pnl_str}, Trades={sr.trade_count}, Volatility Δ={vol_str}, Spread Δ={spread_str}\n"
+            fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
+            sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
+            drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
+            part += (
+                f"**Factual Metrics (from simulation):** "
+                f"PnL={pnl_str}, Trades={sr.trade_count}, Fill Rate={fill_str}, "
+                f"Sharpe={sharpe_str}, Max Drawdown={drawdown_str}, "
+                f"End Inventory={sr.end_inventory}, Vol Δ={vol_str}, Spread Δ={spread_str}\n"
+            )
         elif sr and sr.error:
             part += f"**Simulation Error:** {sr.error[:120]}\n"
 
@@ -579,7 +615,14 @@ def aggregator_node(state: RefinementState) -> dict:
             pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
             vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
             spread_str = f"{(sr.spread_delta_pct or 0):+.1%}"
-            current_metrics_lines.append(f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, Vol Δ={vol_str}, Spread Δ={spread_str}")
+            fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
+            sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
+            drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
+            current_metrics_lines.append(
+                f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, "
+                f"Fill Rate={fill_str}, Sharpe={sharpe_str}, Max Drawdown={drawdown_str}, "
+                f"End Inventory={sr.end_inventory}, Vol Δ={vol_str}, Spread Δ={spread_str}"
+            )
     current_metrics_block = "\n".join(current_metrics_lines) if current_metrics_lines else "(no results)"
 
     human_msg = AGGREGATOR_HUMAN.format(
@@ -615,10 +658,8 @@ def aggregator_node(state: RefinementState) -> dict:
     # Build aggregated feedback
     feedback = AggregatedFeedback(
         verdict=verdict,
-        cross_scenario_patterns=[obs for exp in explanations for obs in exp.key_observations],
-        unified_feedback=(
-            f"Score: {verdict.score}/10 ({verdict.comparison}). {verdict.reasoning}\n\nConsolidated recommendations:\n" + "\n".join(f"- {r}" for exp in explanations for r in exp.recommendations)
-        ),
+        cross_scenario_patterns=[s for exp in explanations for s in exp.strengths],
+        unified_feedback=("Consolidated recommendations:\n" + "\n".join(f"- {r}" for exp in explanations for r in exp.recommendations)),
     )
 
     # Build per-scenario metrics snapshot for history
@@ -627,6 +668,10 @@ def aggregator_node(state: RefinementState) -> dict:
         scenario_metrics[sr.scenario_name] = ScenarioMetrics(
             scenario_name=sr.scenario_name,
             total_pnl=sr.strategy_pnl,
+            sharpe_ratio=sr.sharpe_ratio,
+            max_drawdown=sr.max_drawdown,
+            fill_rate=sr.fill_rate,
+            end_inventory=sr.end_inventory,
             volatility_delta_pct=sr.volatility_delta_pct,
             spread_delta_pct=sr.spread_delta_pct,
             trade_count=sr.trade_count,

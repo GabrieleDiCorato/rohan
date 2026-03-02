@@ -47,23 +47,27 @@ class TestWriterPrompts:
         rendered = WRITER_FEEDBACK_TEMPLATE.format(
             iteration_number=1,
             score=6.5,
+            metrics_summary="- default: PnL=$23.18, Trades=140",
             strengths="- Good PnL",
             weaknesses="High drawdown",
             recommendations="Reduce size",
             previous_code="class X: pass",
+            iteration_history="(No previous iterations)",
         )
         assert "6.5" in rendered
         assert "class X: pass" in rendered
+        assert "$23.18" in rendered
 
 
 class TestExplainerPrompts:
     def test_system_prompt_content(self):
         assert "quantitative analyst" in EXPLAINER_SYSTEM
-        assert "tools" in EXPLAINER_SYSTEM
+        assert "code-level" in EXPLAINER_SYSTEM
 
     def test_human_prompt_has_slots(self):
         assert "{scenario_name}" in EXPLAINER_HUMAN
         assert "{interpreter_prompt}" in EXPLAINER_HUMAN
+        assert "{strategy_code}" in EXPLAINER_HUMAN
 
 
 class TestAggregatorPrompts:
@@ -87,6 +91,8 @@ class TestAggregatorPrompts:
         row = HISTORY_ROW_TEMPLATE.format(
             iter=1,
             pnl="$1.00",
+            trades="142",
+            fill_rate="4.2%",
             vol_delta="+5.0%",
             spread_delta="-2.0%",
             score="7.0",
@@ -94,3 +100,4 @@ class TestAggregatorPrompts:
         )
         assert "$1.00" in row
         assert "7.0" in row
+        assert "4.2%" in row
