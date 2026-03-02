@@ -64,6 +64,7 @@ class IterationData:
     judge_score: float | None = None
     judge_reasoning: str | None = None
     aggregated_explanation: str | None = None
+    rolled_back: bool = False
     scenario_results: list[ScenarioResultData] = field(default_factory=list)
 
 
@@ -136,6 +137,7 @@ class RefinementRepository:
                 judge_score=it_data.judge_score,
                 judge_reasoning=it_data.judge_reasoning,
                 aggregated_explanation=it_data.aggregated_explanation,
+                rolled_back=it_data.rolled_back,
             )
             for sr in it_data.scenario_results:
                 it_orm.scenario_results.append(
@@ -238,6 +240,7 @@ class RefinementRepository:
                         judge_score=it_orm.judge_score,
                         judge_reasoning=it_orm.judge_reasoning,
                         timestamp=it_orm.created_at,
+                        rolled_back=it_orm.rolled_back,
                     )
                 )
 

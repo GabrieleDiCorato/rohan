@@ -82,6 +82,13 @@ class RefinementState(TypedDict, total=False):
     iterations: list[IterationSummary]
     iteration_number: int
 
+    # --- Best-known tracking (for rollback) ---
+    # Populated and updated by aggregator_node after every iteration.
+    best_iteration_number: int
+    best_code: str | None  # code that achieved the highest score so far
+    best_score: float | None  # highest judge score seen so far
+    rolled_back_from: dict | None  # snapshot of failed attempt; consumed by writer_node
+
     # --- Control ---
     status: Literal[
         "writing",

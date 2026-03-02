@@ -150,10 +150,41 @@ WRITER_FEEDBACK_TEMPLATE = """\
 ### Recommendations:
 {recommendations}
 
-### Previous Code:
+## Iteration History
+{iteration_history}
+
+### Previous Code (BASE — make targeted edits only):
 ```python
 {previous_code}
 ```
+
+> **IMPORTANT**: Make **targeted, surgical changes** to the code above.
+> Preserve sections that contributed to prior strengths.
+> Do NOT rewrite the entire class unless every section must change.
+"""
+
+
+WRITER_ROLLBACK_SECTION = """\
+---
+## ⚠️ REGRESSION ALERT — FAILED ATTEMPT (Do NOT repeat)
+
+Iteration **{failed_iteration}** produced a **significant regression** \
+(score {failed_score}/10 vs. best {best_score}/10) and has been **discarded**.
+
+**Why it failed (judge reasoning):**
+{failure_reasoning}
+
+**Metrics from the failed attempt:**
+{failed_metrics}
+
+**Failed code (ANTI-PATTERN — study what went wrong, do NOT reproduce):**
+```python
+{failed_code}
+```
+
+> The base code above ("Previous Code") is the **best-known working version**.
+> Build forward from that — incorporating lessons from the failure above.
+> Do NOT reintroduce patterns from the failed attempt.
 """
 
 
@@ -211,10 +242,18 @@ Do NOT contradict them.  If the metrics say PnL = -$740.97 and
 Trades = 1099, you must NOT say "the strategy fails to trade" or
 "PnL remains at $0.00".
 
-Convergence criteria:
-- ``stop_converged``: Score >= 8 AND improvement plateaued (diminishing returns).
-- ``stop_plateau``: Score similar (+-0.5) for 3+ consecutive iterations.
-- ``continue``: Otherwise, keep refining.
+## Convergence rules — read carefully before recommending a stop
+- ``stop_converged``: ONLY when score >= 7.0 AND improvement has clearly
+  plateaued over the last 2+ iterations.  Do NOT use if score < 7.0.
+- ``stop_plateau``: ONLY when 3 or more consecutive iterations (visible in
+  the history table) show scores within ±0.5 of each other.  Do NOT use
+  if fewer than 3 such iterations exist in the table.
+- ``continue``: Use in all other cases, including any regression from the
+  previous best score.  A regression is information — it should trigger
+  more refinement, never an early stop.
+
+**If the current score is lower than the previous best, you MUST recommend
+``continue``.  Regression is not convergence.**
 """
 
 AGGREGATOR_HUMAN = """\

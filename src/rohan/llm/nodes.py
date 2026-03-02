@@ -38,6 +38,7 @@ from rohan.llm.prompts import (
     HISTORY_TABLE_HEADER,
     WRITER_FEEDBACK_TEMPLATE,
     WRITER_HUMAN,
+    WRITER_ROLLBACK_SECTION,
     WRITER_SYSTEM,
 )
 from rohan.llm.state import RefinementState, ScenarioResult
@@ -67,11 +68,15 @@ def writer_node(state: RefinementState) -> dict:
     feedback = state.get("aggregated_feedback")
     current_code = state.get("current_code")
     validation_errors = state.get("validation_errors", [])
+    iterations = state.get("iterations", [])
+    rolled_back_from: dict | None = state.get("rolled_back_from")
 
     if validation_errors and current_code:
-        # We're retrying after a validation failure
+        # Retrying after a validation / smoke-test failure
         feedback_section = "## Validation Errors (fix these)\n" + "\n".join(f"- {e}" for e in validation_errors) + f"\n\n### Previous Code:\n```python\n{current_code}\n```"
     elif feedback and current_code:
+        # Build full history table (excluding the last entry which IS current_code)
+        history_text = _build_history_table(iterations[:-1]) if len(iterations) > 1 else "(No previous iterations)"
         feedback_section = WRITER_FEEDBACK_TEMPLATE.format(
             iteration_number=state.get("iteration_number", 1) - 1,
             score=feedback.verdict.score if feedback else "N/A",
@@ -79,7 +84,19 @@ def writer_node(state: RefinementState) -> dict:
             weaknesses=feedback.verdict.reasoning if feedback else "",
             recommendations=feedback.unified_feedback if feedback else "",
             previous_code=current_code,
+            iteration_history=history_text,
         )
+
+        # Append rollback context when recovering from a regression
+        if rolled_back_from:
+            feedback_section += "\n\n" + WRITER_ROLLBACK_SECTION.format(
+                failed_iteration=rolled_back_from.get("iteration_number", "?"),
+                failed_score=rolled_back_from.get("score", "?"),
+                best_score=rolled_back_from.get("best_score", "?"),
+                failure_reasoning=rolled_back_from.get("judge_reasoning", ""),
+                failed_metrics=rolled_back_from.get("metrics_text", ""),
+                failed_code=rolled_back_from.get("code", ""),
+            )
 
     human_msg = WRITER_HUMAN.format(
         goal=state.get("goal", ""),
@@ -102,6 +119,7 @@ def writer_node(state: RefinementState) -> dict:
         "current_class_name": result.class_name,
         "current_reasoning": result.reasoning,
         "validation_errors": [],
+        "rolled_back_from": None,  # consume rollback context so it doesn't bleed
         "status": "validating",
     }
 
@@ -424,6 +442,9 @@ def _build_history_table(iterations: list[IterationSummary]) -> str:
     for it in iterations:
         # Pick first scenario metrics for the table
         first_metrics = next(iter(it.scenario_metrics.values()), None)
+        summary = it.aggregated_explanation[:80] if it.aggregated_explanation else ""
+        if it.rolled_back:
+            summary = "⚠️ ROLLED BACK — " + summary
         rows.append(
             HISTORY_ROW_TEMPLATE.format(
                 iter=it.iteration_number,
@@ -431,7 +452,7 @@ def _build_history_table(iterations: list[IterationSummary]) -> str:
                 vol_delta=f"{(first_metrics.volatility_delta_pct or 0):+.1%}" if first_metrics else "N/A",
                 spread_delta=f"{(first_metrics.spread_delta_pct or 0):+.1%}" if first_metrics else "N/A",
                 score=f"{it.judge_score:.1f}" if it.judge_score else "N/A",
-                summary=it.aggregated_explanation[:80] if it.aggregated_explanation else "",
+                summary=summary,
             )
         )
     return "\n".join(rows)
@@ -481,21 +502,23 @@ def _format_explanations(
 
 
 def aggregator_node(state: RefinementState) -> dict:
-    """Combine scenario explanations and judge convergence."""
+    """Combine scenario explanations, judge convergence, and handle rollbacks."""
     explanations = state.get("explanations", [])
     iterations = state.get("iterations", [])
     iteration_number = state.get("iteration_number", 1)
     scenario_results = state.get("scenario_results", [])
+
+    # Pull best-tracking state from previous aggregations
+    best_score: float = state.get("best_score") or 0.0
+    best_code: str | None = state.get("best_code")
+    best_iteration_number: int = state.get("best_iteration_number") or 0
 
     logger.info("Aggregator node — iteration %d, %d explanation(s)", iteration_number, len(explanations))
 
     history_table = _build_history_table(iterations)
     explanations_text = _format_explanations(explanations, scenario_results)
 
-    # Build a concise current-iteration metrics summary so the judge
-    # can cross-check the explainer's textual analysis against hard
-    # numbers.  Without this the judge tends to hallucinate or
-    # confuse current-iteration data with past iterations.
+    # Build concise current-iteration metrics block (ground-truth for the judge)
     current_metrics_lines: list[str] = []
     for sr in scenario_results:
         if sr.error:
@@ -543,7 +566,7 @@ def aggregator_node(state: RefinementState) -> dict:
         ),
     )
 
-    # Build iteration summary for history
+    # Build per-scenario metrics snapshot for history
     scenario_metrics: dict[str, ScenarioMetrics] = {}
     for sr in scenario_results:
         scenario_metrics[sr.scenario_name] = ScenarioMetrics(
@@ -557,20 +580,89 @@ def aggregator_node(state: RefinementState) -> dict:
             volume_chart_b64=sr.volume_chart_b64,
         )
 
+    # ── Regression detection & hard rollback ─────────────────────────────
+    current_code = state.get("current_code") or ""
+    # A regression is a score drop of more than 0.5 below the historical best.
+    is_regression = best_score > 0.0 and verdict.score < best_score - 0.5
+    rolled_back_from: dict | None = None
+    next_code = current_code  # what the writer will receive as current_code
+
+    if is_regression:
+        logger.warning(
+            "Regression detected: score %.1f < best %.1f (iter %d) — rolling back",
+            verdict.score,
+            best_score,
+            best_iteration_number,
+        )
+        rolled_back_from = {
+            "iteration_number": iteration_number,
+            "score": verdict.score,
+            "best_score": best_score,
+            "judge_reasoning": verdict.reasoning,
+            "metrics_text": current_metrics_block,
+            "code": current_code,
+        }
+        next_code = best_code  # revert to the best-known code
+
+    # Update best-tracking if this iteration improved
+    new_best_score = best_score
+    new_best_code = best_code
+    new_best_iteration = best_iteration_number
+    if verdict.score > best_score:
+        new_best_score = verdict.score
+        new_best_code = current_code
+        new_best_iteration = iteration_number
+
     iteration_summary = IterationSummary(
         iteration_number=iteration_number,
-        strategy_code=state.get("current_code") or "",
+        strategy_code=current_code,
         scenario_metrics=scenario_metrics,
         aggregated_explanation=feedback.unified_feedback,
         judge_score=verdict.score,
         judge_reasoning=verdict.reasoning,
+        rolled_back=is_regression,
     )
 
     new_iterations = list(iterations) + [iteration_summary]
 
-    # Determine next status
+    # ── Rule-based stop guard ─────────────────────────────────────────────
+    # The LLM's recommendation is advisory only; we gate it against hard rules.
     max_iterations = state.get("max_iterations", 3)
-    if verdict.recommendation in ("stop_converged", "stop_plateau"):
+    lm_wants_stop = verdict.recommendation in ("stop_converged", "stop_plateau")
+
+    if lm_wants_stop:
+        all_scores = [it.judge_score for it in new_iterations if it.judge_score is not None]
+
+        if verdict.recommendation == "stop_plateau":
+            # Require 3+ consecutive iterations all within ±0.5 of each other
+            consecutive_similar = 0
+            for i in range(len(all_scores) - 1, 0, -1):
+                if abs(all_scores[i] - all_scores[i - 1]) <= 0.5:
+                    consecutive_similar += 1
+                else:
+                    break
+            if consecutive_similar < 2:
+                logger.info(
+                    "LLM recommended stop_plateau but rule-based guard vetoed: need 3+ consecutive similar scores, found only %d pair(s)",
+                    consecutive_similar,
+                )
+                lm_wants_stop = False
+
+        elif verdict.recommendation == "stop_converged":
+            # Require score >= 7.0 for a convergence stop
+            if verdict.score < 7.0:
+                logger.info(
+                    "LLM recommended stop_converged but rule-based guard vetoed: score %.1f < 7.0",
+                    verdict.score,
+                )
+                lm_wants_stop = False
+
+        # Regression always overrides any stop recommendation
+        if is_regression:
+            logger.info("LLM recommended stop but regression detected — forcing continue")
+            lm_wants_stop = False
+
+    if lm_wants_stop:
         next_status = "done"
     elif iteration_number >= max_iterations:
         logger.info("Max iterations (%d) reached", max_iterations)
@@ -579,11 +671,13 @@ def aggregator_node(state: RefinementState) -> dict:
         next_status = "writing"
 
     logger.info(
-        "Aggregator verdict: score=%.1f, comparison=%s, recommendation=%s → %s",
+        "Aggregator verdict: score=%.1f, best=%.1f, comparison=%s, recommendation=%s → %s%s",
         verdict.score,
+        new_best_score,
         verdict.comparison,
         verdict.recommendation,
         next_status,
+        " [REGRESSION→ROLLBACK]" if is_regression else "",
     )
 
     return {
@@ -591,4 +685,10 @@ def aggregator_node(state: RefinementState) -> dict:
         "iterations": new_iterations,
         "iteration_number": iteration_number + 1,
         "status": next_status,
+        # Rollback / best-tracking state
+        "current_code": next_code,
+        "best_score": new_best_score,
+        "best_code": new_best_code,
+        "best_iteration_number": new_best_iteration,
+        "rolled_back_from": rolled_back_from,
     }

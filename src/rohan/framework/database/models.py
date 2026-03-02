@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     Enum,
     Float,
@@ -223,6 +224,8 @@ class RefinementIteration(Base):
     judge_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     judge_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     aggregated_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # True when this iteration scored below the previous best and triggered a rollback
+    rolled_back: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped["RefinementSession"] = relationship(back_populates="iterations")

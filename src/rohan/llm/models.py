@@ -91,3 +91,5 @@ class IterationSummary(BaseModel):
     judge_score: float | None = None
     judge_reasoning: str | None = None
     timestamp: datetime = Field(default_factory=datetime.now)
+    # True when this iteration scored below the previous best and triggered a rollback.
+    rolled_back: bool = False

@@ -265,6 +265,7 @@ def _save_current_run(run_name: str | None = None) -> bool:
                 judge_score=it.judge_score,
                 judge_reasoning=it.judge_reasoning,
                 aggregated_explanation=it.aggregated_explanation,
+                rolled_back=it.rolled_back,
                 scenario_results=sc_results,
             )
         )
