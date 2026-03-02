@@ -89,6 +89,10 @@ def on_market_data(self, state: MarketState) -> list[OrderAction]:
     if state.mid_price is None:
         return actions
 
+    # Position size: ~1% of available capital per quote side
+    # (e.g. $100K cash, $185/share → ~5 shares; use at least 10)
+    qty = max(10, state.cash // (max(1, state.mid_price) * 100))
+
     # Inventory-skewed quoting: shift fair value against position
     skew = int(0.5 * state.inventory)
     fair = state.mid_price - skew
@@ -105,11 +109,10 @@ def on_market_data(self, state: MarketState) -> list[OrderAction]:
                                        quantity=state.inventory, price=state.best_bid))
         return actions
 
-    # Post-only to guarantee maker fills
     actions.append(OrderAction(side=Side.BID, order_type=OrderType.LIMIT,
-                               quantity=1, price=fair - half, is_post_only=True))
+                               quantity=qty, price=fair - half))
     actions.append(OrderAction(side=Side.ASK, order_type=OrderType.LIMIT,
-                               quantity=1, price=fair + half, is_post_only=True))
+                               quantity=qty, price=fair + half))
     return actions
 ```
 
@@ -121,11 +124,15 @@ rohan.simulation.models.strategy_api, rohan.config
 1. Return ONLY the Python class. No main block, no tests.
 2. Use type hints.
 3. Handle edge cases (empty order book, zero inventory).
-4. Avoid excessive order submission (keep order-to-trade ratio reasonable).
-5. **Always cancel stale orders** before placing new ones to avoid flooding
+4. **Size positions meaningfully**: each order should represent at least 5–20
+   shares.  Trading 1 share at a time yields negligible PnL on $100K capital.
+   Baseline formula: ``max(10, state.cash // (max(1, state.mid_price) * 100))``
+   gives ~1% of capital per side.  Scale up or down as strategy demands.
+5. Avoid excessive order submission (keep order-to-trade ratio reasonable).
+6. **Always cancel stale orders** before placing new ones to avoid flooding
    the order book. Use ``OrderAction.cancel_all()`` at the start of
    ``on_market_data`` if you are replacing your entire quote.
-6. Do NOT use private/dunder attributes on external objects.
+7. Do NOT use private/dunder attributes on external objects.
 """
 
 WRITER_HUMAN = """\
@@ -241,6 +248,19 @@ from the simulation.  ALWAYS cite those numbers in your reasoning.
 Do NOT contradict them.  If the metrics say PnL = -$740.97 and
 Trades = 1099, you must NOT say "the strategy fails to trade" or
 "PnL remains at $0.00".
+
+## PnL calibration (simulation uses $100K starting capital)
+Use these ranges as a scoring baseline:
+- PnL ≤ $0 (loss or no trades): 1/10
+- PnL $0–$50: 2/10  (trades but captures almost no edge)
+- PnL $50–$200: 3/10  (noticeable but weak performance)
+- PnL $200–$600: 4/10  (moderate — captures some spread)
+- PnL $600–$1 500: 5/10  (solid market-making or directional edge)
+- PnL $1 500–$3 500: 6/10  (strong performance for a passive strategy)
+- PnL $3 500–$6 000: 7/10  (excellent — converged toward target)
+- PnL > $6 000: 8–10/10  (exceptional; reserve 9–10 for near-optimal)
+Adjust ±1 point for notably good/bad risk-adjusted metrics (Sharpe,
+drawdown, inventory management) or market impact.
 
 ## Convergence rules — read carefully before recommending a stop
 - ``stop_converged``: ONLY when score >= 7.0 AND improvement has clearly
