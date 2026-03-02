@@ -103,14 +103,64 @@ def writer_node(state: RefinementState) -> dict:
         feedback_section=feedback_section,
     )
 
-    model = get_codegen_model()
-    structured = get_structured_model(model, GeneratedStrategy)
-    result = structured.invoke(
-        [
-            SystemMessage(content=WRITER_SYSTEM),
-            HumanMessage(content=human_msg),
-        ]
-    )
+    messages = [
+        SystemMessage(content=WRITER_SYSTEM),
+        HumanMessage(content=human_msg),
+    ]
+
+    # Retry the LLM call up to 3 times before giving up — some models
+    # occasionally fail to invoke the function-calling tool on the first
+    # attempt, especially with long prompts.
+    _max_llm_retries = 3
+    result = None
+    for attempt in range(1, _max_llm_retries + 1):
+        try:
+            model = get_codegen_model()
+            structured = get_structured_model(model, GeneratedStrategy)
+            result = structured.invoke(messages)
+        except Exception as exc:
+            logger.warning("Writer LLM call raised on attempt %d: %s", attempt, exc)
+            result = None
+
+        if result is not None:
+            break
+
+        logger.warning(
+            "Writer LLM returned None (attempt %d/%d) — model did not invoke tool schema",
+            attempt,
+            _max_llm_retries,
+        )
+        if attempt < _max_llm_retries:
+            # On retry, strip rollback/history bulk from the prompt to reduce
+            # token pressure. Keep only the goal + compact error note.
+            retry_note = (
+                "\n\n**NOTE:** Your previous response did not use the required"
+                " structured-output format. You MUST respond using the tool schema"
+                " (fields: `class_name`, `code`, `reasoning`). Do not return plain text."
+            )
+            messages = [
+                SystemMessage(content=WRITER_SYSTEM),
+                HumanMessage(
+                    content=WRITER_HUMAN.format(
+                        goal=state.get("goal", ""),
+                        feedback_section=(feedback_section or "") + retry_note,
+                    )
+                ),
+            ]
+
+    if result is None:
+        logger.error(
+            "Writer node: all %d LLM attempts returned None — clearing code to force fresh generation",
+            _max_llm_retries,
+        )
+        return {
+            "current_code": None,
+            "current_class_name": None,
+            "current_reasoning": None,
+            "validation_errors": ["Writer LLM failed to produce structured output after all retries"],
+            "rolled_back_from": None,
+            "status": "validating",
+        }
 
     logger.info("Writer produced class %r (%d chars)", result.class_name, len(result.code))
 
@@ -410,6 +460,8 @@ def explainer_node(state: RefinementState) -> dict:
                     HumanMessage(content=human_msg),
                 ]
             )
+            if result is None:
+                raise ValueError("LLM failed to return a structured explanation schema")
             result.scenario_name = sr.scenario_name
             explanations.append(result)
         except Exception as exc:
@@ -542,12 +594,15 @@ def aggregator_node(state: RefinementState) -> dict:
     structured = get_structured_model(model, JudgeVerdict)
 
     try:
-        verdict = structured.invoke(
+        verdict_result = structured.invoke(
             [
                 SystemMessage(content=AGGREGATOR_SYSTEM),
                 HumanMessage(content=human_msg),
             ]
         )
+        if verdict_result is None:
+            raise ValueError("LLM failed to return a structured verdict schema")
+        verdict = verdict_result
     except Exception as exc:
         logger.error("Judge failed: %s", exc)
         verdict = JudgeVerdict(

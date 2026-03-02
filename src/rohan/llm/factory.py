@@ -165,7 +165,12 @@ def get_structured_model[T](
     ``json_schema`` is an OpenAI-specific API that proxies don't always
     honour.
 
+    ``include_raw=True`` is used so we can detect when a model responded with
+    plain text instead of invoking the tool (``parsed`` would be ``None``).
+    Callers must handle ``None`` and retry as appropriate.
+
     Returns a :class:`~langchain_core.runnables.Runnable` whose
-    ``.invoke()`` / ``.ainvoke()`` return an instance of *schema*.
+    ``.invoke()`` returns an instance of *schema*, or ``None`` on parse failure.
     """
-    return model.with_structured_output(schema, method="function_calling")  # type: ignore[invalid-return-type]
+    raw_runnable = model.with_structured_output(schema, method="function_calling", include_raw=True)  # type: ignore[call-overload]
+    return raw_runnable.pipe(lambda x: x.get("parsed"))  # type: ignore[return-value]
