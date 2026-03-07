@@ -30,7 +30,7 @@ from rohan.framework.analysis_service import AnalysisService
 from rohan.framework.database import initialize_database
 from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.simulation.simulation_service import SimulationService
-from rohan.ui.utils.metric_display import fmt_pct, get_delta_color, get_help, metric_delta, pct_delta
+from rohan.ui.utils.metric_display import build_comparison_table, get_delta_color, get_help, metric_delta
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.theme import COLORS, apply_theme
 from rohan.utils.formatting import fmt_dollar
@@ -1112,22 +1112,14 @@ def render_execute_tab():
     if bl_data is not None and st.session_state.simulation_metrics is not None:
         st.markdown("---")
         bl_name = bl_data.get("name", "baseline")
-        st.markdown(f"### ⚖️ Baseline Comparison — *{bl_name}*")
+        st.markdown(f"### ⚖️ Current Run  vs  Baseline: *{bl_name}*")
+        st.caption(f"Side-by-side comparison of your **current run** against the saved baseline scenario **{bl_name}**. A positive Δ% means the current value is higher.")
 
         bm = bl_data["metrics"]
         cur = st.session_state.simulation_metrics
 
-        bc1, bc2, bc3, bc4, bc5 = st.columns(5)
-        with bc1:
-            st.metric("Volatility", fmt_pct(pct_delta(cur.volatility, bm.volatility)) or "N/A", delta_color=get_delta_color("volatility"))
-        with bc2:
-            st.metric("Spread", fmt_pct(pct_delta(cur.mean_spread, bm.mean_spread)) or "N/A", delta_color=get_delta_color("mean_spread"))
-        with bc3:
-            st.metric("Bid Liq.", fmt_pct(pct_delta(cur.avg_bid_liquidity, bm.avg_bid_liquidity)) or "N/A", delta_color=get_delta_color("avg_bid_liquidity"))
-        with bc4:
-            st.metric("VPIN", fmt_pct(pct_delta(cur.vpin, bm.vpin)) or "N/A", delta_color=get_delta_color("vpin"))
-        with bc5:
-            st.metric("Volume", fmt_pct(pct_delta(cur.traded_volume, bm.traded_volume)) or "N/A", delta_color=get_delta_color("traded_volume"))
+        cmp_df = build_comparison_table(cur, bm)
+        st.dataframe(cmp_df.set_index("Metric"), use_container_width=True)
 
     # Execution History
     if "simulation_timestamp" in st.session_state:
@@ -1282,35 +1274,12 @@ with tab2:
             if bl_data is not None:
                 bl_name = bl_data.get("name", "baseline")
                 st.markdown("---")
-                st.markdown(f"### ⚖️ Baseline Comparison — *{bl_name}*")
-                st.caption(f"Percentage change vs saved scenario: {bl_name}")
+                st.markdown(f"### ⚖️ Current Run  vs  Baseline: *{bl_name}*")
+                st.caption(f"Side-by-side comparison of your **current run** against the saved baseline scenario **{bl_name}**. A positive Δ% means the current value is higher.")
 
                 bm = bl_data["metrics"]
-                bc1, bc2, bc3, bc4, bc5, bc6 = st.columns(6)
-                with bc1:
-                    st.metric("Volatility Δ", fmt_pct(pct_delta(metrics.volatility, bm.volatility)) or "N/A", delta_color=get_delta_color("volatility"), help="% change in volatility vs baseline")
-                with bc2:
-                    st.metric("Spread Δ", fmt_pct(pct_delta(metrics.mean_spread, bm.mean_spread)) or "N/A", delta_color=get_delta_color("mean_spread"), help="% change in mean spread vs baseline")
-                with bc3:
-                    st.metric(
-                        "Eff. Spread Δ",
-                        fmt_pct(pct_delta(metrics.effective_spread, bm.effective_spread)) or "N/A",
-                        delta_color=get_delta_color("effective_spread"),
-                        help="% change in effective spread vs baseline",
-                    )
-                with bc4:
-                    st.metric(
-                        "Bid Liq. Δ",
-                        fmt_pct(pct_delta(metrics.avg_bid_liquidity, bm.avg_bid_liquidity)) or "N/A",
-                        delta_color=get_delta_color("avg_bid_liquidity"),
-                        help="% change in bid liquidity vs baseline",
-                    )
-                with bc5:
-                    st.metric("VPIN Δ", fmt_pct(pct_delta(metrics.vpin, bm.vpin)) or "N/A", delta_color=get_delta_color("vpin"), help="% change in VPIN vs baseline")
-                with bc6:
-                    st.metric(
-                        "Volume Δ", fmt_pct(pct_delta(metrics.traded_volume, bm.traded_volume)) or "N/A", delta_color=get_delta_color("traded_volume"), help="% change in traded volume vs baseline"
-                    )
+                cmp_df = build_comparison_table(metrics, bm)
+                st.dataframe(cmp_df.set_index("Metric"), use_container_width=True)
 
             st.markdown("---")
 

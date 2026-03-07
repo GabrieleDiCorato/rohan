@@ -30,6 +30,7 @@ from rohan.framework.refinement_repository import (
 from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.llm.graph import build_refinement_graph
 from rohan.llm.state import RefinementState, ScenarioConfig
+from rohan.ui.utils.metric_display import get_help, get_scoring_help
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.theme import COLORS, apply_theme
 
@@ -969,8 +970,8 @@ if final_state is not None:
                         "Exec": _sub(it.execution_score),
                         "PnL ($)": (_dollar(first.total_pnl) if first else "N/A"),
                         "Trades": first.trade_count if first else 0,
-                        "Vol Δ%": (_pct(first.volatility_delta_pct) if first else "N/A"),
-                        "Spread Δ%": (_pct(first.spread_delta_pct) if first else "N/A"),
+                        "Vol Δ% vs No-Agent": (_pct(first.volatility_delta_pct) if first else "N/A"),
+                        "Spread Δ% vs No-Agent": (_pct(first.spread_delta_pct) if first else "N/A"),
                     }
                 )
 
@@ -1116,13 +1117,13 @@ if final_state is not None:
                 # Sub-score metric cards
                 sc1, sc2, sc3, sc4 = st.columns(4)
                 with sc1:
-                    st.metric("Profitability", f"{latest.profitability_score:.1f}/10" if latest.profitability_score is not None else "—")
+                    st.metric("Profitability", f"{latest.profitability_score:.1f}/10" if latest.profitability_score is not None else "—", help=get_scoring_help("profitability"))
                 with sc2:
-                    st.metric("Risk", f"{latest.risk_score:.1f}/10" if latest.risk_score is not None else "—")
+                    st.metric("Risk", f"{latest.risk_score:.1f}/10" if latest.risk_score is not None else "—", help=get_scoring_help("risk"))
                 with sc3:
-                    st.metric("Impact", f"{latest.impact_score:.1f}/10" if latest.impact_score is not None else "—")
+                    st.metric("Impact", f"{latest.impact_score:.1f}/10" if latest.impact_score is not None else "—", help=get_scoring_help("impact"))
                 with sc4:
-                    st.metric("Execution", f"{latest.execution_score:.1f}/10" if latest.execution_score is not None else "—")
+                    st.metric("Execution", f"{latest.execution_score:.1f}/10" if latest.execution_score is not None else "—", help=get_scoring_help("execution"))
 
                 if latest.scoring_profile:
                     st.caption(f"Scoring profile: **{latest.scoring_profile}**")
@@ -1142,13 +1143,13 @@ if final_state is not None:
                     if _has_sub:
                         ss1, ss2, ss3, ss4 = st.columns(4)
                         with ss1:
-                            st.metric("Profitability", f"{it.profitability_score:.1f}" if it.profitability_score is not None else "—")
+                            st.metric("Profitability", f"{it.profitability_score:.1f}" if it.profitability_score is not None else "—", help=get_scoring_help("profitability"))
                         with ss2:
-                            st.metric("Risk", f"{it.risk_score:.1f}" if it.risk_score is not None else "—")
+                            st.metric("Risk", f"{it.risk_score:.1f}" if it.risk_score is not None else "—", help=get_scoring_help("risk"))
                         with ss3:
-                            st.metric("Impact", f"{it.impact_score:.1f}" if it.impact_score is not None else "—")
+                            st.metric("Impact", f"{it.impact_score:.1f}" if it.impact_score is not None else "—", help=get_scoring_help("impact"))
                         with ss4:
-                            st.metric("Execution", f"{it.execution_score:.1f}" if it.execution_score is not None else "—")
+                            st.metric("Execution", f"{it.execution_score:.1f}" if it.execution_score is not None else "—", help=get_scoring_help("execution"))
                         if it.scoring_profile:
                             st.caption(f"Profile: **{it.scoring_profile}**")
 
@@ -1160,13 +1161,15 @@ if final_state is not None:
                             st.metric(
                                 "PnL",
                                 _dollar(sm.total_pnl),
+                                help="Strategy agent's total Profit & Loss (cents → dollars). Positive = net profit.",
                             )
                         with mc2:
-                            st.metric("Trades", sm.trade_count)
+                            st.metric("Trades", sm.trade_count, help="Total number of fills executed by the strategy agent in this scenario.")
                         with mc3:
                             st.metric(
-                                "Vol Δ%",
+                                "Vol Δ% vs No-Agent",
                                 _pct(sm.volatility_delta_pct),
+                                help="Percentage change in annualised volatility when the strategy agent is present, compared to a baseline simulation with no strategy agent. Positive = the agent increased volatility.",
                             )
 
                         # Microstructure row
@@ -1178,14 +1181,14 @@ if final_state is not None:
                                 return f"{v:{f}}" if v is not None else "N/A"
 
                             with mm1:
-                                st.metric("VPIN", _fv(sm.vpin))
+                                st.metric("VPIN", _fv(sm.vpin), help=get_help("vpin"))
                             with mm2:
-                                st.metric("LOB Imb.", _fv(sm.lob_imbalance_mean))
+                                st.metric("LOB Imb.", _fv(sm.lob_imbalance_mean), help=get_help("lob_imbalance_mean"))
                             with mm3:
                                 res_ms = f"{sm.resilience_mean_ns / 1e6:.1f} ms" if sm.resilience_mean_ns is not None else "N/A"
-                                st.metric("Resilience", res_ms)
+                                st.metric("Resilience", res_ms, help=get_help("resilience_mean_ns"))
                             with mm4:
-                                st.metric("OTT", _fv(sm.market_ott_ratio, ".2f"))
+                                st.metric("OTT", _fv(sm.market_ott_ratio, ".2f"), help=get_help("market_ott_ratio"))
 
                         # Simulation charts
                         import base64
