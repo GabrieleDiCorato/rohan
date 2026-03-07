@@ -17,6 +17,9 @@ from rohan.llm.models import (
 )
 from rohan.llm.nodes import (
     _build_history_table,
+    _fmt_dollar,
+    _fmt_float,
+    _fmt_pct,
     _format_explanations,
     aggregator_node,
     explainer_node,
@@ -583,3 +586,135 @@ class TestFormatExplanations:
         assert "Bad" in result
         assert "Fix" in result
         assert "Neutral" in result
+
+    def test_with_scenario_result_none_metrics(self):
+        """When ScenarioResult fields are None, output should show N/A."""
+        exp = ScenarioExplanation(
+            scenario_name="s1",
+            strengths=[],
+            weaknesses=[],
+            recommendations=[],
+            market_impact_assessment="",
+        )
+        sr = ScenarioResult(
+            scenario_name="s1",
+            strategy_pnl=None,
+            fill_rate=None,
+            order_to_trade_ratio=None,
+            sharpe_ratio=None,
+            max_drawdown=None,
+            inventory_std=None,
+            volatility_delta_pct=None,
+            spread_delta_pct=None,
+        )
+        result = _format_explanations([exp], [sr])
+        # All None fields should produce "N/A"
+        assert result.count("N/A") >= 6
+
+    def test_with_scenario_result_negative_pnl(self):
+        """Negative PnL should format as -$X.XX, not $-X.XX."""
+        exp = ScenarioExplanation(
+            scenario_name="neg",
+            strengths=[],
+            weaknesses=[],
+            recommendations=[],
+            market_impact_assessment="",
+        )
+        sr = ScenarioResult(
+            scenario_name="neg",
+            strategy_pnl=-741.0,
+            fill_rate=0.85,
+            volatility_delta_pct=-0.03,
+        )
+        result = _format_explanations([exp], [sr])
+        assert "-$7.41" in result
+        assert "$-" not in result
+        assert "85.0%" in result
+        assert "-3.0%" in result
+
+
+class TestBuildHistoryTableFormatting:
+    """Edge-case formatting in the history table."""
+
+    def test_none_pnl_shows_na(self):
+        sm = ScenarioMetrics(scenario_name="default", total_pnl=None)
+        summary = IterationSummary(
+            iteration_number=1,
+            strategy_code="class A: pass",
+            scenario_metrics={"default": sm},
+            judge_score=None,
+        )
+        result = _build_history_table([summary])
+        assert "N/A" in result
+
+    def test_negative_pnl_dollar_sign(self):
+        sm = ScenarioMetrics(scenario_name="default", total_pnl=-500.0)
+        summary = IterationSummary(
+            iteration_number=1,
+            strategy_code="class A: pass",
+            scenario_metrics={"default": sm},
+            judge_score=5.0,
+        )
+        result = _build_history_table([summary])
+        assert "-$5.00" in result
+        assert "$-" not in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Formatting helpers (_fmt_dollar, _fmt_pct, _fmt_float)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestFmtDollar:
+    def test_none(self):
+        assert _fmt_dollar(None) == "N/A"
+
+    def test_zero(self):
+        assert _fmt_dollar(0) == "$0.00"
+
+    def test_positive(self):
+        assert _fmt_dollar(12345) == "$123.45"
+
+    def test_negative(self):
+        assert _fmt_dollar(-741) == "-$7.41"
+
+    def test_large_with_comma(self):
+        assert _fmt_dollar(1_000_000) == "$10,000.00"
+
+    def test_fractional_cents(self):
+        assert _fmt_dollar(99.9) == "$1.00"  # rounds to 2 dp
+
+
+class TestFmtPct:
+    def test_none(self):
+        assert _fmt_pct(None) == "N/A"
+
+    def test_zero(self):
+        assert _fmt_pct(0.0) == "0.0%"
+
+    def test_positive(self):
+        assert _fmt_pct(0.856) == "85.6%"
+
+    def test_signed_positive(self):
+        assert _fmt_pct(0.05, signed=True) == "+5.0%"
+
+    def test_signed_negative(self):
+        assert _fmt_pct(-0.03, signed=True) == "-3.0%"
+
+    def test_unsigned_negative(self):
+        # Without signed flag, negative still shows minus
+        assert _fmt_pct(-0.03) == "-3.0%"
+
+
+class TestFmtFloat:
+    def test_none(self):
+        assert _fmt_float(None) == "N/A"
+
+    def test_default_format(self):
+        assert _fmt_float(3.14159) == "3.14"
+
+    def test_custom_format(self):
+        assert _fmt_float(3.14159, ".1f") == "3.1"
+
+    def test_zero(self):
+        assert _fmt_float(0.0) == "0.00"

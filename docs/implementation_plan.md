@@ -220,10 +220,16 @@ OTT penalty: > 200 → −2 points; > 100 → −1 point.
 
 </details>
 
-### Step 4: Fix `or 0` masking and metrics formatting
+### Step 4: Fix `or 0` masking and metrics formatting ✅ DONE
 **File: nodes.py**
-- Replace `(sr.strategy_pnl or 0)` with explicit `None` checks → "N/A" instead of "$0.00".
-- Fix negative PnL formatting: `$-7.41` → `-$7.41`.
+- ~~Replace `(sr.strategy_pnl or 0)` with explicit `None` checks → "N/A" instead of "$0.00".~~
+- ~~Fix negative PnL formatting: `$-7.41` → `-$7.41`.~~
+
+**Completed:** Added 3 private formatting helpers (`_fmt_dollar`, `_fmt_pct`, `_fmt_float`) to `nodes.py`.
+Replaced all 18 `or 0` occurrences across 4 formatting blocks (writer feedback, history table,
+explanations, aggregator metrics). None values now display as "N/A"; negative PnL renders as
+`-$7.41` not `$-7.41`. 20 new tests added (13 for helpers, 4 for integration edge cases,
+3 for history table formatting).
 
 ### Step 5: Fix seed consistency — per-scenario fixed seeds
 **File: graph.py**

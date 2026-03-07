@@ -56,6 +56,32 @@ from rohan.simulation.strategy_validator import StrategyValidator, execute_strat
 logger = logging.getLogger(__name__)
 
 
+# ─── Formatting helpers (consistent None→"N/A", proper negative signs) ────
+
+
+def _fmt_dollar(cents: float | None) -> str:
+    """Format cents as ``$X.XX`` with proper negative sign, or ``N/A``."""
+    if cents is None:
+        return "N/A"
+    dollars = cents / 100.0
+    sign = "-" if dollars < 0 else ""
+    return f"{sign}${abs(dollars):,.2f}"
+
+
+def _fmt_pct(value: float | None, signed: bool = False) -> str:
+    """Format a fractional value as ``X.X%``, or ``N/A``."""
+    if value is None:
+        return "N/A"
+    return f"{value:+.1%}" if signed else f"{value:.1%}"
+
+
+def _fmt_float(value: float | None, fmt: str = ".2f") -> str:
+    """Format a float, or ``N/A``."""
+    if value is None:
+        return "N/A"
+    return f"{value:{fmt}}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Writer Node
 # ═══════════════════════════════════════════════════════════════════════════
@@ -87,13 +113,13 @@ def writer_node(state: RefinementState) -> dict:
             if sr.error:
                 metrics_lines.append(f"- **{sr.scenario_name}:** ERROR")
             else:
-                pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
-                fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
-                ott_str = f"{sr.order_to_trade_ratio:.1f}" if sr.order_to_trade_ratio is not None else "N/A"
-                sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
-                drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
-                inv_std_str = f"{sr.inventory_std:.1f}" if sr.inventory_std is not None else "N/A"
-                vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
+                pnl_str = _fmt_dollar(sr.strategy_pnl)
+                fill_str = _fmt_pct(sr.fill_rate)
+                ott_str = _fmt_float(sr.order_to_trade_ratio, ".1f")
+                sharpe_str = _fmt_float(sr.sharpe_ratio)
+                drawdown_str = _fmt_dollar(sr.max_drawdown)
+                inv_std_str = _fmt_float(sr.inventory_std, ".1f")
+                vol_str = _fmt_pct(sr.volatility_delta_pct, signed=True)
                 metrics_lines.append(
                     f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, "
                     f"Fill Rate={fill_str}, OTT={ott_str}, Sharpe={sharpe_str}, "
@@ -538,12 +564,12 @@ def _build_history_table(iterations: list[IterationSummary]) -> str:
         rows.append(
             HISTORY_ROW_TEMPLATE.format(
                 iter=it.iteration_number,
-                pnl=f"${(first_metrics.total_pnl or 0) / 100:,.2f}" if first_metrics else "N/A",
+                pnl=_fmt_dollar(first_metrics.total_pnl) if first_metrics else "N/A",
                 trades=str(first_metrics.trade_count) if first_metrics else "N/A",
-                fill_rate=f"{(first_metrics.fill_rate or 0):.1%}" if first_metrics and first_metrics.fill_rate is not None else "N/A",
-                vol_delta=f"{(first_metrics.volatility_delta_pct or 0):+.1%}" if first_metrics else "N/A",
-                spread_delta=f"{(first_metrics.spread_delta_pct or 0):+.1%}" if first_metrics else "N/A",
-                score=f"{it.judge_score:.1f}" if it.judge_score else "N/A",
+                fill_rate=_fmt_pct(first_metrics.fill_rate) if first_metrics else "N/A",
+                vol_delta=_fmt_pct(first_metrics.volatility_delta_pct, signed=True) if first_metrics else "N/A",
+                spread_delta=_fmt_pct(first_metrics.spread_delta_pct, signed=True) if first_metrics else "N/A",
+                score=_fmt_float(it.judge_score, ".1f"),
                 summary=summary,
             )
         )
@@ -574,14 +600,14 @@ def _format_explanations(
         # ── Inject ground-truth metrics when available ──
         sr = sr_map.get(exp.scenario_name)
         if sr and not sr.error:
-            pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
-            vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
-            spread_str = f"{(sr.spread_delta_pct or 0):+.1%}"
-            fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
-            ott_str = f"{sr.order_to_trade_ratio:.1f}" if sr.order_to_trade_ratio is not None else "N/A"
-            sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
-            drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
-            inv_std_str = f"{sr.inventory_std:.1f}" if sr.inventory_std is not None else "N/A"
+            pnl_str = _fmt_dollar(sr.strategy_pnl)
+            vol_str = _fmt_pct(sr.volatility_delta_pct, signed=True)
+            spread_str = _fmt_pct(sr.spread_delta_pct, signed=True)
+            fill_str = _fmt_pct(sr.fill_rate)
+            ott_str = _fmt_float(sr.order_to_trade_ratio, ".1f")
+            sharpe_str = _fmt_float(sr.sharpe_ratio)
+            drawdown_str = _fmt_dollar(sr.max_drawdown)
+            inv_std_str = _fmt_float(sr.inventory_std, ".1f")
             part += (
                 f"**Factual Metrics (from simulation):** "
                 f"PnL={pnl_str}, Trades={sr.trade_count}, Fill Rate={fill_str}, OTT={ott_str}, "
@@ -702,14 +728,14 @@ def aggregator_node(state: RefinementState) -> dict:
         if sr.error:
             current_metrics_lines.append(f"- **{sr.scenario_name}:** ERROR — {sr.error[:100]}")
         else:
-            pnl_str = f"${(sr.strategy_pnl or 0) / 100:,.2f}"
-            vol_str = f"{(sr.volatility_delta_pct or 0):+.1%}"
-            spread_str = f"{(sr.spread_delta_pct or 0):+.1%}"
-            fill_str = f"{(sr.fill_rate or 0):.1%}" if sr.fill_rate is not None else "N/A"
-            ott_str = f"{sr.order_to_trade_ratio:.1f}" if sr.order_to_trade_ratio is not None else "N/A"
-            sharpe_str = f"{sr.sharpe_ratio:.2f}" if sr.sharpe_ratio is not None else "N/A"
-            drawdown_str = f"${(sr.max_drawdown or 0) / 100:,.2f}" if sr.max_drawdown is not None else "N/A"
-            inv_std_str = f"{sr.inventory_std:.1f}" if sr.inventory_std is not None else "N/A"
+            pnl_str = _fmt_dollar(sr.strategy_pnl)
+            vol_str = _fmt_pct(sr.volatility_delta_pct, signed=True)
+            spread_str = _fmt_pct(sr.spread_delta_pct, signed=True)
+            fill_str = _fmt_pct(sr.fill_rate)
+            ott_str = _fmt_float(sr.order_to_trade_ratio, ".1f")
+            sharpe_str = _fmt_float(sr.sharpe_ratio)
+            drawdown_str = _fmt_dollar(sr.max_drawdown)
+            inv_std_str = _fmt_float(sr.inventory_std, ".1f")
             current_metrics_lines.append(
                 f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, "
                 f"Fill Rate={fill_str}, OTT={ott_str}, Sharpe={sharpe_str}, "

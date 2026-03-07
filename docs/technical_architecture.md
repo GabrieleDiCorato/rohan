@@ -226,7 +226,7 @@ The Explainer agent uses **tool calling** to deeply analyze simulation results. 
 *   **Pandera Schema Strictness:** Explicitly set `strict=True` or `coerce=False` depending on intent.
 *   **Domain-Specific Exception Hierarchy:** `RohanError`, `StrategyValidationError`, `SimulationTimeoutError`, `BaselineComparisonError`, `StrategyExecutionError`.
 *   **Database Factory:** Uses a module-level factory function `get_database_connector()` with `@lru_cache(maxsize=1)`.
-*   **Formatting Utilities:** Consolidated in `src/rohan/utils/formatting.py`.
+*   **Formatting Utilities:** Consolidated in `src/rohan/utils/formatting.py`. LLM node formatting uses private helpers `_fmt_dollar`, `_fmt_pct`, `_fmt_float` in `nodes.py` for consistent `None→"N/A"` handling and proper negative-dollar sign placement (`-$7.41` not `$-7.41`).
 *   **UI Monolith Split:** Extracted into a Streamlit multipage app structure.
 *   **Test Hardening:** Added failure-path tests, edge-case tests, property-based testing with `hypothesis`, and minimal integration tests.
 *   **Seed Logging:** Logs the random seed for reproducibility.
