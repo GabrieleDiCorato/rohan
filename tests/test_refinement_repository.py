@@ -39,7 +39,9 @@ class TestRefinementRepository:
                     aggregated_explanation=f"Explanation for iteration {i}",
                     profitability_score=6.0 + i,
                     risk_score=5.0 + i,
-                    impact_score=4.0 + i,
+                    volatility_impact_score=4.0 + i,
+                    spread_impact_score=4.5 + i,
+                    liquidity_impact_score=5.0 + i,
                     execution_score=7.0 + i,
                     scoring_profile="default",
                     scenario_results=[
@@ -259,7 +261,9 @@ class TestRefinementRepository:
         # Sub-scores on iteration
         assert it.profitability_score == 7.0
         assert it.risk_score == 6.0
-        assert it.impact_score == 5.0
+        assert it.volatility_impact_score == 5.0
+        assert it.spread_impact_score == 5.5
+        assert it.liquidity_impact_score == 6.0
         assert it.execution_score == 8.0
         assert it.scoring_profile == "default"
 

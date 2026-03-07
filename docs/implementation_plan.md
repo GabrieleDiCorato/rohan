@@ -197,13 +197,28 @@ OTT penalty: > 200 → −2 points; > 100 → −1 point.
 
 </details>
 
-### Step 3: Rewire aggregator for deterministic scoring
-**File: nodes.py (aggregator)**
-- Call `compute_axis_scores()` + `compute_final_score()` per scenario, average across scenarios.
-- Build `JudgeVerdict` with deterministic score and all 6 sub-scores.
-- Compute `comparison` and `recommendation` deterministically.
-- Remove the rule-based stop guard logic (redundant).
-- Change the LLM call to qualitative analysis only.
+### Step 3: Rewire aggregator for deterministic scoring ✅ DONE
+
+<details>
+<summary>Completed implementation details (click to expand)</summary>
+
+**nodes.py (aggregator)**: Complete rewrite (~240 lines). Calls `compute_axis_scores()` per scenario → averages across scenarios → `compute_final_score()`. Deterministic comparison (better/worse/similar thresholds), deterministic recommendation (plateau detection at ±0.5, convergence at ≥7.0 + plateau). LLM now returns `QualitativeAnalysis` (reasoning only). Builds `JudgeVerdict` programmatically from deterministic scores + LLM reasoning. Simplified rollback: single >1.0 threshold, no borderline re-score. Regression forces `recommendation = "continue"`.
+
+**models.py**: `JudgeVerdict` updated from 4 to 6 sub-score fields (`volatility_impact_score`, `spread_impact_score`, `liquidity_impact_score` replace `impact_score`). Added `QualitativeAnalysis` model. `IterationSummary` updated to 6 sub-score fields.
+
+**prompts.py**: `AGGREGATOR_SYSTEM` rewritten — removed `{scoring_rubric}` placeholder, removed convergence rules, now instructs LLM to produce `QualitativeAnalysis` structured output (qualitative analysis only).
+
+**refinement_repository.py**: `IterationData` dataclass updated from `impact_score` → 3 separate impact fields. Save/load mappings updated.
+
+**database/models.py**: `RefinementIteration` ORM: added `volatility_impact_score`, `spread_impact_score`, `liquidity_impact_score` columns. `impact_score` kept for backward compat with existing DBs.
+
+**UI (1_Refinement_Lab.py, metric_display.py)**: Updated from 4-axis to 6-axis scoring display — history table, score progression chart, radar chart, metric cards, per-iteration breakdown all show 6 axes. `SCORING_AXIS_CONFIG` help text updated for new axes.
+
+**Tests**: `test_llm_nodes.py` aggregator tests rewritten (9 tests: basic flow, convergence, max iterations, LLM failure fallback, regression/rollback, best-tracking, plateau, sub-score propagation, error scenario floor). `test_llm_prompts.py` updated (removed `build_scoring_rubric` import, rewrote aggregator prompt tests for qualitative-only). `test_refinement_repository.py` updated for 6-axis fields.
+
+**Pyright error resolved**: The `build_scoring_rubric` import in `nodes.py` (broken since Step 1) is now replaced with `compute_axis_scores, compute_final_score`.
+
+</details>
 
 ### Step 4: Fix `or 0` masking and metrics formatting
 **File: nodes.py**
@@ -321,17 +336,9 @@ def query_order_lifecycle(scenario_name: str) -> str:
 
 These changes clean up the prompt architecture and data models to align with the deterministic scoring + qualitative analysis split.
 
-### Step 11: Simplify aggregator prompt
-**File: prompts.py**
-- Remove `{scoring_rubric}` placeholder from `AGGREGATOR_SYSTEM`.
-- New prompt: inject pre-computed deterministic scores, ask the LLM to explain *why* the strategy scored this way on each axis, identify code patterns, and provide actionable recommendations.
-- Remove convergence guidance (now deterministic).
+### Step 11: Simplify aggregator prompt ✅ DONE (completed in Step 3)
 
-### Step 12: Update models for 6-axis scoring + qualitative output
-**File: models.py**
-- Update `JudgeVerdict`: add `volatility_impact_score`, `spread_impact_score`, `liquidity_impact_score`. Scores populated by formula.
-- Create `QualitativeAnalysis` model: `reasoning`, `strengths`, `weaknesses`, `recommendations`.
-- Update `IterationSummary` for 3 new sub-score fields.
+### Step 12: Update models for 6-axis scoring + qualitative output ✅ DONE (completed in Step 3)
 
 ### Step 13: Restructure feedback routing
 **File: models.py**
@@ -354,12 +361,9 @@ These changes clean up the prompt architecture and data models to align with the
 **File: prompts.py**
 - Update `WRITER_FEEDBACK_TEMPLATE` format.
 
-### Step 14: Audit UI for 6-axis scoring
-**File: UI components (metric_display.py, 1_Refinement_Lab.py)**
-- Show 6 axes instead of 4.
-- Relabel "Market Impact" → "Volatility Impact", "Spread Impact", "Liquidity Impact".
-- Add PnL curve, inventory trajectory, fill scatter charts to scenario detail views.
-- Update reasoning display for qualitative-only output.
+### Step 14: Audit UI for 6-axis scoring ✅ DONE (completed in Step 3)
+
+UI updated: 6-axis display (history table, score progression, radar chart, metric cards), `SCORING_AXIS_CONFIG` help text, `IterationData`/repository mappings. PnL curve/inventory/fill scatter charts deferred to Step 10.
 
 ---
 

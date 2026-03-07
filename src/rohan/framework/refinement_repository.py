@@ -71,7 +71,9 @@ class IterationData:
     rolled_back: bool = False
     profitability_score: float | None = None
     risk_score: float | None = None
-    impact_score: float | None = None
+    volatility_impact_score: float | None = None
+    spread_impact_score: float | None = None
+    liquidity_impact_score: float | None = None
     execution_score: float | None = None
     scoring_profile: str | None = None
     scenario_results: list[ScenarioResultData] = field(default_factory=list)
@@ -149,7 +151,9 @@ class RefinementRepository:
                 rolled_back=it_data.rolled_back,
                 profitability_score=it_data.profitability_score,
                 risk_score=it_data.risk_score,
-                impact_score=it_data.impact_score,
+                volatility_impact_score=it_data.volatility_impact_score,
+                spread_impact_score=it_data.spread_impact_score,
+                liquidity_impact_score=it_data.liquidity_impact_score,
                 execution_score=it_data.execution_score,
                 scoring_profile=it_data.scoring_profile,
             )
@@ -265,7 +269,9 @@ class RefinementRepository:
                         rolled_back=it_orm.rolled_back,
                         profitability_score=it_orm.profitability_score,
                         risk_score=it_orm.risk_score,
-                        impact_score=it_orm.impact_score,
+                        volatility_impact_score=it_orm.volatility_impact_score,
+                        spread_impact_score=it_orm.spread_impact_score,
+                        liquidity_impact_score=it_orm.liquidity_impact_score,
                         execution_score=it_orm.execution_score,
                         scoring_profile=it_orm.scoring_profile,
                     )

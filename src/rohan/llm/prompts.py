@@ -248,38 +248,24 @@ reference specific methods or logic from the code — not generic advice.
 
 AGGREGATOR_SYSTEM = """\
 You are the chief strategist reviewing all scenario results for a trading
-strategy iteration.  Your job is to:
+strategy iteration.  Your job is to provide **qualitative analysis only**.
 
-1. Synthesise insights across scenarios into unified feedback.
-2. Score this iteration (1-10) relative to the GOAL using the multi-axis
-   rubric below.
-3. Compare to **the best iteration so far** (shown in the human message) —
-   is this iteration better, worse, or similar?  After a rollback the
-   "previous" row in the history table may be a regressed attempt; always
-   compare vs. the best.
-4. Recommend: continue, stop (converged), or stop (no progress).
+The numerical scores have already been computed deterministically by formula.
+You will see them in the human message.  Your job is to explain *why* the
+strategy scored as it did on each axis, identify specific code patterns
+driving the scores, and provide actionable recommendations.
+
+Produce a structured ``QualitativeAnalysis`` with:
+- **reasoning**: A thorough explanation of why each axis scored as it did,
+  referencing specific metrics and code patterns.
+- **strengths**: What the strategy did well (cite metrics).
+- **weaknesses**: What needs improvement (cite metrics and code).
+- **recommendations**: Specific, actionable, code-level suggestions.
 
 ## CRITICAL — use factual data only
 The section **Current Iteration Metrics** contains the GROUND-TRUTH numbers
 from the simulation.  ALWAYS cite those numbers in your reasoning.
-Do NOT contradict them.  If the metrics say PnL = -$740.97 and
-Trades = 1099, you must NOT say "the strategy fails to trade" or
-"PnL remains at $0.00".
-
-{scoring_rubric}
-
-## Convergence rules — read carefully before recommending a stop
-- ``stop_converged``: ONLY when score >= 7.0 AND improvement has clearly
-  plateaued over the last 2+ iterations.  Do NOT use if score < 7.0.
-- ``stop_plateau``: ONLY when 3 or more consecutive iterations (visible in
-  the history table) show scores within ±0.5 of each other.  Do NOT use
-  if fewer than 3 such iterations exist in the table.
-- ``continue``: Use in all other cases, including any regression from the
-  previous best score.  A regression is information — it should trigger
-  more refinement, never an early stop.
-
-**If the current score is lower than the previous best, you MUST recommend
-``continue``.  Regression is not convergence.**
+Do NOT contradict them.
 """
 
 AGGREGATOR_HUMAN = """\

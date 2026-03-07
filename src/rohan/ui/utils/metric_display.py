@@ -132,46 +132,65 @@ METRIC_CONFIG: dict[str, dict[str, str]] = {
 SCORING_AXIS_CONFIG: dict[str, dict[str, str]] = {
     "profitability": {
         "help": (
-            "**Profitability** — absolute PnL on $100K starting capital.\n\n"
-            "Default weight: **40%** of composite score.\n\n"
-            "• 1–2: Net loss or zero trades\n"
-            "• 3–4: $0 – $200 profit\n"
-            "• 5–6: $200 – $1,500\n"
-            "• 7–8: $1,500 – $5,000\n"
-            "• 9–10: > $5,000"
+            "**Profitability** — opportunity capture rate (PnL / available spread revenue).\n\n"
+            "Default weight: **35%** of composite score.\n\n"
+            "• 1–3: Net loss or zero trades\n"
+            "• 3–5: Minimal capture (< 0.1%)\n"
+            "• 5–7: Solid capture (0.1% – 0.5%)\n"
+            "• 7–9: Strong capture (0.5% – 2%)\n"
+            "• 9–10: Exceptional (> 2%)"
         ),
     },
     "risk": {
         "help": (
-            "**Risk-Adjusted Performance** — Sharpe ratio, drawdown & inventory risk.\n\n"
-            "Default weight: **25%** of composite score.\n\n"
-            "• 1–2: Sharpe < 0 or max drawdown > 50%\n"
+            "**Risk-Adjusted Performance** — Sharpe ratio with drawdown penalty.\n\n"
+            "Default weight: **20%** of composite score.\n\n"
+            "• 1–3: Sharpe < 0 or extreme drawdown\n"
             "• 3–4: Sharpe 0 – 0.5\n"
-            "• 5–6: Sharpe 0.5 – 1.5\n"
-            "• 7–8: Sharpe 1.5 – 3.0\n"
-            "• 9–10: Sharpe > 3.0, drawdown < 10%"
+            "• 4–6: Sharpe 0.5 – 1.5\n"
+            "• 6–8: Sharpe 1.5 – 3.0\n"
+            "• 8–10: Sharpe > 3.0"
         ),
     },
-    "impact": {
+    "volatility_impact": {
         "help": (
-            "**Market Impact** — stabilising vs destabilising effect on the market.\n\n"
-            "Default weight: **15%** of composite score.\n\n"
-            "• 1–2: Volatility ↑ > 10% AND spread ↑ > 10%\n"
-            "• 3–4: Slight destabilisation (5–10%)\n"
-            "• 5–6: Neutral (± 5%)\n"
-            "• 7–8: Mildly stabilising (5–15% reduction)\n"
-            "• 9–10: Strongly stabilising (> 15% reduction)"
+            "**Volatility Impact** — effect on market volatility (baseline-relative).\n\n"
+            "Default weight: **7%** of composite score.\n\n"
+            "• 1–4: Destabilising (volatility ↑ > 5%)\n"
+            "• 4–7: Neutral (± 5%)\n"
+            "• 7–9: Stabilising (volatility ↓ 5–15%)\n"
+            "• 9+: Strongly stabilising (↓ > 15%)"
+        ),
+    },
+    "spread_impact": {
+        "help": (
+            "**Spread Impact** — effect on bid-ask spreads (baseline-relative).\n\n"
+            "Default weight: **8%** of composite score.\n\n"
+            "• 1–4: Widening spreads (↑ > 5%)\n"
+            "• 4–7: Neutral (± 5%)\n"
+            "• 7–9: Tightening spreads (↓ 5–15%)\n"
+            "• 9+: Strongly tightening (↓ > 15%)"
+        ),
+    },
+    "liquidity_impact": {
+        "help": (
+            "**Liquidity Impact** — effect on order book depth (baseline-relative).\n\n"
+            "Default weight: **5%** of composite score.\n\n"
+            "• 1–4: Draining liquidity (↓ > 5%)\n"
+            "• 4–7: Neutral (± 5%)\n"
+            "• 7–9: Improving liquidity (↑ 5–15%)\n"
+            "• 9+: Strongly improving (↑ > 15%)"
         ),
     },
     "execution": {
         "help": (
-            "**Execution Quality** — fill rate, OTT ratio & order management.\n\n"
-            "Default weight: **20%** of composite score.\n\n"
-            "• 1–2: Fill rate < 5% or OTT > 50\n"
-            "• 3–4: Fill rate 5–15%, OTT 20–50\n"
-            "• 5–6: Fill rate 15–30%, OTT 10–20\n"
-            "• 7–8: Fill rate 30–50%, OTT 5–10\n"
-            "• 9–10: Fill rate > 50%, OTT < 5"
+            "**Execution Quality** — fill rate with OTT penalty.\n\n"
+            "Default weight: **25%** of composite score.\n\n"
+            "• 1–2: Fill rate < 5%\n"
+            "• 2–4: Fill rate 5–15%\n"
+            "• 4–6: Fill rate 15–30%\n"
+            "• 6–8: Fill rate 30–50%\n"
+            "• 8–10: Fill rate > 50%"
         ),
     },
 }

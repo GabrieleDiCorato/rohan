@@ -11,6 +11,7 @@ from rohan.llm.models import (
     GeneratedStrategy,
     IterationSummary,
     JudgeVerdict,
+    QualitativeAnalysis,
     ScenarioExplanation,
     ScenarioMetrics,
 )
@@ -22,10 +23,24 @@ from rohan.llm.nodes import (
     validator_node,
     writer_node,
 )
+from rohan.llm.scoring import AxisScores
 from rohan.llm.state import RefinementState, ScenarioConfig, ScenarioResult
 
 # Patch target for every test that invokes an LLM
 _PATCH_STRUCTURED = "rohan.llm.nodes.get_structured_model"
+
+# Patch targets for deterministic scoring (aggregator tests)
+_PATCH_AXIS = "rohan.llm.nodes.compute_axis_scores"
+_PATCH_FINAL = "rohan.llm.nodes.compute_final_score"
+
+# Reusable fixtures for aggregator tests
+_DEFAULT_AXIS = AxisScores(6.0, 6.0, 5.5, 5.5, 5.5, 6.0)
+_QUALITATIVE = QualitativeAnalysis(
+    reasoning="Good improvement across the board",
+    strengths=["Nice PnL"],
+    weaknesses=["High risk"],
+    recommendations=["Reduce position size"],
+)
 
 # -- Valid strategy code for tests (mirrors test_iteration_pipeline.py) -----
 VALID_STRATEGY = """\
@@ -83,6 +98,11 @@ def _base_state(**overrides) -> RefinementState:
         "iteration_number": 1,
         "status": "writing",
         "messages": [],
+        # Best-tracking state (used by aggregator)
+        "best_score": None,
+        "best_code": None,
+        "best_iteration_number": 0,
+        "rolled_back_from": None,
     }
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -277,18 +297,17 @@ class TestExplainerNode:
 
 
 class TestAggregatorNode:
+    """Aggregator tests — scoring functions mocked for isolation from scoring.py."""
+
+    @patch(_PATCH_FINAL, return_value=6.0)
+    @patch(_PATCH_AXIS, return_value=_DEFAULT_AXIS)
     @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_judge_model")
-    def test_produces_feedback_and_history(self, mock_get_model, mock_get_structured):
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = JudgeVerdict(
-            score=6.0,
-            comparison="better",
-            reasoning="Some improvement",
-            recommendation="continue",
-        )
-        mock_get_structured.return_value = mock_structured
-        mock_get_model.return_value = MagicMock()
+    def test_produces_feedback_and_history(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
 
         state = _base_state(
             current_code="class X: pass",
@@ -309,73 +328,216 @@ class TestAggregatorNode:
 
         assert result["aggregated_feedback"] is not None
         assert result["aggregated_feedback"].verdict.score == 6.0
+        assert result["aggregated_feedback"].verdict.profitability_score == 6.0
+        assert result["aggregated_feedback"].verdict.volatility_impact_score == 5.5
         assert len(result["iterations"]) == 1
         assert result["iterations"][0].iteration_number == 1
         assert result["iteration_number"] == 2
         assert result["status"] == "writing"  # continue
+        assert result["best_score"] == 6.0  # first iteration sets best
 
+    @patch(_PATCH_FINAL, return_value=8.0)
+    @patch(_PATCH_AXIS, return_value=AxisScores(8.0, 8.0, 7.0, 7.0, 7.0, 8.0))
     @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_judge_model")
-    def test_stop_converged(self, mock_get_model, mock_get_structured):
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = JudgeVerdict(
-            score=9.0,
-            comparison="similar",
-            reasoning="Converged",
-            recommendation="stop_converged",
-        )
-        mock_get_structured.return_value = mock_structured
-        mock_get_model.return_value = MagicMock()
+    def test_stop_converged(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        """Score >= 7.0 with plateau (last 3 within ±0.5) → stop_converged."""
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
 
+        # Two previous iterations with score 8.0, current also 8.0 → plateau at high score
+        prev_iterations = [
+            IterationSummary(iteration_number=1, strategy_code="v1", judge_score=8.0),
+            IterationSummary(iteration_number=2, strategy_code="v2", judge_score=8.0),
+        ]
         state = _base_state(
             current_code="class X: pass",
-            iteration_number=2,
+            iteration_number=3,
             explanations=[ScenarioExplanation()],
-            scenario_results=[ScenarioResult()],
+            scenario_results=[ScenarioResult(scenario_name="default", strategy_pnl=50.0)],
+            iterations=prev_iterations,
+            best_score=8.0,
+            best_code="class X: pass",
+            best_iteration_number=2,
         )
         result = aggregator_node(state)
         assert result["status"] == "done"
+        assert result["aggregated_feedback"].verdict.recommendation == "stop_converged"
 
+    @patch(_PATCH_FINAL, return_value=5.0)
+    @patch(_PATCH_AXIS, return_value=AxisScores(5.0, 5.0, 5.5, 5.5, 5.5, 5.0))
     @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_judge_model")
-    def test_max_iterations_reached(self, mock_get_model, mock_get_structured):
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = JudgeVerdict(
-            score=5.0,
-            comparison="better",
-            reasoning="Still improving",
-            recommendation="continue",
-        )
-        mock_get_structured.return_value = mock_structured
-        mock_get_model.return_value = MagicMock()
+    def test_max_iterations_reached(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
 
         state = _base_state(
             current_code="class X: pass",
             iteration_number=3,
             max_iterations=3,
             explanations=[ScenarioExplanation()],
-            scenario_results=[ScenarioResult()],
+            scenario_results=[ScenarioResult(scenario_name="default", strategy_pnl=50.0)],
         )
         result = aggregator_node(state)
         assert result["status"] == "done"  # max reached
 
+    @patch(_PATCH_FINAL, return_value=5.0)
+    @patch(_PATCH_AXIS, return_value=_DEFAULT_AXIS)
     @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.get_judge_model")
-    def test_llm_failure_defaults_to_continue(self, mock_get_model, mock_get_structured):
-        mock_structured = MagicMock()
-        mock_structured.invoke.side_effect = RuntimeError("API error")
-        mock_get_structured.return_value = mock_structured
-        mock_get_model.return_value = MagicMock()
+    def test_llm_failure_defaults_to_continue(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        """LLM failure doesn't crash — score is still deterministic."""
+        mock_inst = MagicMock()
+        mock_inst.invoke.side_effect = RuntimeError("API error")
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
 
         state = _base_state(
             current_code="class X: pass",
             iteration_number=1,
             explanations=[ScenarioExplanation()],
-            scenario_results=[ScenarioResult()],
+            scenario_results=[ScenarioResult(scenario_name="default", strategy_pnl=50.0)],
         )
         result = aggregator_node(state)
         assert result["aggregated_feedback"].verdict.score == 5.0
         assert result["status"] == "writing"  # fallback continues
+        assert "unavailable" in result["aggregated_feedback"].verdict.reasoning.lower()
+
+    @patch(_PATCH_FINAL, return_value=3.0)
+    @patch(_PATCH_AXIS, return_value=AxisScores(3.0, 3.0, 5.5, 5.5, 5.5, 3.0))
+    @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.get_judge_model")
+    def test_regression_triggers_rollback(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        """Score drop > 1.0 from best → rollback to best code, force continue."""
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
+
+        state = _base_state(
+            current_code="class BadV2: pass",
+            iteration_number=2,
+            explanations=[ScenarioExplanation()],
+            scenario_results=[ScenarioResult(scenario_name="default", strategy_pnl=50.0)],
+            best_score=6.0,
+            best_code="class GoodV1: pass",
+            best_iteration_number=1,
+        )
+        result = aggregator_node(state)
+        assert result["current_code"] == "class GoodV1: pass"  # rolled back
+        assert result["status"] == "writing"  # forced continue despite regression
+        assert result["rolled_back_from"] is not None
+        assert result["rolled_back_from"]["score"] == 3.0
+        assert result["iterations"][-1].rolled_back is True
+        assert result["best_score"] == 6.0  # best unchanged
+
+    @patch(_PATCH_FINAL, return_value=7.0)
+    @patch(_PATCH_AXIS, return_value=AxisScores(7.0, 7.0, 6.0, 6.0, 6.0, 7.0))
+    @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.get_judge_model")
+    def test_better_score_updates_best(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        """Score above best → updates best tracking state."""
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
+
+        state = _base_state(
+            current_code="class V2: pass",
+            iteration_number=2,
+            explanations=[ScenarioExplanation()],
+            scenario_results=[ScenarioResult(scenario_name="default", strategy_pnl=50.0)],
+            best_score=5.0,
+            best_code="class V1: pass",
+            best_iteration_number=1,
+        )
+        result = aggregator_node(state)
+        assert result["best_score"] == 7.0
+        assert result["best_code"] == "class V2: pass"
+        assert result["best_iteration_number"] == 2
+        assert result["aggregated_feedback"].verdict.comparison == "better"
+
+    @patch(_PATCH_FINAL, return_value=4.5)
+    @patch(_PATCH_AXIS, return_value=AxisScores(4.5, 4.5, 5.5, 5.5, 5.5, 4.5))
+    @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.get_judge_model")
+    def test_stop_plateau_low_scores(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        """3 consecutive scores within ±0.5 but below 7.0 → stop_plateau."""
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
+
+        prev_iterations = [
+            IterationSummary(iteration_number=1, strategy_code="v1", judge_score=4.3),
+            IterationSummary(iteration_number=2, strategy_code="v2", judge_score=4.5),
+        ]
+        state = _base_state(
+            current_code="class V3: pass",
+            iteration_number=3,
+            explanations=[ScenarioExplanation()],
+            scenario_results=[ScenarioResult(scenario_name="default", strategy_pnl=50.0)],
+            iterations=prev_iterations,
+            best_score=4.5,
+            best_code="class V2: pass",
+            best_iteration_number=2,
+        )
+        result = aggregator_node(state)
+        assert result["status"] == "done"
+        assert result["aggregated_feedback"].verdict.recommendation == "stop_plateau"
+
+    @patch(_PATCH_FINAL, return_value=6.0)
+    @patch(_PATCH_AXIS, return_value=_DEFAULT_AXIS)
+    @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.get_judge_model")
+    def test_sub_scores_propagated_to_iteration(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        """All 6 axis sub-scores are stored in IterationSummary."""
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
+
+        state = _base_state(
+            current_code="class X: pass",
+            iteration_number=1,
+            explanations=[ScenarioExplanation()],
+            scenario_results=[ScenarioResult(scenario_name="default", strategy_pnl=50.0)],
+        )
+        result = aggregator_node(state)
+        it = result["iterations"][0]
+        assert it.profitability_score == 6.0
+        assert it.risk_score == 6.0
+        assert it.volatility_impact_score == 5.5
+        assert it.spread_impact_score == 5.5
+        assert it.liquidity_impact_score == 5.5
+        assert it.execution_score == 6.0
+
+    @patch(_PATCH_FINAL, return_value=1.0)
+    @patch(_PATCH_AXIS)
+    @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.get_judge_model")
+    def test_error_scenario_floor_score(self, mock_model, mock_struct, mock_axis, _mock_final):
+        """Error scenarios are skipped in scoring (floor score 1.0)."""
+        mock_axis.return_value = _DEFAULT_AXIS  # won't be called for error scenario
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
+
+        state = _base_state(
+            current_code="class X: pass",
+            iteration_number=1,
+            explanations=[ScenarioExplanation()],
+            scenario_results=[ScenarioResult(scenario_name="default", error="Simulation crashed")],
+        )
+        result = aggregator_node(state)
+        assert result["aggregated_feedback"].verdict.score == 1.0
+        mock_axis.assert_not_called()  # error scenarios skip axis computation
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -26,6 +26,7 @@ from rohan.llm.models import (
     GeneratedStrategy,
     IterationSummary,
     JudgeVerdict,
+    QualitativeAnalysis,
     ScenarioExplanation,
     ScenarioMetrics,
 )
@@ -41,7 +42,7 @@ from rohan.llm.prompts import (
     WRITER_ROLLBACK_SECTION,
     WRITER_SYSTEM,
 )
-from rohan.llm.scoring import WEIGHT_PROFILES, build_scoring_rubric, classify_goal_weights
+from rohan.llm.scoring import WEIGHT_PROFILES, classify_goal_weights, compute_axis_scores, compute_final_score
 from rohan.llm.state import RefinementState, ScenarioResult
 from rohan.simulation.models.simulation_metrics import (
     ComparisonResult,
@@ -604,7 +605,12 @@ def _format_explanations(
 
 
 def aggregator_node(state: RefinementState) -> dict:
-    """Combine scenario explanations, judge convergence, and handle rollbacks."""
+    """Combine scenario explanations, score deterministically, and handle rollbacks.
+
+    Scoring is fully deterministic via ``compute_axis_scores`` /
+    ``compute_final_score``.  The LLM is called only for qualitative
+    analysis (reasoning, strengths, weaknesses, recommendations).
+    """
     explanations = state.get("explanations", [])
     iterations = state.get("iterations", [])
     iteration_number = state.get("iteration_number", 1)
@@ -617,22 +623,80 @@ def aggregator_node(state: RefinementState) -> dict:
 
     logger.info("Aggregator node — iteration %d, %d explanation(s)", iteration_number, len(explanations))
 
+    # ── Deterministic scoring ────────────────────────────────────────────
+    goal = state.get("goal", "")
+    weights = classify_goal_weights(goal)
+
+    # Compute per-scenario axis scores, then average
+    all_axis = []
+    for sr in scenario_results:
+        if sr.error:
+            continue
+        axis = compute_axis_scores(
+            strategy_pnl=sr.strategy_pnl,
+            trade_count=sr.trade_count,
+            sharpe_ratio=sr.sharpe_ratio,
+            max_drawdown=sr.max_drawdown,
+            fill_rate=sr.fill_rate,
+            order_to_trade_ratio=sr.order_to_trade_ratio,
+            volatility_delta_pct=sr.volatility_delta_pct,
+            spread_delta_pct=sr.spread_delta_pct,
+            bid_liquidity_delta_pct=sr.bid_liquidity_delta_pct,
+            ask_liquidity_delta_pct=sr.ask_liquidity_delta_pct,
+            starting_capital_cents=sr.starting_capital_cents,
+            baseline_mean_spread=sr.baseline_mean_spread,
+            baseline_traded_volume=sr.baseline_traded_volume,
+        )
+        all_axis.append(axis)
+
+    if all_axis:
+        from rohan.llm.scoring import AxisScores
+
+        avg_axis = AxisScores(
+            profitability=sum(a.profitability for a in all_axis) / len(all_axis),
+            risk_adjusted=sum(a.risk_adjusted for a in all_axis) / len(all_axis),
+            volatility_impact=sum(a.volatility_impact for a in all_axis) / len(all_axis),
+            spread_impact=sum(a.spread_impact for a in all_axis) / len(all_axis),
+            liquidity_impact=sum(a.liquidity_impact for a in all_axis) / len(all_axis),
+            execution_quality=sum(a.execution_quality for a in all_axis) / len(all_axis),
+        )
+        final_score = compute_final_score(avg_axis, weights)
+    else:
+        from rohan.llm.scoring import AxisScores
+
+        avg_axis = AxisScores(1.0, 1.0, 5.5, 5.5, 5.5, 1.0)
+        final_score = 1.0
+
+    # ── Deterministic comparison ─────────────────────────────────────────
+    if best_score <= 0:
+        comparison: str = "similar"
+    elif final_score > best_score:
+        comparison = "better"
+    elif final_score < best_score - 0.5:
+        comparison = "worse"
+    else:
+        comparison = "similar"
+
+    # ── Deterministic recommendation ─────────────────────────────────────
+    all_scores = [it.judge_score for it in iterations if it.judge_score is not None]
+    all_scores.append(final_score)
+
+    recommendation = "continue"
+    if final_score >= 7.0 and len(all_scores) >= 3:
+        # Check plateau: last 3 scores within ±0.5 of each other
+        last3 = all_scores[-3:]
+        if max(last3) - min(last3) <= 0.5:
+            recommendation = "stop_converged"
+    elif len(all_scores) >= 3:
+        last3 = all_scores[-3:]
+        if max(last3) - min(last3) <= 0.5:
+            recommendation = "stop_plateau"
+
+    # ── LLM qualitative analysis (optional — enriches feedback) ──────────
     history_table = _build_history_table(iterations)
     explanations_text = _format_explanations(explanations, scenario_results)
 
-    # Goal-conditional scoring rubric (zero LLM overhead)
-    goal = state.get("goal", "")
-    weights = classify_goal_weights(goal)
-    scoring_rubric = build_scoring_rubric(weights)
-    system_prompt = AGGREGATOR_SYSTEM.format(scoring_rubric=scoring_rubric)
-
-    # Best-iteration context line for the judge
-    if best_score > 0.0:
-        best_iteration_line = f"Iteration {best_iteration_number} — Score {best_score:.1f}/10 (this is the benchmark for the `comparison` field)"
-    else:
-        best_iteration_line = "None yet (this is the first iteration)"
-
-    # Build concise current-iteration metrics block (ground-truth for the judge)
+    # Build concise current-iteration metrics block (ground-truth for the LLM)
     current_metrics_lines: list[str] = []
     for sr in scenario_results:
         if sr.error:
@@ -654,6 +718,21 @@ def aggregator_node(state: RefinementState) -> dict:
             )
     current_metrics_block = "\n".join(current_metrics_lines) if current_metrics_lines else "(no results)"
 
+    # Scores block for the LLM to reason about
+    scores_block = (
+        f"**Deterministic Scores (computed, not for LLM to change):**\n"
+        f"- Profitability: {avg_axis.profitability:.1f}/10\n"
+        f"- Risk-Adjusted: {avg_axis.risk_adjusted:.1f}/10\n"
+        f"- Volatility Impact: {avg_axis.volatility_impact:.1f}/10\n"
+        f"- Spread Impact: {avg_axis.spread_impact:.1f}/10\n"
+        f"- Liquidity Impact: {avg_axis.liquidity_impact:.1f}/10\n"
+        f"- Execution Quality: {avg_axis.execution_quality:.1f}/10\n"
+        f"- **Weighted Final: {final_score:.1f}/10** (profile: "
+        f"{next((k for k, v in WEIGHT_PROFILES.items() if v == weights), 'custom')})"
+    )
+
+    best_iteration_line = f"Iteration {best_iteration_number} — Score {best_score:.1f}/10" if best_score > 0.0 else "None yet (this is the first iteration)"
+
     human_msg = AGGREGATOR_HUMAN.format(
         goal=goal,
         best_iteration_line=best_iteration_line,
@@ -662,28 +741,39 @@ def aggregator_node(state: RefinementState) -> dict:
         current_metrics=current_metrics_block,
         explanations=explanations_text,
     )
+    # Prepend scores block to human message so LLM can explain them
+    human_msg = scores_block + "\n\n" + human_msg
 
     model = get_judge_model()
-    structured = get_structured_model(model, JudgeVerdict)
+    structured = get_structured_model(model, QualitativeAnalysis)
 
+    qualitative_reasoning = ""
     try:
-        verdict_result = structured.invoke(
+        analysis_result = structured.invoke(
             [
-                SystemMessage(content=system_prompt),
+                SystemMessage(content=AGGREGATOR_SYSTEM),
                 HumanMessage(content=human_msg),
             ]
         )
-        if verdict_result is None:
-            raise ValueError("LLM failed to return a structured verdict schema")
-        verdict = verdict_result
+        if analysis_result is not None:
+            qualitative_reasoning = analysis_result.reasoning
     except Exception as exc:
-        logger.error("Judge failed: %s", exc)
-        verdict = JudgeVerdict(
-            score=5.0,
-            comparison="similar",
-            reasoning=f"Judge invocation failed: {exc}",
-            recommendation="continue",
-        )
+        logger.error("Qualitative analysis LLM call failed: %s", exc)
+        qualitative_reasoning = f"Qualitative analysis unavailable: {exc}"
+
+    # ── Build verdict (deterministic + qualitative) ──────────────────────
+    verdict = JudgeVerdict(
+        score=final_score,
+        comparison=comparison,  # type: ignore[arg-type]
+        reasoning=qualitative_reasoning,
+        recommendation=recommendation,  # type: ignore[arg-type]
+        profitability_score=avg_axis.profitability,
+        risk_score=avg_axis.risk_adjusted,
+        volatility_impact_score=avg_axis.volatility_impact,
+        spread_impact_score=avg_axis.spread_impact,
+        liquidity_impact_score=avg_axis.liquidity_impact,
+        execution_score=avg_axis.execution_quality,
+    )
 
     # Build aggregated feedback
     feedback = AggregatedFeedback(
@@ -714,64 +804,24 @@ def aggregator_node(state: RefinementState) -> dict:
 
     # ── Regression detection & hard rollback ─────────────────────────────
     current_code = state.get("current_code") or ""
-    # Tiered rollback: hard rollback when drop exceeds 1.5 points below best.
-    # Borderline regressions (1.0–1.5 below best) trigger a confirmation
-    # re-score to reduce false rollbacks from single-sample noise.
-    score_drop = best_score - verdict.score if best_score > 0 else 0.0
-    is_regression = False
+    # Deterministic scores eliminate noise — rollback on any drop > 1.0
+    score_drop = best_score - final_score if best_score > 0 else 0.0
+    is_regression = best_score > 0 and score_drop > 1.0
     rolled_back_from: dict | None = None
-    next_code = current_code  # what the writer will receive as current_code
-
-    if best_score > 0 and score_drop > 1.0:
-        if score_drop > 1.5:
-            # Hard rollback — clear regression
-            is_regression = True
-        else:
-            # Borderline (1.0–1.5 drop) — confirmation re-score
-            logger.info(
-                "Borderline regression (%.1f drop) — running confirmation re-score",
-                score_drop,
-            )
-            try:
-                confirm_result = structured.invoke(
-                    [
-                        SystemMessage(content=system_prompt),
-                        HumanMessage(content=human_msg),
-                    ]
-                )
-                if confirm_result is not None:
-                    confirm_score = confirm_result.score
-                    avg_score = (verdict.score + confirm_score) / 2
-                    logger.info(
-                        "Confirmation re-score: %.1f (original %.1f, confirm %.1f, avg %.1f)",
-                        confirm_score,
-                        verdict.score,
-                        confirm_score,
-                        avg_score,
-                    )
-                    # Use the average of both scores
-                    verdict = verdict.model_copy(update={"score": round(avg_score * 2) / 2})
-                    score_drop = best_score - verdict.score
-                    is_regression = score_drop > 1.0
-                else:
-                    # Confirmation failed — be conservative, don't rollback
-                    is_regression = False
-            except Exception as exc:
-                logger.warning("Confirmation re-score failed: %s — skipping rollback", exc)
-                is_regression = False
+    next_code = current_code
 
     if is_regression:
         logger.warning(
             "Regression detected: score %.1f < best %.1f (iter %d) — rolling back",
-            verdict.score,
+            final_score,
             best_score,
             best_iteration_number,
         )
         rolled_back_from = {
             "iteration_number": iteration_number,
-            "score": verdict.score,
+            "score": final_score,
             "best_score": best_score,
-            "judge_reasoning": verdict.reasoning,
+            "judge_reasoning": qualitative_reasoning,
             "metrics_text": current_metrics_block,
             "code": current_code,
         }
@@ -781,8 +831,8 @@ def aggregator_node(state: RefinementState) -> dict:
     new_best_score = best_score
     new_best_code = best_code
     new_best_iteration = best_iteration_number
-    if verdict.score > best_score:
-        new_best_score = verdict.score
+    if final_score > best_score:
+        new_best_score = final_score
         new_best_code = current_code
         new_best_iteration = iteration_number
 
@@ -790,57 +840,29 @@ def aggregator_node(state: RefinementState) -> dict:
         iteration_number=iteration_number,
         strategy_code=current_code,
         scenario_metrics=scenario_metrics,
-        aggregated_explanation=verdict.reasoning,  # judge reasoning, not recommendations boilerplate
-        judge_score=verdict.score,
-        judge_reasoning=verdict.reasoning,
+        aggregated_explanation=qualitative_reasoning,
+        judge_score=final_score,
+        judge_reasoning=qualitative_reasoning,
         rolled_back=is_regression,
-        profitability_score=verdict.profitability_score,
-        risk_score=verdict.risk_score,
-        impact_score=verdict.impact_score,
-        execution_score=verdict.execution_score,
+        profitability_score=avg_axis.profitability,
+        risk_score=avg_axis.risk_adjusted,
+        volatility_impact_score=avg_axis.volatility_impact,
+        spread_impact_score=avg_axis.spread_impact,
+        liquidity_impact_score=avg_axis.liquidity_impact,
+        execution_score=avg_axis.execution_quality,
         scoring_profile=next((k for k, v in WEIGHT_PROFILES.items() if v == weights), "custom"),
     )
 
     new_iterations = list(iterations) + [iteration_summary]
 
-    # ── Rule-based stop guard ─────────────────────────────────────────────
-    # The LLM's recommendation is advisory only; we gate it against hard rules.
+    # ── Stop conditions (deterministic) ──────────────────────────────────
     max_iterations = state.get("max_iterations", 3)
-    lm_wants_stop = verdict.recommendation in ("stop_converged", "stop_plateau")
 
-    if lm_wants_stop:
-        all_scores = [it.judge_score for it in new_iterations if it.judge_score is not None]
+    # Regression always forces continue
+    if is_regression:
+        recommendation = "continue"
 
-        if verdict.recommendation == "stop_plateau":
-            # Require 3+ consecutive iterations all within ±0.5 of each other
-            consecutive_similar = 0
-            for i in range(len(all_scores) - 1, 0, -1):
-                if abs(all_scores[i] - all_scores[i - 1]) <= 0.5:
-                    consecutive_similar += 1
-                else:
-                    break
-            if consecutive_similar < 2:
-                logger.info(
-                    "LLM recommended stop_plateau but rule-based guard vetoed: need 3+ consecutive similar scores, found only %d pair(s)",
-                    consecutive_similar,
-                )
-                lm_wants_stop = False
-
-        elif verdict.recommendation == "stop_converged":
-            # Require score >= 7.0 for a convergence stop
-            if verdict.score < 7.0:
-                logger.info(
-                    "LLM recommended stop_converged but rule-based guard vetoed: score %.1f < 7.0",
-                    verdict.score,
-                )
-                lm_wants_stop = False
-
-        # Regression always overrides any stop recommendation
-        if is_regression:
-            logger.info("LLM recommended stop but regression detected — forcing continue")
-            lm_wants_stop = False
-
-    if lm_wants_stop:
+    if recommendation in ("stop_converged", "stop_plateau") and not is_regression:
         next_status = "done"
     elif iteration_number >= max_iterations:
         logger.info("Max iterations (%d) reached", max_iterations)
@@ -850,10 +872,10 @@ def aggregator_node(state: RefinementState) -> dict:
 
     logger.info(
         "Aggregator verdict: score=%.1f, best=%.1f, comparison=%s, recommendation=%s → %s%s",
-        verdict.score,
+        final_score,
         new_best_score,
-        verdict.comparison,
-        verdict.recommendation,
+        comparison,
+        recommendation,
         next_status,
         " [REGRESSION→ROLLBACK]" if is_regression else "",
     )

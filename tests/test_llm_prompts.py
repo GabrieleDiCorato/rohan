@@ -11,7 +11,6 @@ from rohan.llm.prompts import (
     WRITER_HUMAN,
     WRITER_SYSTEM,
 )
-from rohan.llm.scoring import WEIGHT_PROFILES, build_scoring_rubric
 
 
 class TestWriterPrompts:
@@ -72,24 +71,14 @@ class TestExplainerPrompts:
 
 
 class TestAggregatorPrompts:
-    def test_system_prompt_content(self):
-        rubric = build_scoring_rubric(WEIGHT_PROFILES["default"])
-        rendered = AGGREGATOR_SYSTEM.format(scoring_rubric=rubric)
-        assert "stop_converged" in rendered
-        assert "stop_plateau" in rendered
-        assert "1-10" in rendered
+    def test_system_prompt_is_qualitative_only(self):
+        """Aggregator system prompt no longer has scoring rubric — qualitative analysis only."""
+        assert "QualitativeAnalysis" in AGGREGATOR_SYSTEM
+        assert "reasoning" in AGGREGATOR_SYSTEM.lower()
 
-    def test_system_prompt_has_rubric_slot(self):
-        assert "{scoring_rubric}" in AGGREGATOR_SYSTEM
-
-    def test_system_prompt_renders_with_rubric(self):
-        rubric = build_scoring_rubric(WEIGHT_PROFILES["default"])
-        rendered = AGGREGATOR_SYSTEM.format(scoring_rubric=rubric)
-        assert "Profitability" in rendered
-        assert "Risk-Adjusted" in rendered
-        assert "Market Impact" in rendered
-        assert "Execution Quality" in rendered
-        assert "weight:" in rendered
+    def test_system_prompt_no_scoring_rubric(self):
+        """Scoring is deterministic — no rubric placeholder in the prompt."""
+        assert "{scoring_rubric}" not in AGGREGATOR_SYSTEM
 
     def test_human_prompt_has_slots(self):
         assert "{goal}" in AGGREGATOR_HUMAN

@@ -42,18 +42,29 @@ class ScenarioExplanation(BaseModel):
 # Aggregator / Judge
 # ---------------------------------------------------------------------------
 class JudgeVerdict(BaseModel):
-    """Convergence assessment from the LLM judge."""
+    """Convergence assessment — scores are deterministic, reasoning is from LLM."""
 
-    score: float = Field(ge=1, le=10, description="Quality score (1-10)")
-    comparison: Literal["better", "worse", "similar"] = Field(description="Relative to previous iteration")
-    reasoning: str = Field(description="Explanation of the score and comparison")
-    recommendation: Literal["continue", "stop_converged", "stop_plateau"] = Field(description="Whether to keep iterating")
+    score: float = Field(ge=1, le=10, description="Weighted final score (1-10), computed by formula")
+    comparison: Literal["better", "worse", "similar"] = Field(description="Relative to best iteration so far")
+    reasoning: str = Field(description="Qualitative analysis from LLM")
+    recommendation: Literal["continue", "stop_converged", "stop_plateau"] = Field(description="Deterministic stop/continue decision")
 
-    # Multi-axis sub-scores (populated when using weighted rubric)
+    # 6-axis sub-scores (all computed deterministically)
     profitability_score: float | None = Field(default=None, ge=1, le=10, description="Profitability sub-score (1-10)")
     risk_score: float | None = Field(default=None, ge=1, le=10, description="Risk-adjusted performance sub-score (1-10)")
-    impact_score: float | None = Field(default=None, ge=1, le=10, description="Market impact sub-score (1-10)")
+    volatility_impact_score: float | None = Field(default=None, ge=1, le=10, description="Volatility impact sub-score (1-10)")
+    spread_impact_score: float | None = Field(default=None, ge=1, le=10, description="Spread impact sub-score (1-10)")
+    liquidity_impact_score: float | None = Field(default=None, ge=1, le=10, description="Liquidity impact sub-score (1-10)")
     execution_score: float | None = Field(default=None, ge=1, le=10, description="Execution quality sub-score (1-10)")
+
+
+class QualitativeAnalysis(BaseModel):
+    """LLM-produced qualitative analysis — no scoring, just reasoning."""
+
+    reasoning: str = Field(description="Qualitative analysis explaining *why* the strategy scored as it did on each axis")
+    strengths: list[str] = Field(default_factory=list, description="What the strategy did well")
+    weaknesses: list[str] = Field(default_factory=list, description="What needs improvement")
+    recommendations: list[str] = Field(default_factory=list, description="Actionable improvement suggestions")
 
 
 class AggregatedFeedback(BaseModel):
@@ -103,10 +114,12 @@ class IterationSummary(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     # True when this iteration scored below the previous best and triggered a rollback.
     rolled_back: bool = False
-    # Multi-axis sub-scores (1-10 each, or None when unavailable)
+    # 6-axis sub-scores (1-10 each, or None when unavailable)
     profitability_score: float | None = None
     risk_score: float | None = None
-    impact_score: float | None = None
+    volatility_impact_score: float | None = None
+    spread_impact_score: float | None = None
+    liquidity_impact_score: float | None = None
     execution_score: float | None = None
     # Which weight profile was used (e.g. "default", "risk_focused")
     scoring_profile: str | None = None

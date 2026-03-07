@@ -200,11 +200,11 @@ flowchart TD
 *   **Validator Agent:** Validates strategy code (AST + sandbox execution).
 *   **Scenario Executor:** Runs validated strategy across multiple scenarios.
 *   **Explainer Agent:** Analyzes simulation results with tool access.
-*   **Aggregator:** Combines all scenario explanations into unified feedback + convergence assessment.
+*   **Aggregator:** Scores each iteration deterministically via 6-axis formulas (`scoring.py`), uses LLM only for qualitative analysis. Handles rollback on regression (>1.0 score drop) and convergence/plateau detection.
 
 #### 5.3.3 LangGraph State & Graph
 Implemented in `src/rohan/llm/state.py` and `src/rohan/llm/graph.py`.
-The **Aggregator** evaluates each iteration against the goal and previous iterations to determine convergence.
+The **Aggregator** scores each iteration using deterministic formulas across 6 axes (profitability, risk, volatility impact, spread impact, liquidity impact, execution quality). The LLM provides qualitative analysis only — reasoning, strengths, weaknesses, and recommendations via the `QualitativeAnalysis` structured output. Convergence, plateau detection, comparison, and rollback are all deterministic.
 
 #### 5.3.4 Tool-Equipped Explainer
 The Explainer agent uses **tool calling** to deeply analyze simulation results. Tools include:

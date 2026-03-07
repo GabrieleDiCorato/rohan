@@ -229,7 +229,10 @@ class RefinementIteration(Base):
     # Multi-axis sub-scores (1-10 each)
     profitability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)  # deprecated: kept for backward compat with existing DBs
+    volatility_impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spread_impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    liquidity_impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     execution_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     scoring_profile: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

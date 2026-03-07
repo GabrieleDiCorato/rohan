@@ -273,7 +273,9 @@ def _save_current_run(run_name: str | None = None) -> bool:
                 rolled_back=it.rolled_back,
                 profitability_score=it.profitability_score,
                 risk_score=it.risk_score,
-                impact_score=it.impact_score,
+                volatility_impact_score=it.volatility_impact_score,
+                spread_impact_score=it.spread_impact_score,
+                liquidity_impact_score=it.liquidity_impact_score,
                 execution_score=it.execution_score,
                 scoring_profile=it.scoring_profile,
                 scenario_results=sc_results,
@@ -966,7 +968,9 @@ if final_state is not None:
                         "Score": (f"{it.judge_score:.1f}/10" if it.judge_score is not None else "N/A"),
                         "Profit": _sub(it.profitability_score),
                         "Risk": _sub(it.risk_score),
-                        "Impact": _sub(it.impact_score),
+                        "Vol Imp": _sub(it.volatility_impact_score),
+                        "Sprd Imp": _sub(it.spread_impact_score),
+                        "Liq Imp": _sub(it.liquidity_impact_score),
                         "Exec": _sub(it.execution_score),
                         "PnL ($)": (_dollar(first.total_pnl) if first else "N/A"),
                         "Trades": first.trade_count if first else 0,
@@ -1003,7 +1007,9 @@ if final_state is not None:
                 _sub_cfg = [
                     ("profitability_score", "Profitability", COLORS["success"]),
                     ("risk_score", "Risk", COLORS["danger"]),
-                    ("impact_score", "Impact", COLORS["secondary"]),
+                    ("volatility_impact_score", "Vol Impact", COLORS["secondary"]),
+                    ("spread_impact_score", "Spread Impact", "#E67E22"),
+                    ("liquidity_impact_score", "Liq Impact", "#1ABC9C"),
                     ("execution_score", "Execution", "#9B59B6"),
                 ]
                 for attr, label, color in _sub_cfg:
@@ -1065,14 +1071,18 @@ if final_state is not None:
 
             # ── Scoring breakdown (radar chart) ──────────────────
             latest = scored_iterations[-1] if scored_iterations else None
-            if latest and any(getattr(latest, a, None) is not None for a in ("profitability_score", "risk_score", "impact_score", "execution_score")):
+            if latest and any(
+                getattr(latest, a, None) is not None for a in ("profitability_score", "risk_score", "volatility_impact_score", "spread_impact_score", "liquidity_impact_score", "execution_score")
+            ):
                 st.markdown("### 🎯 Scoring Breakdown")
 
-                axis_labels = ["Profitability", "Risk", "Impact", "Execution"]
+                axis_labels = ["Profitability", "Risk", "Vol Impact", "Spread Impact", "Liq Impact", "Execution"]
                 axis_values = [
                     latest.profitability_score or 0,
                     latest.risk_score or 0,
-                    latest.impact_score or 0,
+                    latest.volatility_impact_score or 0,
+                    latest.spread_impact_score or 0,
+                    latest.liquidity_impact_score or 0,
                     latest.execution_score or 0,
                 ]
                 # Close the polygon
@@ -1115,14 +1125,18 @@ if final_state is not None:
                 st.plotly_chart(radar_fig, width="stretch")
 
                 # Sub-score metric cards
-                sc1, sc2, sc3, sc4 = st.columns(4)
+                sc1, sc2, sc3, sc4, sc5, sc6 = st.columns(6)
                 with sc1:
                     st.metric("Profitability", f"{latest.profitability_score:.1f}/10" if latest.profitability_score is not None else "—", help=get_scoring_help("profitability"))
                 with sc2:
                     st.metric("Risk", f"{latest.risk_score:.1f}/10" if latest.risk_score is not None else "—", help=get_scoring_help("risk"))
                 with sc3:
-                    st.metric("Impact", f"{latest.impact_score:.1f}/10" if latest.impact_score is not None else "—", help=get_scoring_help("impact"))
+                    st.metric("Vol Impact", f"{latest.volatility_impact_score:.1f}/10" if latest.volatility_impact_score is not None else "—", help=get_scoring_help("volatility_impact"))
                 with sc4:
+                    st.metric("Spread Impact", f"{latest.spread_impact_score:.1f}/10" if latest.spread_impact_score is not None else "—", help=get_scoring_help("spread_impact"))
+                with sc5:
+                    st.metric("Liq Impact", f"{latest.liquidity_impact_score:.1f}/10" if latest.liquidity_impact_score is not None else "—", help=get_scoring_help("liquidity_impact"))
+                with sc6:
                     st.metric("Execution", f"{latest.execution_score:.1f}/10" if latest.execution_score is not None else "—", help=get_scoring_help("execution"))
 
                 if latest.scoring_profile:
@@ -1139,16 +1153,22 @@ if final_state is not None:
                     st.markdown(it.judge_reasoning or "_(no reasoning recorded)_")
 
                     # Sub-score breakdown for this iteration
-                    _has_sub = any(getattr(it, a, None) is not None for a in ("profitability_score", "risk_score", "impact_score", "execution_score"))
+                    _has_sub = any(
+                        getattr(it, a, None) is not None for a in ("profitability_score", "risk_score", "volatility_impact_score", "spread_impact_score", "liquidity_impact_score", "execution_score")
+                    )
                     if _has_sub:
-                        ss1, ss2, ss3, ss4 = st.columns(4)
+                        ss1, ss2, ss3, ss4, ss5, ss6 = st.columns(6)
                         with ss1:
                             st.metric("Profitability", f"{it.profitability_score:.1f}" if it.profitability_score is not None else "—", help=get_scoring_help("profitability"))
                         with ss2:
                             st.metric("Risk", f"{it.risk_score:.1f}" if it.risk_score is not None else "—", help=get_scoring_help("risk"))
                         with ss3:
-                            st.metric("Impact", f"{it.impact_score:.1f}" if it.impact_score is not None else "—", help=get_scoring_help("impact"))
+                            st.metric("Vol Impact", f"{it.volatility_impact_score:.1f}" if it.volatility_impact_score is not None else "—", help=get_scoring_help("volatility_impact"))
                         with ss4:
+                            st.metric("Spread Impact", f"{it.spread_impact_score:.1f}" if it.spread_impact_score is not None else "—", help=get_scoring_help("spread_impact"))
+                        with ss5:
+                            st.metric("Liq Impact", f"{it.liquidity_impact_score:.1f}" if it.liquidity_impact_score is not None else "—", help=get_scoring_help("liquidity_impact"))
+                        with ss6:
                             st.metric("Execution", f"{it.execution_score:.1f}" if it.execution_score is not None else "—", help=get_scoring_help("execution"))
                         if it.scoring_profile:
                             st.caption(f"Profile: **{it.scoring_profile}**")
