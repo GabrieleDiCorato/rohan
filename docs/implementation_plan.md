@@ -80,8 +80,11 @@ The plan addresses these in priority order.
 
 These changes fix the acute symptoms that keep the system from producing any useful output. They are prerequisites for everything else.
 
-### Step 1: Deterministic scoring formulas
-**File: scoring.py**
+### ~~Step 1: Deterministic scoring formulas~~ ✅ DONE
+**File: scoring.py** — Implemented and tested (103 tests).
+
+<details>
+<summary>Completed implementation details (click to expand)</summary>
 
 Replace `build_scoring_rubric()` with pure Python functions. Keep `classify_goal_weights()`.
 
@@ -179,6 +182,8 @@ OTT penalty: > 200 → −2 points; > 100 → −1 point.
 **Deterministic convergence/comparison:**
 - `comparison`: `"better"` if score > best_score, `"worse"` if score < best_score − 0.5, else `"similar"`.
 - `recommendation`: `"stop_converged"` if score ≥ 7.0 and plateau; `"stop_plateau"` if 3+ consecutive within ±0.5; else `"continue"`.
+
+</details>
 
 ### Step 2: Propagate simulation context through state
 **File: state.py**
