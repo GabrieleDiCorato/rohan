@@ -37,6 +37,11 @@ class TestRefinementRepository:
                     judge_score=5.0 + i,
                     judge_reasoning=f"Good progress in iteration {i}",
                     aggregated_explanation=f"Explanation for iteration {i}",
+                    profitability_score=6.0 + i,
+                    risk_score=5.0 + i,
+                    impact_score=4.0 + i,
+                    execution_score=7.0 + i,
+                    scoring_profile="default",
                     scenario_results=[
                         ScenarioResultData(
                             scenario_name="Default",
@@ -46,6 +51,10 @@ class TestRefinementRepository:
                             trade_count=10 * i,
                             volatility_delta_pct=0.02,
                             spread_delta_pct=-0.01,
+                            fill_rate=0.25,
+                            order_to_trade_ratio=8.5,
+                            inventory_std=120.0,
+                            end_inventory=5,
                             price_chart_b64="cHJpY2U=",
                             spread_chart_b64="c3ByZWFk",
                             volume_chart_b64="dm9sdW1l",
@@ -224,6 +233,42 @@ class TestRefinementRepository:
         assert isinstance(sm, ScenarioMetrics)
         assert sm.total_pnl == 100.0
         assert sm.trade_count == 10
+
+    def test_load_session_preserves_sub_scores(self):
+        """Sub-scores and new metric fields survive a save/load round-trip."""
+        repo = self._make_repo()
+        saved = repo.save_session(
+            name="Sub-score Round-trip",
+            goal="Test sub-scores",
+            max_iterations=1,
+            scenario_configs=[],
+            status="done",
+            final_score=7.5,
+            total_duration=30.0,
+            progress_log=[],
+            final_code="class S: pass",
+            final_class_name="S",
+            final_reasoning="r",
+            iterations=self._sample_iteration_data(n=1),
+        )
+
+        loaded = repo.load_session(saved.session_id)
+        assert loaded is not None
+        it = loaded["refine_final_state"]["iterations"][0]
+
+        # Sub-scores on iteration
+        assert it.profitability_score == 7.0
+        assert it.risk_score == 6.0
+        assert it.impact_score == 5.0
+        assert it.execution_score == 8.0
+        assert it.scoring_profile == "default"
+
+        # Extended metrics on scenario result
+        sm = it.scenario_metrics["Default"]
+        assert sm.fill_rate == 0.25
+        assert sm.order_to_trade_ratio == 8.5
+        assert sm.inventory_std == 120.0
+        assert sm.end_inventory == 5
 
     def test_load_nonexistent_returns_none(self):
         repo = self._make_repo()

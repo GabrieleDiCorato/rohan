@@ -41,7 +41,7 @@ from rohan.llm.prompts import (
     WRITER_ROLLBACK_SECTION,
     WRITER_SYSTEM,
 )
-from rohan.llm.scoring import build_scoring_rubric, classify_goal_weights
+from rohan.llm.scoring import WEIGHT_PROFILES, build_scoring_rubric, classify_goal_weights
 from rohan.llm.state import RefinementState, ScenarioResult
 from rohan.simulation.models.simulation_metrics import (
     ComparisonResult,
@@ -789,6 +789,11 @@ def aggregator_node(state: RefinementState) -> dict:
         judge_score=verdict.score,
         judge_reasoning=verdict.reasoning,
         rolled_back=is_regression,
+        profitability_score=verdict.profitability_score,
+        risk_score=verdict.risk_score,
+        impact_score=verdict.impact_score,
+        execution_score=verdict.execution_score,
+        scoring_profile=next((k for k, v in WEIGHT_PROFILES.items() if v == weights), "custom"),
     )
 
     new_iterations = list(iterations) + [iteration_summary]

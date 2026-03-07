@@ -226,6 +226,12 @@ class RefinementIteration(Base):
     aggregated_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     # True when this iteration scored below the previous best and triggered a rollback
     rolled_back: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Multi-axis sub-scores (1-10 each)
+    profitability_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    impact_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    execution_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scoring_profile: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped["RefinementSession"] = relationship(back_populates="iterations")
@@ -246,6 +252,10 @@ class RefinementScenarioResult(Base):
     trade_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     volatility_delta_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     spread_delta_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fill_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    order_to_trade_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    inventory_std: Mapped[float | None] = mapped_column(Float, nullable=True)
+    end_inventory: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     price_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
     spread_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
     volume_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)

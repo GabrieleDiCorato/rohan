@@ -103,3 +103,10 @@ class IterationSummary(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     # True when this iteration scored below the previous best and triggered a rollback.
     rolled_back: bool = False
+    # Multi-axis sub-scores (1-10 each, or None when unavailable)
+    profitability_score: float | None = None
+    risk_score: float | None = None
+    impact_score: float | None = None
+    execution_score: float | None = None
+    # Which weight profile was used (e.g. "default", "risk_focused")
+    scoring_profile: str | None = None

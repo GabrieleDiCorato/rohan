@@ -48,6 +48,10 @@ class ScenarioResultData:
     trade_count: int = 0
     volatility_delta_pct: float | None = None
     spread_delta_pct: float | None = None
+    fill_rate: float | None = None
+    order_to_trade_ratio: float | None = None
+    inventory_std: float | None = None
+    end_inventory: int = 0
     price_chart_b64: str | None = None
     spread_chart_b64: str | None = None
     volume_chart_b64: str | None = None
@@ -65,6 +69,11 @@ class IterationData:
     judge_reasoning: str | None = None
     aggregated_explanation: str | None = None
     rolled_back: bool = False
+    profitability_score: float | None = None
+    risk_score: float | None = None
+    impact_score: float | None = None
+    execution_score: float | None = None
+    scoring_profile: str | None = None
     scenario_results: list[ScenarioResultData] = field(default_factory=list)
 
 
@@ -138,6 +147,11 @@ class RefinementRepository:
                 judge_reasoning=it_data.judge_reasoning,
                 aggregated_explanation=it_data.aggregated_explanation,
                 rolled_back=it_data.rolled_back,
+                profitability_score=it_data.profitability_score,
+                risk_score=it_data.risk_score,
+                impact_score=it_data.impact_score,
+                execution_score=it_data.execution_score,
+                scoring_profile=it_data.scoring_profile,
             )
             for sr in it_data.scenario_results:
                 it_orm.scenario_results.append(
@@ -149,6 +163,10 @@ class RefinementRepository:
                         trade_count=sr.trade_count,
                         volatility_delta_pct=sr.volatility_delta_pct,
                         spread_delta_pct=sr.spread_delta_pct,
+                        fill_rate=sr.fill_rate,
+                        order_to_trade_ratio=sr.order_to_trade_ratio,
+                        inventory_std=sr.inventory_std,
+                        end_inventory=sr.end_inventory,
                         price_chart_b64=sr.price_chart_b64,
                         spread_chart_b64=sr.spread_chart_b64,
                         volume_chart_b64=sr.volume_chart_b64,
@@ -227,6 +245,10 @@ class RefinementRepository:
                         trade_count=sr.trade_count,
                         volatility_delta_pct=sr.volatility_delta_pct,
                         spread_delta_pct=sr.spread_delta_pct,
+                        fill_rate=sr.fill_rate,
+                        order_to_trade_ratio=sr.order_to_trade_ratio,
+                        inventory_std=sr.inventory_std,
+                        end_inventory=sr.end_inventory,
                         price_chart_b64=sr.price_chart_b64,
                         spread_chart_b64=sr.spread_chart_b64,
                         volume_chart_b64=sr.volume_chart_b64,
@@ -241,6 +263,11 @@ class RefinementRepository:
                         judge_reasoning=it_orm.judge_reasoning,
                         timestamp=it_orm.created_at,
                         rolled_back=it_orm.rolled_back,
+                        profitability_score=it_orm.profitability_score,
+                        risk_score=it_orm.risk_score,
+                        impact_score=it_orm.impact_score,
+                        execution_score=it_orm.execution_score,
+                        scoring_profile=it_orm.scoring_profile,
                     )
                 )
 

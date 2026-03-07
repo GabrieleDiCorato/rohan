@@ -250,6 +250,10 @@ def _save_current_run(run_name: str | None = None) -> bool:
                 trade_count=sm.trade_count,
                 volatility_delta_pct=sm.volatility_delta_pct,
                 spread_delta_pct=sm.spread_delta_pct,
+                fill_rate=sm.fill_rate,
+                order_to_trade_ratio=sm.order_to_trade_ratio,
+                inventory_std=sm.inventory_std,
+                end_inventory=sm.end_inventory,
                 price_chart_b64=sm.price_chart_b64,
                 spread_chart_b64=sm.spread_chart_b64,
                 volume_chart_b64=sm.volume_chart_b64,
@@ -266,6 +270,11 @@ def _save_current_run(run_name: str | None = None) -> bool:
                 judge_reasoning=it.judge_reasoning,
                 aggregated_explanation=it.aggregated_explanation,
                 rolled_back=it.rolled_back,
+                profitability_score=it.profitability_score,
+                risk_score=it.risk_score,
+                impact_score=it.impact_score,
+                execution_score=it.execution_score,
+                scoring_profile=it.scoring_profile,
                 scenario_results=sc_results,
             )
         )
@@ -946,10 +955,18 @@ if final_state is not None:
             for it in iterations:
                 sc_names = list(it.scenario_metrics.keys())
                 first = it.scenario_metrics[sc_names[0]] if sc_names else None
+
+                def _sub(v: float | None) -> str:
+                    return f"{v:.1f}" if v is not None else "—"
+
                 history_rows.append(
                     {
                         "Iteration": it.iteration_number,
                         "Score": (f"{it.judge_score:.1f}/10" if it.judge_score is not None else "N/A"),
+                        "Profit": _sub(it.profitability_score),
+                        "Risk": _sub(it.risk_score),
+                        "Impact": _sub(it.impact_score),
+                        "Exec": _sub(it.execution_score),
                         "PnL ($)": (_dollar(first.total_pnl) if first else "N/A"),
                         "Trades": first.trade_count if first else 0,
                         "Vol Δ%": (_pct(first.volatility_delta_pct) if first else "N/A"),
@@ -966,6 +983,7 @@ if final_state is not None:
             st.markdown("### 📈 Score Progression")
 
             scores = [it.judge_score for it in iterations if it.judge_score is not None]
+            scored_iterations = [it for it in iterations if it.judge_score is not None]
             if scores:
                 fig = go.Figure()
 
@@ -974,11 +992,33 @@ if final_state is not None:
                         x=list(range(1, len(scores) + 1)),
                         y=scores,
                         mode="lines+markers",
-                        name="Score",
+                        name="Composite",
                         line={"color": COLORS["primary"], "width": 3},
                         marker={"size": 12, "color": COLORS["primary"]},
                     )
                 )
+
+                # Sub-score traces
+                _sub_cfg = [
+                    ("profitability_score", "Profitability", COLORS["success"]),
+                    ("risk_score", "Risk", COLORS["danger"]),
+                    ("impact_score", "Impact", COLORS["secondary"]),
+                    ("execution_score", "Execution", "#9B59B6"),
+                ]
+                for attr, label, color in _sub_cfg:
+                    vals = [getattr(it, attr, None) for it in scored_iterations]
+                    if any(v is not None for v in vals):
+                        fig.add_trace(
+                            go.Scatter(
+                                x=list(range(1, len(vals) + 1)),
+                                y=vals,
+                                mode="lines+markers",
+                                name=label,
+                                line={"color": color, "width": 1.5, "dash": "dot"},
+                                marker={"size": 6, "color": color},
+                                opacity=0.7,
+                            )
+                        )
 
                 # Convergence threshold line
                 fig.add_hline(
@@ -1008,13 +1048,84 @@ if final_state is not None:
                         "gridcolor": COLORS["border"],
                         "range": [0, 10.5],
                     },
-                    showlegend=False,
+                    showlegend=True,
+                    legend={
+                        "font": {"color": COLORS["text"], "size": 10},
+                        "bgcolor": "rgba(0,0,0,0)",
+                    },
                     margin={"l": 60, "r": 30, "t": 30, "b": 50},
                 )
 
                 st.plotly_chart(fig, width="stretch")
             else:
                 st.info("No scores recorded.")
+
+            st.markdown("---")
+
+            # ── Scoring breakdown (radar chart) ──────────────────
+            latest = scored_iterations[-1] if scored_iterations else None
+            if latest and any(getattr(latest, a, None) is not None for a in ("profitability_score", "risk_score", "impact_score", "execution_score")):
+                st.markdown("### 🎯 Scoring Breakdown")
+
+                axis_labels = ["Profitability", "Risk", "Impact", "Execution"]
+                axis_values = [
+                    latest.profitability_score or 0,
+                    latest.risk_score or 0,
+                    latest.impact_score or 0,
+                    latest.execution_score or 0,
+                ]
+                # Close the polygon
+                axis_labels_closed = axis_labels + [axis_labels[0]]
+                axis_values_closed = axis_values + [axis_values[0]]
+
+                radar_fig = go.Figure()
+                radar_fig.add_trace(
+                    go.Scatterpolar(
+                        r=axis_values_closed,
+                        theta=axis_labels_closed,
+                        fill="toself",
+                        fillcolor="rgba(0,217,255,0.15)",
+                        line={"color": COLORS["primary"], "width": 2},
+                        marker={"size": 8, "color": COLORS["primary"]},
+                        name="Latest",
+                    )
+                )
+                radar_fig.update_layout(
+                    height=400,
+                    polar={
+                        "bgcolor": COLORS["card_bg"],
+                        "radialaxis": {
+                            "visible": True,
+                            "range": [0, 10],
+                            "gridcolor": COLORS["border"],
+                            "color": COLORS["text_muted"],
+                        },
+                        "angularaxis": {
+                            "gridcolor": COLORS["border"],
+                            "color": COLORS["text"],
+                        },
+                    },
+                    plot_bgcolor=COLORS["background"],
+                    paper_bgcolor=COLORS["background"],
+                    font={"color": COLORS["text"], "family": "Courier New"},
+                    showlegend=False,
+                    margin={"l": 60, "r": 60, "t": 30, "b": 30},
+                )
+                st.plotly_chart(radar_fig, width="stretch")
+
+                # Sub-score metric cards
+                sc1, sc2, sc3, sc4 = st.columns(4)
+                with sc1:
+                    st.metric("Profitability", f"{latest.profitability_score:.1f}/10" if latest.profitability_score is not None else "—")
+                with sc2:
+                    st.metric("Risk", f"{latest.risk_score:.1f}/10" if latest.risk_score is not None else "—")
+                with sc3:
+                    st.metric("Impact", f"{latest.impact_score:.1f}/10" if latest.impact_score is not None else "—")
+                with sc4:
+                    st.metric("Execution", f"{latest.execution_score:.1f}/10" if latest.execution_score is not None else "—")
+
+                if latest.scoring_profile:
+                    st.caption(f"Scoring profile: **{latest.scoring_profile}**")
 
             st.markdown("---")
 
@@ -1025,6 +1136,21 @@ if final_state is not None:
                 label = f"Iteration {it.iteration_number} — Score: {it.judge_score:.1f}/10" if it.judge_score is not None else f"Iteration {it.iteration_number}"
                 with st.expander(label, expanded=(it == iterations[-1])):
                     st.markdown(it.judge_reasoning or "_(no reasoning recorded)_")
+
+                    # Sub-score breakdown for this iteration
+                    _has_sub = any(getattr(it, a, None) is not None for a in ("profitability_score", "risk_score", "impact_score", "execution_score"))
+                    if _has_sub:
+                        ss1, ss2, ss3, ss4 = st.columns(4)
+                        with ss1:
+                            st.metric("Profitability", f"{it.profitability_score:.1f}" if it.profitability_score is not None else "—")
+                        with ss2:
+                            st.metric("Risk", f"{it.risk_score:.1f}" if it.risk_score is not None else "—")
+                        with ss3:
+                            st.metric("Impact", f"{it.impact_score:.1f}" if it.impact_score is not None else "—")
+                        with ss4:
+                            st.metric("Execution", f"{it.execution_score:.1f}" if it.execution_score is not None else "—")
+                        if it.scoring_profile:
+                            st.caption(f"Profile: **{it.scoring_profile}**")
 
                     # Scenario metrics summary
                     for sc_name, sm in it.scenario_metrics.items():
