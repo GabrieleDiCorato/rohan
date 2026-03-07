@@ -47,6 +47,13 @@ class ScenarioResult(BaseModel):
     inventory_std: float | None = None
     error: str | None = None
 
+    # Simulation context (needed by deterministic scoring)
+    starting_capital_cents: int = 10_000_000
+    baseline_mean_spread: float | None = None
+    baseline_traded_volume: float | None = None
+    bid_liquidity_delta_pct: float | None = None
+    ask_liquidity_delta_pct: float | None = None
+
     # Base64-encoded PNG charts (populated by executor)
     price_chart_b64: str | None = None
     spread_chart_b64: str | None = None

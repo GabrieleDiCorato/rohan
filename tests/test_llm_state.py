@@ -53,6 +53,50 @@ class TestScenarioResult:
         assert sr.error == "Simulation timed out"
         assert sr.strategy_pnl is None
 
+    def test_simulation_context_defaults(self):
+        """New scoring-context fields have sensible defaults."""
+        sr = ScenarioResult()
+        assert sr.starting_capital_cents == 10_000_000
+        assert sr.baseline_mean_spread is None
+        assert sr.baseline_traded_volume is None
+        assert sr.bid_liquidity_delta_pct is None
+        assert sr.ask_liquidity_delta_pct is None
+
+    def test_simulation_context_populated(self):
+        """Fields propagated from executor for deterministic scoring."""
+        sr = ScenarioResult(
+            scenario_name="custom",
+            starting_capital_cents=5_000_000,
+            baseline_mean_spread=150.0,
+            baseline_traded_volume=80_000.0,
+            bid_liquidity_delta_pct=0.05,
+            ask_liquidity_delta_pct=-0.03,
+        )
+        assert sr.starting_capital_cents == 5_000_000
+        assert sr.baseline_mean_spread == 150.0
+        assert sr.baseline_traded_volume == 80_000.0
+        assert sr.bid_liquidity_delta_pct == 0.05
+        assert sr.ask_liquidity_delta_pct == -0.03
+
+    def test_serialization_roundtrip_with_context(self):
+        """Ensure new fields survive model_dump / model_validate."""
+        sr = ScenarioResult(
+            scenario_name="roundtrip",
+            strategy_pnl=200.0,
+            starting_capital_cents=8_000_000,
+            baseline_mean_spread=100.0,
+            baseline_traded_volume=60_000.0,
+            bid_liquidity_delta_pct=0.02,
+            ask_liquidity_delta_pct=-0.01,
+        )
+        d = sr.model_dump()
+        restored = ScenarioResult(**d)
+        assert restored.starting_capital_cents == 8_000_000
+        assert restored.baseline_mean_spread == 100.0
+        assert restored.baseline_traded_volume == 60_000.0
+        assert restored.bid_liquidity_delta_pct == 0.02
+        assert restored.ask_liquidity_delta_pct == -0.01
+
 
 class TestRefinementState:
     def test_can_construct_initial_state(self):

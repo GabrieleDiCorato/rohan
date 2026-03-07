@@ -185,12 +185,17 @@ OTT penalty: > 200 → −2 points; > 100 → −1 point.
 
 </details>
 
-### Step 2: Propagate simulation context through state
-**File: state.py**
-- Add to `ScenarioResult`: `starting_capital_cents`, `sim_duration_hours`, `baseline_mean_spread`, `baseline_traded_volume`, `bid_liquidity_delta_pct`, `ask_liquidity_delta_pct`.
+### ~~Step 2: Propagate simulation context through state~~ ✅ DONE
+**Files: state.py, nodes.py (executor)** — Implemented and tested (11 tests).
 
-**File: nodes.py (executor)**
-- Populate the new fields from `settings.starting_cash`, computed duration, and baseline metrics.
+<details>
+<summary>Completed implementation details (click to expand)</summary>
+
+**state.py**: Added 5 fields to `ScenarioResult`: `starting_capital_cents` (default 10M), `baseline_mean_spread`, `baseline_traded_volume`, `bid_liquidity_delta_pct`, `ask_liquidity_delta_pct`. `sim_duration_hours` dropped — derivable from settings and not needed by scoring formulas.
+
+**nodes.py (executor)**: Populated the new fields from `settings.starting_cash`, `base_market.mean_spread`, `base_market.traded_volume`, and `impact.bid_liquidity_delta_pct`/`impact.ask_liquidity_delta_pct`.
+
+</details>
 
 ### Step 3: Rewire aggregator for deterministic scoring
 **File: nodes.py (aggregator)**
