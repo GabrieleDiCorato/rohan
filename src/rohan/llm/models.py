@@ -49,6 +49,12 @@ class JudgeVerdict(BaseModel):
     reasoning: str = Field(description="Explanation of the score and comparison")
     recommendation: Literal["continue", "stop_converged", "stop_plateau"] = Field(description="Whether to keep iterating")
 
+    # Multi-axis sub-scores (populated when using weighted rubric)
+    profitability_score: float | None = Field(default=None, ge=1, le=10, description="Profitability sub-score (1-10)")
+    risk_score: float | None = Field(default=None, ge=1, le=10, description="Risk-adjusted performance sub-score (1-10)")
+    impact_score: float | None = Field(default=None, ge=1, le=10, description="Market impact sub-score (1-10)")
+    execution_score: float | None = Field(default=None, ge=1, le=10, description="Execution quality sub-score (1-10)")
+
 
 class AggregatedFeedback(BaseModel):
     """Combined output from the Aggregator node."""

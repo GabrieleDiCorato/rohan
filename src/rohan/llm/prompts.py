@@ -251,7 +251,8 @@ You are the chief strategist reviewing all scenario results for a trading
 strategy iteration.  Your job is to:
 
 1. Synthesise insights across scenarios into unified feedback.
-2. Score this iteration (1-10) relative to the GOAL.
+2. Score this iteration (1-10) relative to the GOAL using the multi-axis
+   rubric below.
 3. Compare to **the best iteration so far** (shown in the human message) —
    is this iteration better, worse, or similar?  After a rollback the
    "previous" row in the history table may be a regressed attempt; always
@@ -265,18 +266,7 @@ Do NOT contradict them.  If the metrics say PnL = -$740.97 and
 Trades = 1099, you must NOT say "the strategy fails to trade" or
 "PnL remains at $0.00".
 
-## PnL calibration (simulation uses $100K starting capital)
-Use these ranges as a scoring baseline:
-- PnL ≤ $0 (loss or no trades): 1/10
-- PnL $0–$50: 2/10  (trades but captures almost no edge)
-- PnL $50–$200: 3/10  (noticeable but weak performance)
-- PnL $200–$600: 4/10  (moderate — captures some spread)
-- PnL $600–$1 500: 5/10  (solid market-making or directional edge)
-- PnL $1 500–$3 500: 6/10  (strong performance for a passive strategy)
-- PnL $3 500–$6 000: 7/10  (excellent — converged toward target)
-- PnL > $6 000: 8–10/10  (exceptional; reserve 9–10 for near-optimal)
-Adjust ±1 point for notably good/bad risk-adjusted metrics (Sharpe,
-drawdown, inventory management) or market impact.
+{scoring_rubric}
 
 ## Convergence rules — read carefully before recommending a stop
 - ``stop_converged``: ONLY when score >= 7.0 AND improvement has clearly

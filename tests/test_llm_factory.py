@@ -122,6 +122,10 @@ class TestConvenienceGetters:
         mock_create.assert_called_once()
         args = mock_create.call_args.args
         assert "gemini" in args[0]
+        # Should pass judge_temperature as a kwarg
+        kwargs = mock_create.call_args.kwargs
+        assert "temperature" in kwargs
+        assert kwargs["temperature"] == 0.0  # default judge_temperature
 
     @patch("rohan.llm.factory.create_chat_model")
     def test_explicit_settings_bypass_cache(self, mock_create):
@@ -129,3 +133,13 @@ class TestConvenienceGetters:
         s = _settings()
         get_codegen_model(settings=s)
         mock_create.assert_called_once_with(s.codegen_model, s)
+
+    @patch("rohan.llm.factory.ChatOpenAI")
+    def test_kwargs_temperature_overrides_settings(self, mock_cls):
+        """Extra kwargs temperature should override settings.temperature."""
+        mock_cls.return_value = MagicMock()
+        settings = _settings("openrouter")
+        create_chat_model("model", settings, temperature=0.0)
+
+        call_kwargs = mock_cls.call_args.kwargs
+        assert call_kwargs["temperature"] == 0.0  # override, not 0.2

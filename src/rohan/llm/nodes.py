@@ -41,6 +41,7 @@ from rohan.llm.prompts import (
     WRITER_ROLLBACK_SECTION,
     WRITER_SYSTEM,
 )
+from rohan.llm.scoring import build_scoring_rubric, classify_goal_weights
 from rohan.llm.state import RefinementState, ScenarioResult
 from rohan.simulation.models.simulation_metrics import (
     ComparisonResult,
@@ -614,6 +615,12 @@ def aggregator_node(state: RefinementState) -> dict:
     history_table = _build_history_table(iterations)
     explanations_text = _format_explanations(explanations, scenario_results)
 
+    # Goal-conditional scoring rubric (zero LLM overhead)
+    goal = state.get("goal", "")
+    weights = classify_goal_weights(goal)
+    scoring_rubric = build_scoring_rubric(weights)
+    system_prompt = AGGREGATOR_SYSTEM.format(scoring_rubric=scoring_rubric)
+
     # Best-iteration context line for the judge
     if best_score > 0.0:
         best_iteration_line = f"Iteration {best_iteration_number} — Score {best_score:.1f}/10 (this is the benchmark for the `comparison` field)"
@@ -643,7 +650,7 @@ def aggregator_node(state: RefinementState) -> dict:
     current_metrics_block = "\n".join(current_metrics_lines) if current_metrics_lines else "(no results)"
 
     human_msg = AGGREGATOR_HUMAN.format(
-        goal=state.get("goal", ""),
+        goal=goal,
         best_iteration_line=best_iteration_line,
         history_table=history_table,
         iteration_number=iteration_number,
@@ -657,7 +664,7 @@ def aggregator_node(state: RefinementState) -> dict:
     try:
         verdict_result = structured.invoke(
             [
-                SystemMessage(content=AGGREGATOR_SYSTEM),
+                SystemMessage(content=system_prompt),
                 HumanMessage(content=human_msg),
             ]
         )
@@ -702,10 +709,51 @@ def aggregator_node(state: RefinementState) -> dict:
 
     # ── Regression detection & hard rollback ─────────────────────────────
     current_code = state.get("current_code") or ""
-    # A regression is a score drop of more than 0.5 below the historical best.
-    is_regression = best_score > 0.0 and verdict.score < best_score - 0.5
+    # Tiered rollback: hard rollback when drop exceeds 1.5 points below best.
+    # Borderline regressions (1.0–1.5 below best) trigger a confirmation
+    # re-score to reduce false rollbacks from single-sample noise.
+    score_drop = best_score - verdict.score if best_score > 0 else 0.0
+    is_regression = False
     rolled_back_from: dict | None = None
     next_code = current_code  # what the writer will receive as current_code
+
+    if best_score > 0 and score_drop > 1.0:
+        if score_drop > 1.5:
+            # Hard rollback — clear regression
+            is_regression = True
+        else:
+            # Borderline (1.0–1.5 drop) — confirmation re-score
+            logger.info(
+                "Borderline regression (%.1f drop) — running confirmation re-score",
+                score_drop,
+            )
+            try:
+                confirm_result = structured.invoke(
+                    [
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=human_msg),
+                    ]
+                )
+                if confirm_result is not None:
+                    confirm_score = confirm_result.score
+                    avg_score = (verdict.score + confirm_score) / 2
+                    logger.info(
+                        "Confirmation re-score: %.1f (original %.1f, confirm %.1f, avg %.1f)",
+                        confirm_score,
+                        verdict.score,
+                        confirm_score,
+                        avg_score,
+                    )
+                    # Use the average of both scores
+                    verdict = verdict.model_copy(update={"score": round(avg_score * 2) / 2})
+                    score_drop = best_score - verdict.score
+                    is_regression = score_drop > 1.0
+                else:
+                    # Confirmation failed — be conservative, don't rollback
+                    is_regression = False
+            except Exception as exc:
+                logger.warning("Confirmation re-score failed: %s — skipping rollback", exc)
+                is_regression = False
 
     if is_regression:
         logger.warning(

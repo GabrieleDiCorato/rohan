@@ -44,8 +44,8 @@ def _create_openrouter_model(
         model=model_name,
         api_key=settings.openrouter_api_key.get_secret_value(),
         base_url=_OPENROUTER_BASE_URL,
-        temperature=settings.temperature,
-        max_tokens=settings.max_tokens,  # pyright: ignore[reportCallIssue]
+        temperature=kwargs.pop("temperature", settings.temperature),
+        max_tokens=kwargs.pop("max_tokens", settings.max_tokens),  # pyright: ignore[reportCallIssue]
         **kwargs,
     )
 
@@ -61,8 +61,8 @@ def _create_openai_model(
     return ChatOpenAI(
         model=model_name,
         api_key=settings.openai_api_key.get_secret_value(),
-        temperature=settings.temperature,
-        max_tokens=settings.max_tokens,  # pyright: ignore[reportCallIssue]
+        temperature=kwargs.pop("temperature", settings.temperature),
+        max_tokens=kwargs.pop("max_tokens", settings.max_tokens),  # pyright: ignore[reportCallIssue]
         **kwargs,
     )
 
@@ -84,8 +84,8 @@ def _create_google_model(
     model: BaseChatModel = ChatGoogleGenerativeAI(
         model=model_name,
         google_api_key=settings.google_api_key.get_secret_value(),
-        temperature=settings.temperature,
-        max_output_tokens=settings.max_tokens,
+        temperature=kwargs.pop("temperature", settings.temperature),
+        max_output_tokens=kwargs.pop("max_output_tokens", settings.max_tokens),
         **kwargs,
     )
     return model
@@ -148,9 +148,12 @@ def get_analysis_model(settings: LLMSettings | None = None) -> BaseChatModel:
 
 
 def get_judge_model(settings: LLMSettings | None = None) -> BaseChatModel:
-    """Convenience: return the convergence-judge model."""
+    """Convenience: return the convergence-judge model.
+
+    Uses ``judge_temperature`` (default 0.0) for deterministic scoring.
+    """
     s = settings or _cached_settings()
-    return create_chat_model(s.judge_model, s)
+    return create_chat_model(s.judge_model, s, temperature=s.judge_temperature)
 
 
 def get_structured_model[T](

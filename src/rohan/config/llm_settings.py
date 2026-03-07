@@ -4,15 +4,16 @@ Uses ``pydantic-settings`` for environment-based configuration with a
 ``.env`` file or environment variables.
 
 Environment variables:
-    LLM_PROVIDER        – "openrouter" | "openai" | "google"  (default: openrouter)
-    LLM_ANALYSIS_MODEL  – model for analysis / explanation     (default: google/gemini-2.0-flash-001)
-    LLM_CODEGEN_MODEL   – model for code generation            (default: anthropic/claude-sonnet-4)
-    LLM_JUDGE_MODEL     – model for convergence judging        (default: google/gemini-2.0-flash-001)
-    LLM_TEMPERATURE     – sampling temperature                 (default: 0.2)
-    LLM_MAX_TOKENS      – max tokens for generation            (default: 4096)
-    OPENROUTER_API_KEY   – API key when provider=openrouter
-    OPENAI_API_KEY       – API key when provider=openai
-    GOOGLE_API_KEY       – API key when provider=google
+    LLM_PROVIDER            – "openrouter" | "openai" | "google"  (default: openrouter)
+    LLM_ANALYSIS_MODEL      – model for analysis / explanation     (default: google/gemini-2.0-flash-001)
+    LLM_CODEGEN_MODEL       – model for code generation            (default: anthropic/claude-sonnet-4)
+    LLM_JUDGE_MODEL         – model for convergence judging        (default: google/gemini-2.0-flash-001)
+    LLM_TEMPERATURE         – sampling temperature                 (default: 0.2)
+    LLM_JUDGE_TEMPERATURE   – judge sampling temperature           (default: 0.0, deterministic)
+    LLM_MAX_TOKENS          – max tokens for generation            (default: 4096)
+    OPENROUTER_API_KEY       – API key when provider=openrouter
+    OPENAI_API_KEY           – API key when provider=openai
+    GOOGLE_API_KEY           – API key when provider=google
 """
 
 from __future__ import annotations
@@ -61,6 +62,12 @@ class LLMSettings(BaseSettings):
 
     # --- Sampling parameters ---
     temperature: float = Field(default=0.2, ge=0, le=2)
+    judge_temperature: float = Field(
+        default=0.0,
+        ge=0,
+        le=2,
+        description="Sampling temperature for the judge model (0.0 = deterministic)",
+    )
     max_tokens: int = Field(default=4096, ge=256, le=32768)
 
     # --- API keys (loaded from env / .env) ---

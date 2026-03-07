@@ -26,6 +26,7 @@ class TestLLMSettings:
         assert "gemini" in settings.analysis_model
         assert "claude" in settings.codegen_model
         assert settings.temperature == 0.2
+        assert settings.judge_temperature == 0.0
         assert settings.max_tokens == 4096
 
     def test_env_override(self, monkeypatch):
@@ -68,3 +69,15 @@ class TestLLMSettings:
         assert settings.openrouter_api_key is None
         assert settings.openai_api_key is None
         assert settings.google_api_key is None
+
+    def test_judge_temperature_env_override(self, monkeypatch):
+        """LLM_JUDGE_TEMPERATURE env var should override default."""
+        monkeypatch.setenv("LLM_JUDGE_TEMPERATURE", "0.5")
+        settings = LLMSettings(_env_file=None)  # type: ignore[call-arg]
+        assert settings.judge_temperature == 0.5
+
+    def test_judge_temperature_bounds(self):
+        with pytest.raises(ValidationError):
+            LLMSettings(judge_temperature=-0.1, _env_file=None)  # type: ignore[call-arg]
+        with pytest.raises(ValidationError):
+            LLMSettings(judge_temperature=2.5, _env_file=None)  # type: ignore[call-arg]
