@@ -71,15 +71,6 @@ if "simulation_metrics" not in st.session_state:
 if "simulation_running" not in st.session_state:
     st.session_state.simulation_running = False
 
-if "previous_metrics" not in st.session_state:
-    st.session_state.previous_metrics = None
-
-if "last_run_metrics" not in st.session_state:
-    st.session_state.last_run_metrics = None
-
-if "compare_to_last_run" not in st.session_state:
-    st.session_state.compare_to_last_run = False
-
 if "baseline_comparison" not in st.session_state:
     st.session_state.baseline_comparison = None
 
@@ -659,7 +650,6 @@ def render_sidebar_config():
             # Clear stale results — the config has changed
             st.session_state.simulation_result = None
             st.session_state.simulation_metrics = None
-            # DO NOT clear previous_metrics or last_run_metrics here, so we can compare to them!
             st.session_state.baseline_comparison = None
             st.session_state.pop("simulation_timestamp", None)
             st.session_state.pop("simulation_duration", None)
@@ -905,14 +895,6 @@ def render_execute_tab():
     )
     st.session_state.baseline_scenario_id = _baseline_id_map.get(_baseline_choice)  # None when "None"
 
-    _compare_last = st.checkbox(
-        "Compare to last run",
-        value=st.session_state.compare_to_last_run,
-        help="Show metric deltas vs the previous simulation run.",
-        key="compare_last_run_cb",
-    )
-    st.session_state.compare_to_last_run = _compare_last
-
     st.markdown("---")
 
     # Run Simulation
@@ -968,7 +950,7 @@ def render_execute_tab():
                 st.write("✓ Results processed successfully")
 
                 # Always track previous run for delta display
-                st.session_state.previous_metrics = st.session_state.last_run_metrics
+                st.session_state.previous_metrics = st.session_state.get("last_run_metrics")
 
                 # Save to session state
                 st.session_state.simulation_result = result
@@ -1036,10 +1018,10 @@ def render_execute_tab():
             else:
                 st.session_state.baseline_comparison = None
 
-            # Show quick metrics (with deltas vs previous run)
+            # Show quick metrics
             st.markdown("### 📊 Quick Metrics")
 
-            prev = st.session_state.previous_metrics if st.session_state.compare_to_last_run else None
+            prev = None
 
             col1, col2, col3, col4 = st.columns(4)
 
@@ -1206,7 +1188,7 @@ with tab2:
             """Render metrics tab as a fragment."""
             st.markdown("### 📊 Key Metrics")
 
-            prev = st.session_state.previous_metrics if st.session_state.compare_to_last_run else None
+            prev = None
 
             def _mv(v: float | None, fmt: str = ".6f") -> str:
                 return f"{v:{fmt}}" if v is not None else "N/A"
