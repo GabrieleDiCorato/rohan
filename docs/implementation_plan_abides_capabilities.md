@@ -1,49 +1,416 @@
-# ABIDES Capabilities Exposure — Implementation Plan
+# ROHAN — Refinement Loop Fix & Architecture Evolution Plan
 
-## Completed Work (Steps 1–3)
+## Product Vision & Direction
 
-The `StrategicAgent` protocol now exposes the full range of ABIDES `TradingAgent` capabilities that are financially relevant and architecturally safe. All changes are tested (417/417 passing) and documented in `docs/technical_architecture.md` and `docs/development/ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md`.
+ROHAN is a **strategy stress-testing and analysis platform**. The long-term product is NOT an automated strategy generator — it is a system where:
 
-**What was added:**
-- **Situational awareness:** `mid_price`, `spread` (computed), `portfolio_value`, `unrealized_pnl`, `time_remaining_ns`, `is_market_closed`, market hours in `AgentConfig`
-- **Order enrichment:** `is_hidden`, `is_post_only`, `bid_liquidity`, `ask_liquidity`, `OrderStatus.ACCEPTED` forwarding
-- **Order management:** `OrderActionType` enum, `OrderAction.modify()` / `partial_cancel()` / `replace()` factories, `match`-based dispatch, 4 new adapter lifecycle overrides
+1. **The user writes (or provides) the strategy** — the LLM codegen loop is scaffolding for the PoC, not the product.
+2. **The system generates adversarial scenarios** — controlled, diverse market conditions designed to expose strategy weaknesses.
+3. **The system deeply interprets what happens** — an AI investigator with full simulation observability explains *why* the strategy behaved the way it did, with code-level precision.
 
-**Design invariants held:** zero ABIDES imports in `strategy_api.py`, all new fields have defaults, `StrategicAgent` Protocol signature unchanged, ABIDES imports stay inside `abides_impl/`.
-
----
-
-## Step 4 — Extended Capabilities (Pending Evaluation)
-
-These capabilities are technically feasible but should only be implemented when usage data from the refinement loop justifies the added complexity.
-
-### 4a. Oracle / Fundamental Value
-
-**What:** Expose the ABIDES oracle's `observe_price()` as `MarketState.fundamental_value`. Gate behind `AgentConfig.oracle_access: bool = False`.
-
-**Why wait:** Creates information asymmetry — the strategy gets a "true price" that doesn't exist in real markets. Complicates fair comparison across scenarios. Only useful if ROHAN introduces explicit "informed trader" scenario types.
-
-**Trigger to implement:** The refinement loop generates mean-reversion or stat-arb strategies that would benefit from a fair-value anchor, and the evaluation framework supports scenario-level configuration.
-
-### 4b. Dynamic Wake Frequency
-
-**What:** Let the strategy return a `wake_interval_ns` to control its polling rate. Faster near events, slower during quiet periods.
-
-**Why wait:** Meta-control capability that the current Writer prompt doesn't guide toward. Adds a new optimization axis the LLM hasn't shown a need for. The fixed 1-second wakeup is sufficient for current strategy archetypes.
-
-**Trigger to implement:** Generated strategies are visibly bottlenecked by fixed tick frequency (e.g., missing short-lived opportunities, or wasting compute during quiet periods).
-
-### 4c. L2 Push Subscription
-
-**What:** Subscribe to exchange-level L2 updates so `on_market_data` fires on every order book change, not just on polling.
-
-**Why wait:** Highest-risk change — alters event timing fundamentally. With `freq=0`, callbacks fire hundreds of times per second. LLM-generated strategies aren't designed for this frequency. Risk of simulation slowdowns and subtle bugs from confusing time-driven vs event-driven callbacks.
-
-**Trigger to implement:** ROHAN supports latency-aware or high-frequency strategy archetypes where sub-second reaction matters.
+The refinement loop serves the PoC today, but every architectural investment must be evaluated against this future: **scenario control quality** and **interpretation depth** are the product differentiators. Quantitative scoring provides grounding, data visualization, and comparison baselines — it supports interpretation but does not replace it.
 
 ---
 
-## Housekeeping
+## Current State: What's Broken
 
-- `analysis_service.py` imports `abides_markets.order_book.ns_date` — the only ABIDES import outside `abides_impl/`. Replace with stdlib datetime conversion.
-- `Order.order_id` is `int` (matches ABIDES). If a FIX adapter is planned, consider migrating to `str`. Breaking change — defer unless actively needed.
+### Critical Issue #1: Scoring architecture is structurally broken
+
+The current system asks an LLM to score strategy performance against a **hardcoded rubric** with fixed dollar thresholds (e.g., "score 5-6: PnL $200–$1,500"). This fails because:
+
+1. **Thresholds are environment-dependent.** Achievable PnL varies with simulation duration, competing market makers, agent population, starting capital, and market volatility. No single set of static thresholds can be correct across configurations.
+
+2. **LLM scoring is inherently noisy.** Even with ground-truth metrics injected, the LLM judge produces ±1-2 point variance across identical inputs. When scores are already low (1-3 range), noise dominates signal.
+
+**Solution:** Replace LLM scoring with deterministic, baseline-relative formulas. Keep the LLM for qualitative analysis only.
+
+### Critical Issue #2: 90% of simulation observability is discarded
+
+ABIDES provides rich, multi-dimensional data that is **computed/available but never surfaced** to the analysis agents:
+
+| Data source | Status |
+|---|---|
+| L2 order book depth (multi-level, time-series) | Implemented via `get_order_book_l2()`, never called |
+| Per-fill execution data (fill price, quantity, timestamp, side) | Available in agent logs, only used for aggregate effective spread |
+| Intra-simulation PnL curve | Reconstructed in `_agent_risk_metrics`, then discarded |
+| Inventory trajectory over time | Available via holdings, never captured |
+| Per-agent interaction logs (who your strategy traded against) | Available via `get_logs_by_agent()`, never used |
+| Post-fill adverse selection (price movement after each fill) | Computable from L1 + fill logs, never computed |
+| Order lifecycle (submission → acceptance → fill/cancel + timing) | Available in agent logs, never analysed |
+| Volume chart | `plot_volume()` implemented, never called in pipeline |
+
+The explainer receives a 22-line text summary of what was a rich simulation. This is the biggest architectural bottleneck for interpretation quality.
+
+### Critical Issue #3: Non-deterministic seeds across iterations
+
+Each iteration creates fresh `SimulationSettings()` in the executor, generating a new random seed each time. Within one iteration, strategy and baseline share the same seed (good), but across iterations different seeds produce different market conditions, making score comparisons unreliable.
+
+**Solution:** Fix seeds per scenario at session start.
+
+### Secondary Issues
+
+- **OTT ratio explosion**: cancel-all + 1s wakeup + dual on_tick/on_market_data → OTT 10-20+. Rubric punishes harshly.
+- **Sharpe = None masking**: `or 0` in nodes.py displays None as `$0.00`, judge scores 1-2 on risk.
+- **Only 3 iterations**: iteration 1 often consumed by validation fixes, leaving 1-2 productive cycles.
+- **Feedback bottleneck**: explainer produces structured weaknesses/recommendations, aggregator flattens them into a string, writer loses code-level specificity.
+- **Explainer is not agentic**: the codebase says *"For MVP, this uses a simple prompt-based analysis without full ReAct tool calling"* — the explainer should be the primary agentic component, not the writer.
+
+---
+
+## Architecture Principle: Interpretation > Scoring > Generation
+
+The value chain flows:
+
+```
+Simulation (ABIDES)  →  Observation (data extraction)  →  Interpretation (explainer)  →  Scoring (deterministic)  →  Feedback (to user or writer)
+```
+
+Every step must be excellent. Current state:
+- Simulation: **good** (ABIDES is solid, L1/L2/agent logs all available)
+- Observation: **broken** (90% of data discarded before analysis)
+- Interpretation: **weak** (prompt-only, no tool access, no investigation)
+- Scoring: **broken** (LLM-based, noisy, miscalibrated)
+- Feedback: **lossy** (structured data compressed to flat strings)
+
+The plan addresses these in priority order.
+
+---
+
+## Phase 1 — Unblock the Loop (P0: makes the PoC functional)
+
+These changes fix the acute symptoms that keep the system from producing any useful output. They are prerequisites for everything else.
+
+### Step 1: Deterministic scoring formulas
+**File: scoring.py**
+
+Replace `build_scoring_rubric()` with pure Python functions. Keep `classify_goal_weights()`.
+
+**Why:** Eliminates scoring noise, automatically adapts to any simulation configuration. Provides grounded, reproducible numbers for comparison dashboards and data visualization. These scores become the quantitative baseline that interpretation explains.
+
+Update `ScoringWeights` to 6 fields: `profitability`, `risk_adjusted`, `volatility_impact`, `spread_impact`, `liquidity_impact`, `execution_quality`.
+
+Update `WEIGHT_PROFILES` to 6-axis tables.
+
+Add `AxisScores` dataclass (6 fields) and two functions:
+- `compute_axis_scores(scenario_result, starting_capital_cents, sim_duration_hours, baseline_mean_spread, baseline_traded_volume) → AxisScores`
+- `compute_final_score(axis_scores, weights) → float`
+
+#### Scoring Formulas
+
+**Axis 1 — Profitability** (normalized as *opportunity capture rate*):
+
+```
+opportunity = baseline_mean_spread × baseline_traded_volume / 2
+capture_rate = strategy_pnl / opportunity
+```
+
+Represents what fraction of the total spread revenue pool the strategy captured. Automatically adapts to duration, volatility, agent density, and capital.
+
+| capture_rate | Score range | Meaning |
+|---|---|---|
+| < 0 | 1 → 3 | Losing money |
+| 0 → 0.1% | 3 → 5 | Minimal capture |
+| 0.1% → 0.5% | 5 → 7 | Solid capture |
+| 0.5% → 2% | 7 → 9 | Strong capture |
+| > 2% | 9 → 10 (capped) | Exceptional |
+
+Zero trades → score **1.0** (hard floor).
+
+**Axis 2 — Risk-Adjusted Performance** (Sharpe is already annualized/scale-invariant):
+
+| Sharpe range | Score range |
+|---|---|
+| None (< 5 trades) | 3.0 (insufficient data) |
+| None (≥ 5 trades) | 2.0 (suspicious) |
+| < −1 | 1.0 |
+| −1 → 0 | 1 → 3 |
+| 0 → 0.5 | 3 → 4 |
+| 0.5 → 1.5 | 4 → 6 |
+| 1.5 → 3.0 | 6 → 8 |
+| > 3.0 | 8 → 10 |
+
+Drawdown penalty (% of starting capital):
+- `max_drawdown > 5% of capital` → −2 points
+- `max_drawdown > 2% of capital` → −1 point
+
+**Axis 3 — Volatility Impact** (baseline-relative):
+
+| volatility_delta_pct | Score range | Meaning |
+|---|---|---|
+| > +10% | 1.0 | Strongly destabilizing |
+| +5% → +10% | 1 → 4 | Destabilizing |
+| −5% → +5% | 4 → 7 | Neutral |
+| −15% → −5% | 7 → 9 | Stabilizing |
+| < −15% | 9.0 (capped) | Strongly stabilizing |
+
+**Axis 4 — Spread Impact** (baseline-relative, same shape as volatility).
+
+**Axis 5 — Liquidity Impact** (baseline-relative, **inverted** — positive delta = good):
+
+| liquidity_delta_pct | Score range | Meaning |
+|---|---|---|
+| < −15% | 1.0 | Strongly draining |
+| −15% → −5% | 1 → 4 | Draining |
+| −5% → +5% | 4 → 7 | Neutral |
+| +5% → +15% | 7 → 9 | Improving |
+| > +15% | 9.0 (capped) | Strongly improving |
+
+**Axis 6 — Execution Quality** (fill rate primary, OTT as penalty modifier):
+
+| Fill rate | Base score |
+|---|---|
+| < 5% | 1 → 2 |
+| 5−15% | 2 → 4 |
+| 15−30% | 4 → 6 |
+| 30−50% | 6 → 8 |
+| > 50% | 8 → 10 |
+
+OTT penalty: > 200 → −2 points; > 100 → −1 point.
+
+**Weight Profiles:**
+
+| Profile | Profit | Risk | Vol | Spread | Liquidity | Execution |
+|---------|--------|------|-----|--------|-----------|-----------|
+| **default** | 35% | 20% | 7% | 8% | 5% | 25% |
+| impact_focused | 15% | 10% | 20% | 20% | 15% | 20% |
+| risk_focused | 15% | 40% | 7% | 8% | 5% | 25% |
+| execution_focused | 15% | 15% | 7% | 8% | 5% | 50% |
+
+**Deterministic convergence/comparison:**
+- `comparison`: `"better"` if score > best_score, `"worse"` if score < best_score − 0.5, else `"similar"`.
+- `recommendation`: `"stop_converged"` if score ≥ 7.0 and plateau; `"stop_plateau"` if 3+ consecutive within ±0.5; else `"continue"`.
+
+### Step 2: Propagate simulation context through state
+**File: state.py**
+- Add to `ScenarioResult`: `starting_capital_cents`, `sim_duration_hours`, `baseline_mean_spread`, `baseline_traded_volume`, `bid_liquidity_delta_pct`, `ask_liquidity_delta_pct`.
+
+**File: nodes.py (executor)**
+- Populate the new fields from `settings.starting_cash`, computed duration, and baseline metrics.
+
+### Step 3: Rewire aggregator for deterministic scoring
+**File: nodes.py (aggregator)**
+- Call `compute_axis_scores()` + `compute_final_score()` per scenario, average across scenarios.
+- Build `JudgeVerdict` with deterministic score and all 6 sub-scores.
+- Compute `comparison` and `recommendation` deterministically.
+- Remove the rule-based stop guard logic (redundant).
+- Change the LLM call to qualitative analysis only.
+
+### Step 4: Fix `or 0` masking and metrics formatting
+**File: nodes.py**
+- Replace `(sr.strategy_pnl or 0)` with explicit `None` checks → "N/A" instead of "$0.00".
+- Fix negative PnL formatting: `$-7.41` → `-$7.41`.
+
+### Step 5: Fix seed consistency — per-scenario fixed seeds
+**File: graph.py**
+- In `run_refinement()`, assign deterministic seed per scenario (hash of name + session timestamp) if not already set.
+- Same seed reused across all iterations for that scenario.
+
+### Step 6: Increase default max iterations
+**File: graph.py**
+- `max_iterations`: 3 → 5.
+- `_DEFAULT_RECURSION_LIMIT`: 50 → 80.
+
+### Step 7: Parametrized test suite for scoring
+**File: tests/test_deterministic_scoring.py (new)**
+- 15-20+ test vectors covering every piecewise boundary, edge case, and guard condition in all 6 axes.
+
+---
+
+## Phase 2 — Interpretation Quality (P1: the core product investment)
+
+These changes build toward the future product: deep, investigative analysis of strategy behaviour. They have lasting architectural value regardless of whether the refinement loop stays or goes.
+
+### Step 8: Expose rich simulation data — build the analysis toolbox
+
+**Why this matters most:** The explainer (and in the future, the interpretation system) currently receives a 22-line text summary of a simulation that produces thousands of data points. You have a full MRI and you're handing your AI analyst a Post-it note. Every improvement to interpretation quality starts here.
+
+**File: analysis_service.py** — add new computation methods:
+
+| Tool function | Input | Output | What it reveals |
+|---|---|---|---|
+| `get_fill_analysis(output, agent_id)` | Sim output + agent ID | DataFrame: timestamp, side, price, qty, mid_at_fill, slippage_bps | Per-fill execution quality. Shows adverse selection, aggressive vs passive fills |
+| `get_pnl_curve(output, agent_id, initial_cash)` | Sim output + agent ID | DataFrame: timestamp, mark_to_market_pnl | Where the strategy made/lost money over time. Currently reconstructed then discarded — persist it |
+| `get_inventory_trajectory(output, agent_id)` | Sim output + agent ID | DataFrame: timestamp, position | Position buildup/unwinding patterns. Exposes inventory risk |
+| `get_adverse_selection(output, agent_id, window_ns)` | Sim output + agent ID + look-ahead window | float: avg mid-price move against the fill direction | Is the strategy consistently trading on the wrong side of impending moves? |
+| `get_order_lifecycle(output, agent_id)` | Sim output + agent ID | DataFrame: order_id, submitted_at, status, resting_time_ns, fill_rate | How long orders rest, what fraction fill, cancel rate |
+| `get_counterparty_breakdown(output, agent_id)` | Sim output (full logs) | dict: {agent_type: {count, avg_size, pnl_contribution}} | Who is the strategy trading against? Noise (easy) vs informed (hard)? |
+| `query_book_depth(output, timestamp, n_levels)` | Sim output + timestamp | dict: {bids: [(p,q)...], asks: [(p,q)...]} | L2 snapshot at any moment — enables "what did the book look like when X happened?" |
+
+**File: analysis_service.py** — add new chart methods:
+
+| Chart | Method | Visualization |
+|---|---|---|
+| PnL over time | `plot_pnl_curve()` | Line chart — where money was made/lost, drawdown periods visible |
+| Inventory over time | `plot_inventory()` | Line chart — position buildup, risk accumulation, unwinding |
+| Fill scatter | `plot_fills_vs_mid()` | Scatter: fills plotted against mid-price progression with buy/sell color coding |
+
+### Step 9: Tool-equipped explainer agent
+
+**Why:** This is the architectural change that transforms ROHAN from "system that computes metrics" into "system that investigates strategy behaviour." The explainer should be a ReAct agent that can query simulation data on demand, follow chains of reasoning, and produce deep, causally-grounded analysis.
+
+**File: nodes.py (explainer)**
+- Replace the single prompt-based `explainer_node` with a ReAct agent (LangGraph tool-calling).
+- Tools available to the explainer:
+
+```python
+@tool
+def query_fills(scenario_name: str) -> str:
+    """Get per-fill execution data: timestamp, side, price, qty, slippage."""
+
+@tool
+def query_pnl_curve(scenario_name: str) -> str:
+    """Get mark-to-market PnL over time."""
+
+@tool
+def query_inventory(scenario_name: str) -> str:
+    """Get position trajectory over the simulation."""
+
+@tool
+def query_adverse_selection(scenario_name: str, window_ms: int = 500) -> str:
+    """Get average mid-price move against fill direction within a look-ahead window."""
+
+@tool
+def query_book_at_time(scenario_name: str, timestamp_ns: int, levels: int = 5) -> str:
+    """Get L2 order book snapshot at a specific timestamp."""
+
+@tool
+def query_counterparties(scenario_name: str) -> str:
+    """Get breakdown of which agent types the strategy traded against."""
+
+@tool
+def query_order_lifecycle(scenario_name: str) -> str:
+    """Get order submission/fill/cancel statistics and timing."""
+```
+
+- The explainer prompt instructs the agent to investigate, not just summarize. Example flow:
+  1. Look at the PnL curve → notice a sharp drop at minute 12
+  2. Query fills around that timestamp → find a cluster of sells at below-mid prices
+  3. Query adverse selection → confirm fills were systematically adversely selected
+  4. Query book depth at minute 12 → see bid-side depth collapsed
+  5. Conclude: "The momentum agents drove price down at minute 12. Your strategy was holding long inventory and couldn't unwind fast enough. Recommendation: add a VPIN-based spread widening when `vpin > 0.6` to reduce fill probability during informed trading periods."
+
+- The cost of this is more LLM calls per iteration, but each call is small (tool responses are tabular, not prose). The payoff is dramatically better feedback quality.
+
+**File: state.py**
+- Add `simulation_outputs: dict[str, Any]` to `RefinementState` — the executor stores the raw `SimulationOutput` objects keyed by scenario name so the explainer tools can query them.
+
+### Step 10: Persist and surface richer data to both UI and writer
+
+**File: state.py / ScenarioResult**
+- Add optional fields for PnL curve base64, inventory curve base64, fill scatter base64 (same pattern as existing `price_chart_b64`).
+
+**File: nodes.py (executor)**
+- After running each scenario, generate and store the 3 new charts.
+
+**File: nodes.py (writer feedback)**
+- If the codegen model supports multimodal input (Claude, Gemini), inject the PnL + inventory charts alongside the metrics text. A visual of "inventory spiked to +500 at minute 15 and never recovered" communicates 10x more than `end_inventory=487`.
+
+---
+
+## Phase 3 — Prompt & Model Cleanup (P2: polish and consistency)
+
+These changes clean up the prompt architecture and data models to align with the deterministic scoring + qualitative analysis split.
+
+### Step 11: Simplify aggregator prompt
+**File: prompts.py**
+- Remove `{scoring_rubric}` placeholder from `AGGREGATOR_SYSTEM`.
+- New prompt: inject pre-computed deterministic scores, ask the LLM to explain *why* the strategy scored this way on each axis, identify code patterns, and provide actionable recommendations.
+- Remove convergence guidance (now deterministic).
+
+### Step 12: Update models for 6-axis scoring + qualitative output
+**File: models.py**
+- Update `JudgeVerdict`: add `volatility_impact_score`, `spread_impact_score`, `liquidity_impact_score`. Scores populated by formula.
+- Create `QualitativeAnalysis` model: `reasoning`, `strengths`, `weaknesses`, `recommendations`.
+- Update `IterationSummary` for 3 new sub-score fields.
+
+### Step 13: Restructure feedback routing
+**File: models.py**
+- Add `scenario_weaknesses: list[tuple[str, list[str]]]` and `scenario_recommendations: list[tuple[str, list[str]]]` to `AggregatedFeedback`.
+
+**File: nodes.py (aggregator)**
+- Populate structured fields directly from explainer `ScenarioExplanation` objects.
+
+**File: nodes.py (writer feedback)**
+- Change `weaknesses=feedback.verdict.reasoning` to render structured per-scenario weaknesses/recommendations:
+  ```
+  ### Weaknesses
+  **Scenario X:** weakness1; weakness2
+  **Scenario Y:** weakness3
+
+  ### Recommendations
+  **Scenario X:** rec1; rec2
+  ```
+
+**File: prompts.py**
+- Update `WRITER_FEEDBACK_TEMPLATE` format.
+
+### Step 14: Audit UI for 6-axis scoring
+**File: UI components (metric_display.py, 1_Refinement_Lab.py)**
+- Show 6 axes instead of 4.
+- Relabel "Market Impact" → "Volatility Impact", "Spread Impact", "Liquidity Impact".
+- Add PnL curve, inventory trajectory, fill scatter charts to scenario detail views.
+- Update reasoning display for qualitative-only output.
+
+---
+
+## Phase 4 — Future Architecture (P3: post-PoC, product evolution)
+
+These are not part of the current implementation sprint but define the architectural direction.
+
+### F1: Adversarial scenario generation
+
+When the user provides their own strategy, the system's job is to **find conditions that break it**. This means:
+
+- **Scenario parameter space**: agent population mix (more informed traders, fewer noise), volatility regimes, liquidity shocks (sudden book depth collapse), trend vs mean-reversion markets, spread regimes.
+- **LLM-driven scenario design**: an agent that proposes scenarios designed to stress-test specific strategy weaknesses identified by the explainer. "Your strategy accumulates inventory during trends → let's test with 50 momentum agents and 500 noise agents."
+- **Outcome**: the system produces a stress-test report: "Your strategy survives normal conditions but loses $X in regime Y because of Z. Here's the inventory trajectory and PnL curve."
+
+### F2: Session memory and cross-session learning
+
+A vector store of `(strategy_code, scenario_config, scores, qualitative_analysis)` from past sessions enables:
+- Starting from the best-known strategy instead of from scratch
+- Identifying recurring failure patterns across strategy variants
+- Building a library of "known-bad patterns" that the writer/user is warned about
+
+### F3: Parametric tuning separation
+
+Once a structurally sound strategy exists, separate code logic from parameters. Let the system run grid/random search on parameter space while holding code fixed. LLMs are bad at numerical optimization; systematic search is better by orders of magnitude.
+
+---
+
+## Verification
+
+Phase 1:
+- Run a full refinement loop with goal "Create a basic market-making strategy"
+- Scores are deterministic (identical inputs → identical scores)
+- First-iteration scores reach 3-6 range (not stuck at 1-2)
+- Scores improve across iterations (no false rollbacks from seed noise)
+- Seeds remain consistent across iterations for each scenario
+- `pytest tests/` passes (including test_deterministic_scoring.py)
+
+Phase 2:
+- Explainer agent uses tools to investigate simulation data
+- Explainer output references specific timestamps, fill data, inventory trajectories — not just aggregate metrics
+- PnL curve, inventory trajectory, and fill scatter charts appear in the UI
+- Writer receives richer visual + textual feedback
+
+Phase 3:
+- UI displays 6 axes correctly
+- Qualitative analysis model produces structured strengths/weaknesses/recommendations
+- Feedback routing preserves per-scenario structure
+
+---
+
+## Decisions Log
+
+| Decision | Chosen | Over | Rationale |
+|----------|--------|------|-----------|
+| Scoring method | Deterministic formulas | LLM scoring | Eliminates noise, auto-adapts to config, debuggable. LLM kept for qualitative analysis |
+| Profitability normalizer | Opportunity capture rate (spread × volume) | Fixed dollar thresholds, bps/hr | Adapts to any duration, capital, volatility, competitive landscape |
+| Scoring axes | 6 (vol/spread/liquidity split) | 4 (composite market impact) | Prevents mixed signals from being hidden by averaging |
+| Drawdown normalizer | % of starting capital | Drawdown/PnL ratio | Avoids division-by-zero near zero PnL |
+| Seed strategy | Per-scenario fixed, assigned at session start | Random per iteration, session-level single seed | Cross-iteration comparability + multi-condition robustness |
+| Feedback routing | Structured per-scenario weaknesses/recommendations | Flattened string | Preserves code-level specificity |
+| Explainer architecture | Tool-equipped ReAct agent | Prompt-only summarizer | Enables investigation, not just summarization — core product differentiator |
+| Product direction | Scenario control + interpretation depth | Automated codegen loop | Loop is PoC scaffolding; interpretation quality is the product |
+| DB backward compat | Drop old sessions | Migration | Still in development, no production data |
