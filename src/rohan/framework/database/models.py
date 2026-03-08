@@ -74,9 +74,9 @@ class SimulationScenario(Base):
     __tablename__ = "simulation_scenarios"
 
     scenario_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_id: Mapped[StrategySession | None] = mapped_column(ForeignKey("strategy_sessions.session_id", ondelete="CASCADE"), nullable=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("strategy_sessions.session_id", ondelete="CASCADE"), nullable=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    config_override: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default={})
+    config_override: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped[StrategySession | None] = relationship(back_populates="scenarios")
@@ -95,6 +95,10 @@ class StrategyIteration(Base):
 
     session: Mapped["StrategySession"] = relationship(back_populates="iterations")
     runs: Mapped[list["SimulationRun"]] = relationship(back_populates="iteration", cascade="all, delete-orphan", passive_deletes=True)
+
+    __table_args__ = (
+        Index("ix_strategy_iterations_session_gen", "session_id", "generation_number"),
+    )
 
 
 class SimulationRun(Base):
@@ -200,11 +204,11 @@ class RefinementSession(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     goal: Mapped[str] = mapped_column(Text, nullable=False)
     max_iterations: Mapped[int] = mapped_column(Integer, nullable=False)
-    scenario_configs: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)  # list[ScenarioConfig] serialised
+    scenario_configs: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)  # list[ScenarioConfig] serialised
     status: Mapped[str] = mapped_column(String, nullable=False, default="done")
     final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_duration: Mapped[float | None] = mapped_column(Float, nullable=True)
-    progress_log: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=[])  # list[str]
+    progress_log: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)  # list[str]
     final_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     final_class_name: Mapped[str | None] = mapped_column(String, nullable=True)
     final_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)

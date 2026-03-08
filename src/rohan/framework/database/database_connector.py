@@ -29,19 +29,20 @@ class DatabaseConnector:
     def __init__(self) -> None:
         """Initialize the database engine and session factory."""
         settings = DatabaseSettings()
+        conn_str = settings.connection_string.get_secret_value()
 
         # SQLite does not support pool_size / max_overflow arguments.
         engine_kwargs: dict = {"future": True}
-        if not settings.connection_string.startswith("sqlite"):
+        if not conn_str.startswith("sqlite"):
             engine_kwargs["pool_size"] = settings.pool_size
             engine_kwargs["max_overflow"] = settings.max_overflow
 
-        self._engine: Engine = create_engine(settings.connection_string, **engine_kwargs)
+        self._engine: Engine = create_engine(conn_str, **engine_kwargs)
         self._session_factory: sessionmaker[Session] = sessionmaker(autocommit=False, autoflush=False, bind=self._engine)
         self._scoped_session: scoped_session[Session] = scoped_session(self._session_factory)
         logger.info(
             "Database connector initialised: %s",
-            settings.connection_string.split("@")[-1] if "@" in settings.connection_string else settings.connection_string,
+            conn_str.split("@")[-1] if "@" in conn_str else "(connection string masked)",
         )
 
     @property

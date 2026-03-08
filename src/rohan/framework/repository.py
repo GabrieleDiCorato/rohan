@@ -73,9 +73,9 @@ class ArtifactStore:
             return
 
         data = data.copy()
-        data["bid_price"] = data["bid_price"].ffill().bfill()
+        # Keep NaN prices as-is — they signal illiquidity events
+        # (AnalysisService invariant: "never forward-fill prices")
         data["bid_qty"] = data["bid_qty"].ffill().bfill().fillna(0).astype(int)
-        data["ask_price"] = data["ask_price"].ffill().bfill()
         data["ask_qty"] = data["ask_qty"].ffill().bfill().fillna(0).astype(int)
         data = data.dropna(subset=["bid_price", "ask_price"])
 
