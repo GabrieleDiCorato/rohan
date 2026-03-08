@@ -16,7 +16,7 @@ This work begins **after** the implementation plan's Phases 1–3 are complete. 
 |---|---|---|
 | Deterministic 6-axis scoring | Phase 1, Steps 1–3 | The adversary needs quantitative targets: "find scenarios that minimize profitability score." LLM-scored numbers are too noisy for targeted adversarial search. |
 | Per-scenario fixed seeds | Phase 1, Step 5 | Adversarial scenarios must be reproducible across iterations — same market conditions each time so score changes reflect strategy changes, not seed variance. |
-| Tool-equipped ReAct explainer | Phase 2, Steps 8–9 | Adversarial results are worthless without deep investigation. The explainer must trace *why* the strategy failed — fills, inventory trajectory, adverse selection, counterparty mix. |
+| Tool-equipped ReAct explainer | Phase 2, Steps 8–9 | Adversarial results are worthless without deep investigation. The explainer must trace *why* the strategy failed — fills, inventory trajectory, adverse selection, counterparty mix. **Note:** Step 9 adds a `regime_context: str` field on `ScenarioResult` and a `{regime_context}` slot in the explainer prompt, providing the integration point for adversarial metadata (attack narrative, predicted weak axes). |
 | Rich `ScenarioResult` (PnL/inventory curves) | Phase 2, Step 10 | The adversary's rationale must be verifiable against simulation evidence. |
 | 6-axis UI and structured feedback | Phase 3, Steps 11–14 | Adversarial results surface through the same UI and feedback channels. |
 

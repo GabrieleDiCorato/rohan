@@ -287,43 +287,109 @@ These changes build toward the future product: deep, investigative analysis of s
 | Inventory over time | `plot_inventory()` | Line chart — position buildup, risk accumulation, unwinding |
 | Fill scatter | `plot_fills_vs_mid()` | Scatter: fills plotted against mid-price progression with buy/sell color coding |
 
-### Step 9: Tool-equipped explainer agent
+### Step 9: Tool-equipped explainer agent ✔️ DONE
 
 **Why:** This is the architectural change that transforms ROHAN from "system that computes metrics" into "system that investigates strategy behaviour." The explainer should be a ReAct agent that can query simulation data on demand, follow chains of reasoning, and produce deep, causally-grounded analysis.
 
-**File: nodes.py (explainer)**
-- Replace the single prompt-based `explainer_node` with a ReAct agent (LangGraph tool-calling).
-- Tools available to the explainer:
+#### Architecture Decision: Enriched Serializable Bundle (Option A)
+
+Three architectural options were evaluated for how the explainer agent accesses simulation data:
+
+| Option | Description | Verdict |
+|--------|-------------|--------|
+| **A — Enriched serializable bundle** | Extend `RichAnalysisBundle` with raw queryable data (mid-price series, L2 snapshots, multi-window adverse selection). Tools parse the serialised JSON; NO live `SimulationOutput` needed. | **✅ Chosen** |
+| B — Co-located explainer in container | Run the explainer inside the simulation container while `SimulationOutput` is still alive. | ❌ Rejected: couples explainer to container lifecycle, breaks re-explainability |
+| C — Full serializable SimulationOutput proxy | Serialize the entire `SimulationOutput` (DataFrames → Parquet → base64). | ❌ Rejected: massive state bloat (~10–50 MB per scenario), quadratic graph checkpoint growth |
+
+**Rationale:** Option A keeps all data in a single JSON blob on `ScenarioResult.rich_analysis_json` (already stored since Step 8). The explainer is container-independent, re-runnable, and checkpoint-safe. Can evolve into B or C later if needed.
+
+**Critical constraint:** `SimulationOutput` is NOT stored in `RefinementState`. It depends on live ABIDES objects, is not JSON-serialisable, and would break LangGraph checkpointing, replay, and container scaling.
+
+#### Sub-step 9.1 — Extend `RichAnalysisBundle` ✅ DONE
+
+**File: analysis_models.py** — Added two new models and three new fields:
+
+| Addition | Purpose |
+|----------|---------|
+| `MidPricePoint(timestamp_ns, mid_price)` | Single L1 mid-price observation |
+| `L2Snapshot(timestamp_ns, bids, asks)` | L2 order-book snapshot (list of (price, qty) tuples) |
+| `RichAnalysisBundle.adverse_selection_by_window` | `dict[str, float]` — adverse selection at 100ms, 500ms, 1s, 5s windows |
+| `RichAnalysisBundle.mid_price_series` | `list[MidPricePoint]` — full L1 mid-price time-series for tool recomputation |
+| `RichAnalysisBundle.l2_snapshots` | `list[L2Snapshot]` — sampled L2 snapshots at fills, PnL turning points, and every ~5s |
+
+#### Sub-step 9.2 — Enrich `compute_rich_analysis` ✅ DONE
+
+**File: analysis_service.py** — `compute_rich_analysis()` now:
+1. Computes multi-window adverse selection (100ms, 500ms, 1s, 5s)
+2. Extracts the full L1 mid-price series from `_build_mid_lookup()`
+3. Samples L2 snapshots at fill timestamps + PnL turning points + every ~5s interval, capped at 200 snapshots
+
+#### Sub-step 9.3 — Rewrite investigation tools ✅ DONE
+
+**File: tools.py** — Replace `make_explainer_tools(output: SimulationOutput)` (8 tools that were NEVER USED in the graph) with `make_investigation_tools(rich_json: str) -> list[BaseTool]`.
+
+The new factory parses `rich_json` into a `RichAnalysisBundle` once at creation time, then creates closure-bound tools. When `rich_json` is `None`, tools return "No analysis data available."
+
+**Parameterised tools** (8 total):
 
 ```python
-@tool
-def query_fills(scenario_name: str) -> str:
-    """Get per-fill execution data: timestamp, side, price, qty, slippage."""
+def query_fills(start_ns: int | None = None, end_ns: int | None = None,
+                side: str | None = None, limit: int = 50) -> str:
+    """Get per-fill execution data with optional time-range and side filters."""
 
-@tool
-def query_pnl_curve(scenario_name: str) -> str:
-    """Get mark-to-market PnL over time."""
+def query_pnl_curve(start_ns: int | None = None, end_ns: int | None = None,
+                    limit: int = 100) -> str:
+    """Get mark-to-market PnL over time with optional time-range filter."""
 
-@tool
-def query_inventory(scenario_name: str) -> str:
-    """Get position trajectory over the simulation."""
+def query_inventory(start_ns: int | None = None, end_ns: int | None = None,
+                    limit: int = 100) -> str:
+    """Get position trajectory with optional time-range filter."""
 
-@tool
-def query_adverse_selection(scenario_name: str, window_ms: int = 500) -> str:
-    """Get average mid-price move against fill direction within a look-ahead window."""
+def query_adverse_selection(window_label: str | None = None) -> str:
+    """Get adverse selection metrics. If window_label is given, return that
+    specific window; otherwise return all pre-computed windows."""
 
-@tool
-def query_book_at_time(scenario_name: str, timestamp_ns: int, levels: int = 5) -> str:
-    """Get L2 order book snapshot at a specific timestamp."""
+def query_book_at_time(timestamp_ns: int, n_levels: int = 5) -> str:
+    """Get nearest L2 snapshot to a specific timestamp."""
 
-@tool
-def query_counterparties(scenario_name: str) -> str:
+def query_counterparties() -> str:
     """Get breakdown of which agent types the strategy traded against."""
 
-@tool
-def query_order_lifecycle(scenario_name: str) -> str:
-    """Get order submission/fill/cancel statistics and timing."""
+def query_order_lifecycle(status: str | None = None, limit: int = 50) -> str:
+    """Get order lifecycle records with optional status filter."""
+
+def get_simulation_summary() -> str:
+    """Get high-level summary: fill count, PnL range, inventory range,
+    adverse selection, time span."""
 ```
+
+All tools return human-readable strings with truncation guards. Each tool's return is ≤ 4 KB to keep LLM context manageable.
+
+#### Sub-step 9.4 — Rewrite explainer prompts ✅ DONE
+
+**File: prompts.py** — Replace `EXPLAINER_SYSTEM` / `EXPLAINER_HUMAN` with `EXPLAINER_SYSTEM_REACT` / `EXPLAINER_HUMAN_REACT`.
+
+- System prompt: investigation methodology (query data → form hypothesis → verify with tools → conclude). Instructs the agent to act as a quantitative analyst.
+- Human prompt: adds `{regime_context}` placeholder for forward-compatibility with adversarial scenarios. When no regime is active, the slot is empty.
+
+#### Sub-step 9.5 — Rewrite `explainer_node` with `create_react_agent` ✅ DONE
+
+**File: nodes.py** — Replace the single structured-output LLM call with a ReAct agent:
+
+```python
+from langgraph.prebuilt import create_react_agent
+
+agent = create_react_agent(
+    model=llm,
+    tools=make_investigation_tools(rich_json),
+    prompt=react_system_prompt,
+    response_format=ScenarioExplanation,  # structured final output
+)
+```
+
+- `recursion_limit=25` to cap tool-calling loops.
+- Fallback: on agent failure, fall back to a single structured-output call (same as pre-Step 9) with a warning log. The pipeline never breaks.
+- Helper functions: `_error_explanation()`, `_extract_explanation()`, `_fallback_structured_explanation()`.
 
 - The explainer prompt instructs the agent to investigate, not just summarize. Example flow:
   1. Look at the PnL curve → notice a sharp drop at minute 12
@@ -334,8 +400,27 @@ def query_order_lifecycle(scenario_name: str) -> str:
 
 - The cost of this is more LLM calls per iteration, but each call is small (tool responses are tabular, not prose). The payoff is dramatically better feedback quality.
 
-**File: state.py**
-- Add `simulation_outputs: dict[str, Any]` to `RefinementState` — the executor stores the raw `SimulationOutput` objects keyed by scenario name so the explainer tools can query them.
+#### Sub-step 9.6 — Add `regime_context` to `ScenarioResult` ✅ DONE
+
+**File: state.py** — Add `regime_context: str = ""` to `ScenarioResult`. This field carries the regime description for the explainer prompt's `{regime_context}` slot. Empty for now; populated by the adversary node in Phase A of the adversarial plan. Forward-compatible.
+
+#### Data flow (end-to-end)
+
+```
+Simulation → SimulationOutput (live, in-process)
+    ↓
+compute_rich_analysis() → RichAnalysisBundle (Pydantic)
+    ↓
+.model_dump_json() → ScenarioResult.rich_analysis_json (str, serialisable)
+    ↓
+make_investigation_tools(rich_json) → 8 closure-bound tools
+    ↓
+create_react_agent(model, tools, prompt, response_format=ScenarioExplanation)
+    ↓
+ScenarioExplanation (structured output)
+```
+
+`SimulationOutput` is consumed and discarded in the executor. Only the serialised bundle crosses node boundaries.
 
 ### Step 10: Persist and surface richer data to both UI and writer
 
@@ -446,3 +531,8 @@ Phase 3:
 | Explainer architecture | Tool-equipped ReAct agent | Prompt-only summarizer | Enables investigation, not just summarization — core product differentiator |
 | Product direction | Scenario control + interpretation depth | Automated codegen loop | Loop is PoC scaffolding; interpretation quality is the product |
 | DB backward compat | Drop old sessions | Migration | Still in development, no production data |
+| Explainer data source | Enriched serializable bundle (Option A) | Co-located explainer in container (B), full SimulationOutput proxy (C) | Container-independent, re-explainable, checkpoint-safe. SimulationOutput is not JSON-serialisable and would break LangGraph checkpointing, replay, and container scaling. Can evolve into B or C later. |
+| SimulationOutput in state | NOT stored in RefinementState | Store as `simulation_outputs: dict` | SimulationOutput depends on live ABIDES objects, is not serialisable, breaks checkpointing. All data flows through `rich_analysis_json` on ScenarioResult. |
+| Old explainer tools | Replace entirely | Extend alongside new tools | `make_explainer_tools` contained 8 tools that were NEVER USED in the graph (dead code). Clean replacement with `make_investigation_tools` working from serialized data. |
+| Tool parameterization | Parameterized with time-range, filters, limit | Fixed-parameter tools | Enables targeted investigation ("show fills between minute 10-12") instead of dumping all data. Keeps tool responses under ~4 KB. |
+| Regime context | `regime_context: str` slot on ScenarioResult + explainer prompt | No regime awareness | Forward-compatible with adversarial scenario plan. Empty for now; populated by adversary node when implemented. |

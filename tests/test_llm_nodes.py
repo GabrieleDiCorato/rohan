@@ -17,6 +17,7 @@ from rohan.llm.models import (
 )
 from rohan.llm.nodes import (
     _build_history_table,
+    _error_explanation,
     _fmt_dollar,
     _fmt_float,
     _fmt_pct,
@@ -237,7 +238,6 @@ class TestValidatorNode:
 class TestExplainerNode:
     @patch("rohan.llm.nodes.get_analysis_model")
     def test_error_scenario_produces_explanation(self, mock_get_model):
-        # Even error scenarios need the model imported (it's at top of function)
         mock_get_model.return_value = MagicMock()
 
         state = _base_state(
@@ -250,17 +250,19 @@ class TestExplainerNode:
         assert "Scenario failed" in result["explanations"][0].weaknesses[0]
         assert result["status"] == "aggregating"
 
-    @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.create_react_agent")
     @patch("rohan.llm.nodes.get_analysis_model")
-    def test_successful_scenario(self, mock_get_model, mock_get_structured):
-        mock_structured = MagicMock()
-        mock_structured.invoke.return_value = ScenarioExplanation(
+    def test_successful_react_agent(self, mock_get_model, mock_create_agent):
+        """ReAct agent succeeds → structured response extracted."""
+        expected = ScenarioExplanation(
             scenario_name="default",
             strengths=["Good PnL"],
             weaknesses=["High impact"],
             recommendations=["Reduce size"],
         )
-        mock_get_structured.return_value = mock_structured
+        mock_agent = MagicMock()
+        mock_agent.invoke.return_value = {"structured_response": expected}
+        mock_create_agent.return_value = mock_agent
         mock_get_model.return_value = MagicMock()
 
         state = _base_state(
@@ -275,10 +277,47 @@ class TestExplainerNode:
         result = explainer_node(state)
         assert len(result["explanations"]) == 1
         assert result["explanations"][0].strengths == ["Good PnL"]
+        assert result["explanations"][0].scenario_name == "default"
+        mock_create_agent.assert_called_once()
 
     @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.create_react_agent")
     @patch("rohan.llm.nodes.get_analysis_model")
-    def test_llm_failure_produces_fallback(self, mock_get_model, mock_get_structured):
+    def test_react_failure_falls_back_to_structured(self, mock_get_model, mock_create_agent, mock_get_structured):
+        """ReAct agent raises → fallback structured call succeeds."""
+        mock_agent = MagicMock()
+        mock_agent.invoke.side_effect = RuntimeError("Tool loop error")
+        mock_create_agent.return_value = mock_agent
+
+        fallback_result = ScenarioExplanation(
+            scenario_name="default",
+            strengths=["Fallback succeeded"],
+            weaknesses=["Had to use fallback"],
+        )
+        mock_structured = MagicMock()
+        mock_structured.invoke.return_value = fallback_result
+        mock_get_structured.return_value = mock_structured
+        mock_get_model.return_value = MagicMock()
+
+        state = _base_state(
+            scenario_results=[
+                ScenarioResult(scenario_name="default", interpreter_prompt="P"),
+            ],
+        )
+        result = explainer_node(state)
+        assert len(result["explanations"]) == 1
+        assert result["explanations"][0].strengths == ["Fallback succeeded"]
+        assert result["explanations"][0].scenario_name == "default"
+
+    @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.create_react_agent")
+    @patch("rohan.llm.nodes.get_analysis_model")
+    def test_both_react_and_fallback_fail(self, mock_get_model, mock_create_agent, mock_get_structured):
+        """Both ReAct and fallback fail → error explanation produced."""
+        mock_agent = MagicMock()
+        mock_agent.invoke.side_effect = RuntimeError("ReAct down")
+        mock_create_agent.return_value = mock_agent
+
         mock_structured = MagicMock()
         mock_structured.invoke.side_effect = RuntimeError("API down")
         mock_get_structured.return_value = mock_structured
@@ -292,6 +331,12 @@ class TestExplainerNode:
         result = explainer_node(state)
         assert len(result["explanations"]) == 1
         assert "Analysis failed" in result["explanations"][0].weaknesses[0]
+
+    def test_error_explanation_helper(self):
+        exp = _error_explanation("test_scenario", "boom")
+        assert exp.scenario_name == "test_scenario"
+        assert "boom" in exp.weaknesses[0]
+        assert "boom" in exp.raw_analysis
 
 
 # ═══════════════════════════════════════════════════════════════════════════

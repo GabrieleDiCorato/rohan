@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 import traceback
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.prebuilt import create_react_agent
 
 from rohan.config import SimulationSettings
 from rohan.framework.analysis_service import AnalysisService
@@ -44,6 +46,7 @@ from rohan.llm.prompts import (
 )
 from rohan.llm.scoring import WEIGHT_PROFILES, classify_goal_weights, compute_axis_scores, compute_final_score
 from rohan.llm.state import RefinementState, ScenarioResult
+from rohan.llm.tools import make_investigation_tools
 from rohan.simulation.models.simulation_metrics import (
     ComparisonResult,
     MarketImpact,
@@ -499,12 +502,56 @@ def scenario_executor_node(state: RefinementState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def explainer_node(state: RefinementState) -> dict:
-    """Analyse each scenario result using an LLM with tool access.
+def _error_explanation(scenario_name: str, error: str) -> ScenarioExplanation:
+    """Create a placeholder explanation for a scenario that errored."""
+    return ScenarioExplanation(
+        scenario_name=scenario_name,
+        weaknesses=[f"Scenario failed: {error}"],
+        raw_analysis=f"Error: {error}",
+    )
 
-    For MVP, this uses a simple prompt-based analysis without full ReAct
-    tool calling.  The tool-equipped version is available via
-    :func:`create_explainer_react_agent` for advanced use.
+
+def _fallback_structured_explanation(
+    model: BaseChatModel,
+    sr: ScenarioResult,
+    state: RefinementState,
+) -> ScenarioExplanation:
+    """Single structured-output call (no tools) used when ReAct fails."""
+    human_msg = EXPLAINER_HUMAN.format(
+        scenario_name=sr.scenario_name,
+        strategy_code=state.get("current_code") or "(code unavailable)",
+        interpreter_prompt=sr.interpreter_prompt,
+        regime_context=sr.regime_context or "",
+    )
+    structured = get_structured_model(model, ScenarioExplanation)
+    result = structured.invoke(
+        [
+            SystemMessage(content=EXPLAINER_SYSTEM),
+            HumanMessage(content=human_msg),
+        ]
+    )
+    if result is None:
+        raise ValueError("LLM returned None for structured explanation")
+    result.scenario_name = sr.scenario_name
+    return result
+
+
+_REACT_RECURSION_LIMIT = 25
+
+
+def explainer_node(state: RefinementState) -> dict:
+    """Analyse each scenario result using a ReAct agent with investigation tools.
+
+    For each non-error scenario the node:
+    1. Builds parameterised investigation tools from the serialised
+       ``RichAnalysisBundle`` attached to the scenario result.
+    2. Creates a ``create_react_agent`` with those tools, the explainer
+       system prompt, and ``ScenarioExplanation`` as a structured output.
+    3. Invokes the agent, letting it call tools in a loop until it
+       produces the final structured response.
+
+    If the ReAct agent fails for any reason the node falls back to a
+    single structured-output LLM call (no tools).
     """
     scenario_results = state.get("scenario_results", [])
     logger.info("Explainer node — %d scenario(s)", len(scenario_results))
@@ -513,43 +560,57 @@ def explainer_node(state: RefinementState) -> dict:
     explanations: list[ScenarioExplanation] = []
 
     for sr in scenario_results:
+        # ── Error scenarios ──────────────────────────────────────────
         if sr.error:
-            explanations.append(
-                ScenarioExplanation(
-                    scenario_name=sr.scenario_name,
-                    weaknesses=[f"Scenario failed: {sr.error}"],
-                    raw_analysis=f"Error: {sr.error}",
-                )
-            )
+            explanations.append(_error_explanation(sr.scenario_name, sr.error))
             continue
 
+        # ── Build human message ──────────────────────────────────────
         human_msg = EXPLAINER_HUMAN.format(
             scenario_name=sr.scenario_name,
             strategy_code=state.get("current_code") or "(code unavailable)",
             interpreter_prompt=sr.interpreter_prompt,
+            regime_context=sr.regime_context or "",
         )
 
+        # ── ReAct agent path ─────────────────────────────────────────
         try:
-            structured = get_structured_model(model, ScenarioExplanation)
-            result = structured.invoke(
-                [
-                    SystemMessage(content=EXPLAINER_SYSTEM),
-                    HumanMessage(content=human_msg),
-                ]
+            tools = make_investigation_tools(sr.rich_analysis_json)
+            agent = create_react_agent(
+                model,
+                tools=tools,
+                prompt=EXPLAINER_SYSTEM,
+                response_format=ScenarioExplanation,
             )
-            if result is None:
-                raise ValueError("LLM failed to return a structured explanation schema")
+            agent_output = agent.invoke(
+                {"messages": [HumanMessage(content=human_msg)]},
+                config={"recursion_limit": _REACT_RECURSION_LIMIT},
+            )
+            result: ScenarioExplanation = agent_output["structured_response"]
             result.scenario_name = sr.scenario_name
             explanations.append(result)
         except Exception as exc:
-            logger.error("Explainer failed for %r: %s", sr.scenario_name, exc)
-            explanations.append(
-                ScenarioExplanation(
-                    scenario_name=sr.scenario_name,
-                    weaknesses=[f"Analysis failed: {exc}"],
-                    raw_analysis=str(exc),
-                )
+            logger.warning(
+                "ReAct agent failed for %r, falling back to structured call: %s",
+                sr.scenario_name,
+                exc,
             )
+            # ── Fallback: single structured-output call ──────────────
+            try:
+                explanations.append(_fallback_structured_explanation(model, sr, state))
+            except Exception as fallback_exc:
+                logger.error(
+                    "Fallback also failed for %r: %s",
+                    sr.scenario_name,
+                    fallback_exc,
+                )
+                explanations.append(
+                    ScenarioExplanation(
+                        scenario_name=sr.scenario_name,
+                        weaknesses=[f"Analysis failed: {fallback_exc}"],
+                        raw_analysis=str(fallback_exc),
+                    )
+                )
 
     return {
         "explanations": explanations,

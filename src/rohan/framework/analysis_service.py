@@ -14,6 +14,8 @@ from rohan.framework.analysis_models import (
     CounterpartySummary,
     FillRecord,
     InventoryPoint,
+    L2Snapshot,
+    MidPricePoint,
     OrderLifecycleRecord,
     PnLPoint,
     RichAnalysisBundle,
@@ -1227,7 +1229,9 @@ class AnalysisService:
         """Compute the full rich-analysis bundle for one agent in one scenario.
 
         Convenience method that calls all analysis methods and returns
-        a serialisable ``RichAnalysisBundle``.
+        a serialisable ``RichAnalysisBundle``.  The bundle includes raw
+        queryable data (mid-price series, sampled L2 snapshots) so that
+        investigation tools can operate purely from serialised JSON.
         """
         fills = AnalysisService.get_fill_analysis(result, agent_id)
         pnl_curve = AnalysisService.get_pnl_curve(result, agent_id, initial_cash)
@@ -1236,13 +1240,80 @@ class AnalysisService:
         counterparties = AnalysisService.get_counterparty_breakdown(result, agent_id)
         lifecycle = AnalysisService.get_order_lifecycle(result, agent_id)
 
+        # --- Multi-window adverse selection ---
+        adverse_by_window: dict[str, float] = {}
+        windows = {
+            "100ms": 100_000_000,
+            "500ms": 500_000_000,
+            "1s": 1_000_000_000,
+            "5s": 5_000_000_000,
+        }
+        for label, wns in windows.items():
+            val = AnalysisService.get_adverse_selection(result, agent_id, wns)
+            if val is not None:
+                adverse_by_window[label] = val
+
+        # --- Mid-price series for investigation tools ---
+        two_sided = AnalysisService._get_two_sided_l1(result)
+        mid_price_series: list[MidPricePoint] = []
+        if not two_sided.empty:
+            mid_lookup = AnalysisService._build_mid_lookup(two_sided)
+            for t, m in zip(mid_lookup.index, mid_lookup.values, strict=False):
+                if not pd.isna(m):
+                    mid_price_series.append(MidPricePoint(timestamp_ns=int(t), mid_price=float(m)))
+
+        # --- Sampled L2 snapshots ---
+        l2_snapshots: list[L2Snapshot] = []
+        snapshot_times: set[int] = set()
+        # Snapshot at each fill timestamp
+        for f in fills:
+            snapshot_times.add(f.timestamp_ns)
+        # Snapshot at PnL turning points (local extrema)
+        if len(pnl_curve) >= 3:
+            for i in range(1, len(pnl_curve) - 1):
+                prev_pnl = pnl_curve[i - 1].mark_to_market_pnl
+                curr_pnl = pnl_curve[i].mark_to_market_pnl
+                next_pnl = pnl_curve[i + 1].mark_to_market_pnl
+                if (curr_pnl >= prev_pnl and curr_pnl >= next_pnl) or (curr_pnl <= prev_pnl and curr_pnl <= next_pnl):
+                    snapshot_times.add(pnl_curve[i].timestamp_ns)
+        # Regular interval snapshots (~5s apart)
+        if mid_price_series:
+            t_min = mid_price_series[0].timestamp_ns
+            t_max = mid_price_series[-1].timestamp_ns
+            interval = 5_000_000_000  # 5 seconds
+            t = t_min
+            while t <= t_max:
+                snapshot_times.add(t)
+                t += interval
+
+        # Cap total snapshots to keep bundle size manageable
+        sorted_times = sorted(snapshot_times)
+        if len(sorted_times) > 200:
+            # Downsample: keep first, last, and evenly spaced middle
+            step = len(sorted_times) / 200
+            sorted_times = [sorted_times[int(i * step)] for i in range(200)]
+
+        for ts in sorted_times:
+            snap = AnalysisService.query_book_depth(result, ts, n_levels=5)
+            if snap["bids"] or snap["asks"]:
+                l2_snapshots.append(
+                    L2Snapshot(
+                        timestamp_ns=ts,
+                        bids=[(int(p), int(q)) for p, q in snap["bids"]],
+                        asks=[(int(p), int(q)) for p, q in snap["asks"]],
+                    )
+                )
+
         return RichAnalysisBundle(
             fills=fills,
             pnl_curve=pnl_curve,
             inventory_trajectory=inventory,
             adverse_selection_bps=adverse,
+            adverse_selection_by_window=adverse_by_window,
             counterparty_breakdown=counterparties,
             order_lifecycle=lifecycle,
+            mid_price_series=mid_price_series,
+            l2_snapshots=l2_snapshots,
         )
 
     # ==================================================================

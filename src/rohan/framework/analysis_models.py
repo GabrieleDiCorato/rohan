@@ -63,16 +63,38 @@ class CounterpartySummary(BaseModel):
     total_volume: int = Field(default=0, description="Total shares traded against this type")
 
 
+class MidPricePoint(BaseModel):
+    """A single L1 mid-price observation."""
+
+    timestamp_ns: int = Field(description="Nanoseconds since midnight")
+    mid_price: float = Field(description="(bid + ask) / 2 in cents")
+
+
+class L2Snapshot(BaseModel):
+    """An L2 order-book snapshot at a single point in time."""
+
+    timestamp_ns: int = Field(description="Nanoseconds since midnight")
+    bids: list[tuple[int, int]] = Field(default_factory=list, description="List of (price_cents, qty) tuples, best first")
+    asks: list[tuple[int, int]] = Field(default_factory=list, description="List of (price_cents, qty) tuples, best first")
+
+
 class RichAnalysisBundle(BaseModel):
     """Complete rich-analysis output for one scenario execution.
 
     Designed to be stored as a single JSON blob on ``ScenarioResult``
-    and in the ``artifacts`` DB table.
+    and in the ``artifacts`` DB table.  All fields are fully serialisable
+    so that investigation tools can work from the JSON without needing
+    a live ``SimulationOutput``.
     """
 
     fills: list[FillRecord] = Field(default_factory=list)
     pnl_curve: list[PnLPoint] = Field(default_factory=list)
     inventory_trajectory: list[InventoryPoint] = Field(default_factory=list)
-    adverse_selection_bps: float | None = Field(default=None, description="Average mid-price move against fill direction within look-ahead window (bps)")
+    adverse_selection_bps: float | None = Field(default=None, description="Average mid-price move against fill direction within default look-ahead window (bps)")
+    adverse_selection_by_window: dict[str, float] = Field(default_factory=dict, description="Adverse selection at multiple look-ahead windows, keyed by label (e.g. '100ms', '500ms', '1s', '5s')")
     counterparty_breakdown: list[CounterpartySummary] = Field(default_factory=list)
     order_lifecycle: list[OrderLifecycleRecord] = Field(default_factory=list)
+
+    # Raw queryable data for investigation tools
+    mid_price_series: list[MidPricePoint] = Field(default_factory=list, description="Full L1 mid-price time-series for recomputation")
+    l2_snapshots: list[L2Snapshot] = Field(default_factory=list, description="Sampled L2 snapshots at fills, PnL turning points, and regular intervals")

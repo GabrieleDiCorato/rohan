@@ -152,6 +152,8 @@ Uses **LangChain** for model abstraction with **OpenRouter** as default provider
 *   **`src/rohan/config/llm_settings.py`** — Pydantic settings.
 *   **`src/rohan/llm/models.py`** — Pydantic structured output models.
 *   **`src/rohan/llm/prompts.py`** — Prompt templates.
+*   **`src/rohan/llm/tools.py`** — `make_investigation_tools(rich_json)` — factory producing 8 parameterized tools from serialized `RichAnalysisBundle`.
+*   **`src/rohan/framework/analysis_models.py`** — Pydantic models for rich simulation data (`FillRecord`, `PnLPoint`, `InventoryPoint`, `OrderLifecycleRecord`, `CounterpartySummary`, `MidPricePoint`, `L2Snapshot`, `RichAnalysisBundle`).
 
 #### 5.3.2 Multi-Agent Architecture
 Each agent is a separate LangGraph node with a single responsibility. Agents communicate through state, not direct calls.
@@ -198,23 +200,76 @@ flowchart TD
 
 *   **Writer Agent:** Generates strategy code from goal + feedback.
 *   **Validator Agent:** Validates strategy code (AST + sandbox execution).
-*   **Scenario Executor:** Runs validated strategy across multiple scenarios.
-*   **Explainer Agent:** Analyzes simulation results with tool access.
+*   **Scenario Executor:** Runs validated strategy across multiple scenarios. Computes `RichAnalysisBundle` → serialized JSON on `ScenarioResult`.
+*   **Explainer Agent:** ReAct agent (`create_react_agent`) with 8 parameterized investigation tools that work from serialized `RichAnalysisBundle` JSON. Produces `ScenarioExplanation` structured output. Falls back to single structured-output call on failure.
 *   **Aggregator:** Scores each iteration deterministically via 6-axis formulas (`scoring.py`), uses LLM only for qualitative analysis. Handles rollback on regression (>1.0 score drop) and convergence/plateau detection.
 
 #### 5.3.3 LangGraph State & Graph
 Implemented in `src/rohan/llm/state.py` and `src/rohan/llm/graph.py`.
 The **Aggregator** scores each iteration using deterministic formulas across 6 axes (profitability, risk, volatility impact, spread impact, liquidity impact, execution quality). The LLM provides qualitative analysis only — reasoning, strengths, weaknesses, and recommendations via the `QualitativeAnalysis` structured output. Convergence, plateau detection, comparison, and rollback are all deterministic.
 
-#### 5.3.4 Tool-Equipped Explainer
-The Explainer agent uses **tool calling** to deeply analyze simulation results. Tools include:
-- `get_order_book_snapshot(timestamp)`
-- `get_agent_trades(agent_id)`
-- `compute_pnl_curve()`
-- `get_price_stats()`
-- `get_spread_stats()`
-- `query_logs(event_type)`
-- `get_volume_profile(n_bins)`
+#### 5.3.4 Tool-Equipped Explainer (ReAct Agent)
+
+The Explainer agent is a **ReAct agent** (built with `create_react_agent` from `langgraph.prebuilt`) that investigates simulation results through parameterized tool calling. This is the core architectural investment for interpretation depth.
+
+**Data flow — enriched serializable bundle:**
+
+```
+SimulationOutput (live, in ABIDES process)
+    │
+    ▼
+compute_rich_analysis()  →  RichAnalysisBundle (Pydantic)
+    │
+    ▼
+.model_dump_json()  →  ScenarioResult.rich_analysis_json (str)
+    │
+    ▼
+make_investigation_tools(rich_json)  →  8 closure-bound tools
+    │
+    ▼
+create_react_agent(model, tools, prompt, response_format=ScenarioExplanation)
+    │
+    ▼
+ScenarioExplanation (structured output)
+```
+
+`SimulationOutput` is consumed and discarded in the executor node. Only the serialized JSON bundle crosses node boundaries. This ensures:
+- **Checkpoint safety**: LangGraph state is fully JSON-serializable
+- **Container independence**: explainer can run in a separate process or container
+- **Re-explainability**: any `ScenarioResult` with `rich_analysis_json` can be re-analyzed without re-running the simulation
+
+**`RichAnalysisBundle`** (defined in `analysis_models.py`) contains:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `fills` | `list[FillRecord]` | Per-fill execution data (timestamp, side, price, qty, slippage, counterparty) |
+| `pnl_curve` | `list[PnLPoint]` | Mark-to-market PnL trajectory |
+| `inventory_trajectory` | `list[InventoryPoint]` | Position buildup/unwinding over time |
+| `adverse_selection_bps` | `float | None` | Avg mid-price move against fill direction (default window) |
+| `adverse_selection_by_window` | `dict[str, float]` | Multi-window adverse selection (100ms, 500ms, 1s, 5s) |
+| `counterparty_breakdown` | `list[CounterpartySummary]` | Who the strategy traded against |
+| `order_lifecycle` | `list[OrderLifecycleRecord]` | Order submission/fill/cancel statistics |
+| `mid_price_series` | `list[MidPricePoint]` | Full L1 mid-price time-series (tool recomputation) |
+| `l2_snapshots` | `list[L2Snapshot]` | Sampled L2 snapshots at fills, PnL turning points, ~5s intervals (capped at 200) |
+
+**Investigation tools** (`make_investigation_tools` in `tools.py`):
+
+| Tool | Key parameters | Returns |
+|------|----------------|---------|
+| `query_fills` | `start_ns`, `end_ns`, `side`, `limit` | Filtered fills with slippage |
+| `query_pnl_curve` | `start_ns`, `end_ns`, `limit` | PnL points in time range |
+| `query_inventory` | `start_ns`, `end_ns`, `limit` | Position trajectory in time range |
+| `query_adverse_selection` | `window_label` | Per-window or all-window adverse selection |
+| `query_book_at_time` | `timestamp_ns`, `n_levels` | Nearest L2 snapshot |
+| `query_counterparties` | — | Agent-type breakdown |
+| `query_order_lifecycle` | `status`, `limit` | Filtered order records |
+| `get_simulation_summary` | — | High-level statistics |
+
+Tools return human-readable strings, capped at ~4 KB per response. Parameterized filters (time-range, side, status) enable targeted investigation.
+
+**Fallback:** On ReAct agent failure, the node falls back to a single structured-output LLM call (pre-Step 9 behavior), ensuring the pipeline never breaks.
+
+**Architecture decision:** `SimulationOutput` is NOT stored in `RefinementState`. It depends on live ABIDES objects, is not JSON-serializable, and would break checkpointing, replay, and container scaling. The enriched bundle approach (Option A) was chosen over co-located explainer (Option B) and full `SimulationOutput` proxy (Option C) — see `implementation_plan.md` Decisions Log for rationale.
 
 #### 5.3.5 UI & Notebook for Local Testing
 *   **`notebooks/quickstart.ipynb`** — Interactive demo.

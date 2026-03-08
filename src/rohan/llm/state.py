@@ -69,6 +69,9 @@ class ScenarioResult(BaseModel):
     fill_scatter_b64: str | None = None
     rich_analysis_json: str | None = None
 
+    # Regime context for explainer (Step 9 — forward-compatible with adversarial plan)
+    regime_context: str = ""
+
 
 # ---------------------------------------------------------------------------
 # Graph state
