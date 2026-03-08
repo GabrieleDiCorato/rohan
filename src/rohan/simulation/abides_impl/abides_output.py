@@ -57,10 +57,12 @@ class AbidesOutput(SimulationOutput):
         end_state: dict[str, Any],
         *,
         strategic_agent_id: int | None = None,
+        ticker: str = "ABM",
     ):
         super().__init__()
         self.end_state = end_state
         self.strategic_agent_id = strategic_agent_id
+        self._ticker = ticker
         # Depth-parameterised L2 cache: {n_levels: validated_df}
         # Using an explicit dict owned by the instance avoids the memory-leak
         # footgun of @lru_cache on instance methods (see module docstring).
@@ -139,7 +141,7 @@ class AbidesOutput(SimulationOutput):
 
     @functools.cached_property
     def order_book(self) -> OrderBook:
-        return self.exchange_agent.order_books["ABM"]  # pyright: ignore[reportReturnType]
+        return self.exchange_agent.order_books[self._ticker]  # pyright: ignore[reportReturnType]
 
     @staticmethod
     def _compute_order_book_l1(order_book: OrderBook) -> pd.DataFrame:

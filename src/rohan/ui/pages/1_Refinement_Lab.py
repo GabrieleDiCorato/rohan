@@ -11,6 +11,7 @@ Autonomous LLM-driven strategy optimization.  This page lets you:
 
 from __future__ import annotations
 
+import html
 import logging
 import time
 import traceback
@@ -36,6 +37,7 @@ from rohan.llm.graph import (
 from rohan.llm.state import RefinementState, ScenarioConfig
 from rohan.ui.utils.metric_display import get_help, get_scoring_help
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
+from rohan.ui.utils.startup import ensure_db_initialized
 from rohan.ui.utils.theme import COLORS, apply_theme
 
 logger = logging.getLogger(__name__)
@@ -55,12 +57,7 @@ apply_theme()
 
 # Ensure DB tables exist (once per session — avoids noisy re-creation
 # logs on every Streamlit rerun).
-if not st.session_state.get("_db_initialised"):
-    try:
-        initialize_database()
-    except Exception:
-        logger.warning("Database initialization failed — persistence disabled", exc_info=True)
-    st.session_state["_db_initialised"] = True
+ensure_db_initialized()
 
 _scenario_repo = ScenarioRepository()
 _refinement_repo = RefinementRepository()
@@ -165,13 +162,15 @@ for _key, _val in _DEFAULTS.items():
 
 def _card(label: str, value: str, accent: str) -> str:
     """Return HTML for a Bloomberg-style metric card."""
+    safe_label = html.escape(label)
+    safe_value = html.escape(value)
     return f"""
     <div style='background-color: {COLORS["card_bg"]}; padding: 15px;
                 border-radius: 8px; border-left: 4px solid {accent};'>
         <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;
-                  text-transform: uppercase; letter-spacing: 1px;'>{label}</p>
+                  text-transform: uppercase; letter-spacing: 1px;'>{safe_label}</p>
         <p style='color: {COLORS["text"]}; margin: 5px 0 0 0;
-                  font-size: 1.4rem; font-weight: bold;'>{value}</p>
+                  font-size: 1.4rem; font-weight: bold;'>{safe_value}</p>
     </div>
     """
 

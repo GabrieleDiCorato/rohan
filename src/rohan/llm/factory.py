@@ -127,7 +127,7 @@ def create_chat_model(
     return factory(model_name, settings, **kwargs)
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=1)
 def _cached_settings() -> LLMSettings:
     """Load settings exactly once (cached)."""
     from rohan.config.llm_settings import LLMSettings

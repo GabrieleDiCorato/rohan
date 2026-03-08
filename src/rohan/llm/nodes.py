@@ -984,9 +984,10 @@ def aggregator_node(state: RefinementState) -> dict:
     new_iterations = list(iterations) + [iteration_summary]
 
     # ── Stop conditions (deterministic) ──────────────────────────────────
-    from rohan.llm.graph import DEFAULT_MAX_ITERATIONS
+    from rohan.config import LLMSettings
 
-    max_iterations = state.get("max_iterations", DEFAULT_MAX_ITERATIONS)
+    _settings = LLMSettings()
+    max_iterations = state.get("max_iterations", _settings.default_max_iterations)
 
     # Regression always forces continue
     if is_regression:

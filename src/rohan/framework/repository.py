@@ -118,43 +118,58 @@ class ArtifactStore:
 
         structured_cols = ["AgentID", "AgentType", "EventType", "time_placed"]
 
+        # --- Resolve columns vectorially (avoid slow iterrows) -----------
+        df = logs.copy()
+
+        # AgentID: prefer "AgentID", fall back to "agent_id"
+        if "agent_id" in df.columns and "AgentID" in df.columns:
+            df["AgentID"] = df["AgentID"].fillna(df["agent_id"])
+        elif "agent_id" in df.columns:
+            df["AgentID"] = df["agent_id"]
+
+        if "AgentID" not in df.columns:
+            return
+        df = df.dropna(subset=["AgentID"])
+        if df.empty:
+            return
+
+        # AgentType: prefer "AgentType", fall back to "agent_type"
+        if "AgentType" not in df.columns:
+            df["AgentType"] = df.get("agent_type", "Unknown")
+        df["AgentType"] = df["AgentType"].fillna("Unknown").astype(str)
+
+        # EventType
+        if "EventType" not in df.columns:
+            df["EventType"] = "Unknown"
+        df["EventType"] = df["EventType"].fillna("Unknown").astype(str)
+
+        # time_placed: coerce to datetime, leave NaT as None
+        if "time_placed" in df.columns:
+            df["time_placed"] = pd.to_datetime(df["time_placed"], errors="coerce")
+        else:
+            df["time_placed"] = pd.NaT
+
+        # --- Build records list using to_dict (much faster) ---------------
+        extra_cols = [c for c in df.columns if c not in structured_cols]
         records = []
-        for _, row in logs.iterrows():
-            agent_id = row.get("AgentID")
-            if pd.isna(agent_id) and "agent_id" in row:  # pyright: ignore[reportGeneralTypeIssues]
-                agent_id = row.get("agent_id")
-            if pd.isna(agent_id):  # pyright: ignore[reportGeneralTypeIssues]
-                continue
-
-            agent_type = row.get("AgentType", "Unknown")
-            if pd.isna(agent_type) and "agent_type" in row:  # pyright: ignore[reportGeneralTypeIssues]
-                agent_type = row.get("agent_type", "Unknown")
-
-            event_type = row.get("EventType", "Unknown")
-
-            time_placed = row.get("time_placed")
-            if pd.isna(time_placed):  # pyright: ignore[reportGeneralTypeIssues]
-                time_placed = None
-            elif isinstance(time_placed, str):
-                try:
-                    time_placed = pd.to_datetime(time_placed).to_pydatetime()
-                except Exception:
-                    time_placed = None
-            elif isinstance(time_placed, pd.Timestamp):
-                time_placed = time_placed.to_pydatetime()
-
-            log_item = row.drop(labels=structured_cols, errors="ignore").to_dict()
+        for row_dict in df.to_dict(orient="records"):
+            log_item = {k: row_dict[k] for k in extra_cols if k in row_dict}
             log_json = self._sanitize_for_json(log_item)
 
-            record = {
+            tp = row_dict.get("time_placed")
+            if pd.isna(tp):  # pyright: ignore[reportArgumentType]
+                tp = None
+            elif isinstance(tp, pd.Timestamp):
+                tp = tp.to_pydatetime()
+
+            records.append({
                 "run_id": run_id,
-                "agent_id": int(agent_id),  # pyright: ignore[reportArgumentType]
-                "agent_type": str(agent_type),
-                "event_type": str(event_type),
-                "time_placed": time_placed,
+                "agent_id": int(row_dict["AgentID"]),
+                "agent_type": str(row_dict["AgentType"]),
+                "event_type": str(row_dict["EventType"]),
+                "time_placed": tp,
                 "log_json": log_json,
-            }
-            records.append(record)
+            })
 
         if not records:
             return
