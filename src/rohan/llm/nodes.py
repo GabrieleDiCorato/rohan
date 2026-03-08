@@ -900,6 +900,9 @@ def aggregator_node(state: RefinementState) -> dict:
             price_chart_b64=sr.price_chart_b64,
             spread_chart_b64=sr.spread_chart_b64,
             volume_chart_b64=sr.volume_chart_b64,
+            pnl_chart_b64=sr.pnl_chart_b64,
+            inventory_chart_b64=sr.inventory_chart_b64,
+            fill_scatter_b64=sr.fill_scatter_b64,
         )
 
     # ── Regression detection & hard rollback ─────────────────────────────

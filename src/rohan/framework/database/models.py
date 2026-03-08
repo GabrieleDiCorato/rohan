@@ -266,5 +266,12 @@ class RefinementScenarioResult(Base):
     price_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
     spread_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
     volume_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pnl_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inventory_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fill_scatter_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Serialised RichAnalysisBundle JSON — stored inline for dev/PoC.
+    # For production scale, consider migrating to the artifacts table
+    # (ArtifactType.RICH_ANALYSIS) to avoid row bloat.
+    rich_analysis_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     iteration: Mapped["RefinementIteration"] = relationship(back_populates="scenario_results")

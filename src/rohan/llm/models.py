@@ -100,6 +100,9 @@ class ScenarioMetrics(BaseModel):
     price_chart_b64: str | None = None
     spread_chart_b64: str | None = None
     volume_chart_b64: str | None = None
+    pnl_chart_b64: str | None = None
+    inventory_chart_b64: str | None = None
+    fill_scatter_b64: str | None = None
 
 
 class IterationSummary(BaseModel):

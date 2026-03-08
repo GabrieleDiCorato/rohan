@@ -55,6 +55,10 @@ class ScenarioResultData:
     price_chart_b64: str | None = None
     spread_chart_b64: str | None = None
     volume_chart_b64: str | None = None
+    pnl_chart_b64: str | None = None
+    inventory_chart_b64: str | None = None
+    fill_scatter_b64: str | None = None
+    rich_analysis_json: str | None = None
 
 
 @dataclass
@@ -174,6 +178,10 @@ class RefinementRepository:
                         price_chart_b64=sr.price_chart_b64,
                         spread_chart_b64=sr.spread_chart_b64,
                         volume_chart_b64=sr.volume_chart_b64,
+                        pnl_chart_b64=sr.pnl_chart_b64,
+                        inventory_chart_b64=sr.inventory_chart_b64,
+                        fill_scatter_b64=sr.fill_scatter_b64,
+                        rich_analysis_json=sr.rich_analysis_json,
                     )
                 )
             session_obj.iterations.append(it_orm)
@@ -256,6 +264,9 @@ class RefinementRepository:
                         price_chart_b64=sr.price_chart_b64,
                         spread_chart_b64=sr.spread_chart_b64,
                         volume_chart_b64=sr.volume_chart_b64,
+                        pnl_chart_b64=sr.pnl_chart_b64,
+                        inventory_chart_b64=sr.inventory_chart_b64,
+                        fill_scatter_b64=sr.fill_scatter_b64,
                     )
                 iteration_summaries.append(
                     IterationSummary(

@@ -258,6 +258,9 @@ def _save_current_run(run_name: str | None = None) -> bool:
                 price_chart_b64=sm.price_chart_b64,
                 spread_chart_b64=sm.spread_chart_b64,
                 volume_chart_b64=sm.volume_chart_b64,
+                pnl_chart_b64=sm.pnl_chart_b64,
+                inventory_chart_b64=sm.inventory_chart_b64,
+                fill_scatter_b64=sm.fill_scatter_b64,
             )
             for sm in it.scenario_metrics.values()
         ]
@@ -1213,17 +1216,34 @@ if final_state is not None:
                         # Simulation charts
                         import base64
 
-                        chart_cols = st.columns(3)
-                        chart_data = [
+                        # Row 1 — Market microstructure charts
+                        st.markdown("##### Market")
+                        market_cols = st.columns(3)
+                        market_charts = [
                             ("📈 Price Series", sm.price_chart_b64),
                             ("📊 Bid-Ask Spread", sm.spread_chart_b64),
                             ("📉 Volume at BBO", sm.volume_chart_b64),
                         ]
-                        for col, (chart_label, chart_b64) in zip(chart_cols, chart_data, strict=False):
+                        for col, (chart_label, chart_b64) in zip(market_cols, market_charts, strict=False):
                             with col:
                                 if chart_b64:
                                     st.caption(chart_label)
                                     st.image(base64.b64decode(chart_b64))
+
+                        # Row 2 — Strategy performance charts
+                        strategy_charts = [
+                            ("💰 PnL Curve", sm.pnl_chart_b64),
+                            ("📦 Inventory", sm.inventory_chart_b64),
+                            ("🎯 Fills vs Mid", sm.fill_scatter_b64),
+                        ]
+                        if any(b64 for _, b64 in strategy_charts):
+                            st.markdown("##### Strategy Performance")
+                            strat_cols = st.columns(3)
+                            for col, (chart_label, chart_b64) in zip(strat_cols, strategy_charts, strict=False):
+                                with col:
+                                    if chart_b64:
+                                        st.caption(chart_label)
+                                        st.image(base64.b64decode(chart_b64))
 
     # ══════════════════════════════════════════════════════════════════
     # TAB 3 — Strategy

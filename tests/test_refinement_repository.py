@@ -60,6 +60,10 @@ class TestRefinementRepository:
                             price_chart_b64="cHJpY2U=",
                             spread_chart_b64="c3ByZWFk",
                             volume_chart_b64="dm9sdW1l",
+                            pnl_chart_b64="cG5s",
+                            inventory_chart_b64="aW52",
+                            fill_scatter_b64="ZmlsbA==",
+                            rich_analysis_json='{"fills": []}',
                         ),
                     ],
                 )
@@ -134,6 +138,10 @@ class TestRefinementRepository:
         assert sr.total_pnl == 100.0
         assert sr.trade_count == 10
         assert sr.price_chart_b64 == "cHJpY2U="
+        assert sr.pnl_chart_b64 == "cG5s"
+        assert sr.inventory_chart_b64 == "aW52"
+        assert sr.fill_scatter_b64 == "ZmlsbA=="
+        assert sr.rich_analysis_json == '{"fills": []}'
 
     # ------------------------------------------------------------------
     # List
@@ -235,6 +243,10 @@ class TestRefinementRepository:
         assert isinstance(sm, ScenarioMetrics)
         assert sm.total_pnl == 100.0
         assert sm.trade_count == 10
+        assert sm.price_chart_b64 == "cHJpY2U="
+        assert sm.pnl_chart_b64 == "cG5s"
+        assert sm.inventory_chart_b64 == "aW52"
+        assert sm.fill_scatter_b64 == "ZmlsbA=="
 
     def test_load_session_preserves_sub_scores(self):
         """Sub-scores and new metric fields survive a save/load round-trip."""
