@@ -22,6 +22,16 @@ The core refinement loop operates as follows:
 4. **Analyze:** An Explainer Agent uses data tools to analyze the order book, trade logs, and PnL to understand why the strategy performed the way it did.
 5. **Refine:** A Judge Agent scores the iteration. If the strategy has not converged on the goal, the feedback is routed back to the Writer to improve the code in the next loop.
 
+## Features
+
+- **Deterministic 6-axis scoring** — Profitability, Risk, Volatility Impact, Spread Impact, Liquidity Impact, Execution Quality. Formulaic (no LLM noise), auto-normalized to scenario config.
+- **Tool-equipped Explainer Agent** — ReAct agent with 8 investigation tools queries fills, PnL curves, inventory trajectories, adverse-selection windows, and L2 order book snapshots.
+- **Rich analysis pipeline** — `RichAnalysisBundle` captures per-fill execution data, PnL trajectory, order lifecycle, counterparty breakdown, and sampled L2 snapshots. Serialized as JSON for checkpoint safety.
+- **6 simulation charts** — Price, Spread, Volume (market), PnL Curve, Inventory Trajectory, Fill Scatter (strategy). All persisted to DB and displayed in a 2×3 grid in the UI.
+- **Session persistence** — Full save/load round-trip of refinement sessions (iterations, scores, charts, analysis data) via SQLAlchemy ORM.
+- **Strategy sandbox** — AST-based validation rejects unsafe imports/constructs. Execution runs in a timeout-bounded thread pool.
+- **Seed consistency** — Deterministic per-scenario seeds (SHA-256) ensure identical random state across iterations for fair comparisons.
+
 ## Getting Started
 
 ### Prerequisites

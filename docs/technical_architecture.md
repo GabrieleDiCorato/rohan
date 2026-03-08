@@ -271,6 +271,37 @@ Tools return human-readable strings, capped at ~4 KB per response. Parameterized
 
 **Architecture decision:** `SimulationOutput` is NOT stored in `RefinementState`. It depends on live ABIDES objects, is not JSON-serializable, and would break checkpointing, replay, and container scaling. The enriched bundle approach (Option A) was chosen over co-located explainer (Option B) and full `SimulationOutput` proxy (Option C) — see `implementation_plan.md` Decisions Log for rationale.
 
+#### 5.3.4.1 Chart & Analysis Persistence Pipeline
+
+Six base64-encoded PNG charts are generated per scenario in the executor node:
+
+| Chart | Field | Category |
+|-------|-------|----------|
+| Price Series | `price_chart_b64` | Market microstructure |
+| Bid-Ask Spread | `spread_chart_b64` | Market microstructure |
+| Volume at BBO | `volume_chart_b64` | Market microstructure |
+| PnL Curve | `pnl_chart_b64` | Strategy performance |
+| Inventory Trajectory | `inventory_chart_b64` | Strategy performance |
+| Fill Scatter | `fill_scatter_b64` | Strategy performance |
+
+These charts, plus `rich_analysis_json`, flow through the persistence pipeline:
+
+```
+ScenarioResult (LangGraph state)
+    ↓  [aggregator_node]
+ScenarioMetrics (6 chart fields)
+    ↓  [UI _save_current_run]
+ScenarioResultData (DTO: 6 charts + rich_analysis_json)
+    ↓  [save_session()]
+RefinementScenarioResult (ORM: 6 Text columns + rich_analysis_json)
+    ↓  [load_session()]
+ScenarioMetrics (round-trip: 6 chart fields restored)
+```
+
+The UI displays charts in a 2×3 grid: Market row (Price, Spread, Volume) + Strategy Performance row (PnL, Inventory, Fills).
+
+`rich_analysis_json` is stored inline in the scenario results table (50–200 KB per scenario, acceptable for dev/PoC with SQLite). Production deployments should migrate this to the `artifacts` table to avoid row bloat.
+
 #### 5.3.5 UI & Notebook for Local Testing
 *   **`notebooks/quickstart.ipynb`** — Interactive demo.
 *   **Streamlit UI** — Terminal dashboard and Refinement Lab pages.

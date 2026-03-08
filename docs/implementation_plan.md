@@ -422,16 +422,23 @@ ScenarioExplanation (structured output)
 
 `SimulationOutput` is consumed and discarded in the executor. Only the serialised bundle crosses node boundaries.
 
-### Step 10: Persist and surface richer data to both UI and writer
+### Step 10: Persist and surface richer data to both UI and writer ✅ DONE
 
-**File: state.py / ScenarioResult**
-- Add optional fields for PnL curve base64, inventory curve base64, fill scatter base64 (same pattern as existing `price_chart_b64`).
+**File: state.py / ScenarioResult** — Already has `pnl_chart_b64`, `inventory_chart_b64`, `fill_scatter_b64` (added in Step 9).
 
-**File: nodes.py (executor)**
-- After running each scenario, generate and store the 3 new charts.
+**File: nodes.py (executor)** — Already generates the 3 rich charts (added in Step 9).
 
-**File: nodes.py (writer feedback)**
-- If the codegen model supports multimodal input (Claude, Gemini), inject the PnL + inventory charts alongside the metrics text. A visual of "inventory spiked to +500 at minute 15 and never recovered" communicates 10x more than `end_inventory=487`.
+**File: llm/models.py (`ScenarioMetrics`)** — Added `pnl_chart_b64`, `inventory_chart_b64`, `fill_scatter_b64` to carry rich charts through aggregation.
+
+**File: nodes.py (aggregator)** — Copies the 3 rich charts from `ScenarioResult` into `ScenarioMetrics`.
+
+**File: framework/database/models.py (`RefinementScenarioResult`)** — Added 3 rich chart `Text` columns + `rich_analysis_json` column for persistence.
+
+**File: framework/refinement_repository.py** — `ScenarioResultData` DTO, `save_session()`, and `load_session()` all thread the 6 chart fields + `rich_analysis_json`.
+
+**File: ui/pages/1_Refinement_Lab.py** — `_save_current_run` maps all 6 charts. Chart display upgraded to 2×3 grid: Market row (Price/Spread/Volume) + Strategy Performance row (PnL/Inventory/Fills).
+
+**Writer multimodal injection** — Deferred. Current focus was persist + surface; writer receives text-only feedback.
 
 ---
 
@@ -505,11 +512,12 @@ Phase 1:
 - Seeds remain consistent across iterations for each scenario
 - `pytest tests/` passes (including test_deterministic_scoring.py)
 
-Phase 2:
+Phase 2: ✅
 - Explainer agent uses tools to investigate simulation data
 - Explainer output references specific timestamps, fill data, inventory trajectories — not just aggregate metrics
-- PnL curve, inventory trajectory, and fill scatter charts appear in the UI
-- Writer receives richer visual + textual feedback
+- PnL curve, inventory trajectory, and fill scatter charts appear in the UI (2×3 grid)
+- Rich analysis JSON + all 6 charts persisted to DB and survive save/load round-trip
+- Writer receives richer textual feedback (multimodal deferred)
 
 Phase 3:
 - UI displays 6 axes correctly
@@ -536,3 +544,7 @@ Phase 3:
 | Old explainer tools | Replace entirely | Extend alongside new tools | `make_explainer_tools` contained 8 tools that were NEVER USED in the graph (dead code). Clean replacement with `make_investigation_tools` working from serialized data. |
 | Tool parameterization | Parameterized with time-range, filters, limit | Fixed-parameter tools | Enables targeted investigation ("show fills between minute 10-12") instead of dumping all data. Keeps tool responses under ~4 KB. |
 | Regime context | `regime_context: str` slot on ScenarioResult + explainer prompt | No regime awareness | Forward-compatible with adversarial scenario plan. Empty for now; populated by adversary node when implemented. |
+| Rich chart persistence | Thread through all layers (DTO → ORM → UI) | Only in LangGraph state | Charts were generated but lost at the aggregator boundary. Consistent with "persist everything for replay". |
+| `rich_analysis_json` storage | Inline in `RefinementScenarioResult` (Text column) | Separate artifacts table | Acceptable for dev/PoC (50–200 KB per scenario). Production should migrate to `artifacts` table. |
+| Writer multimodal | Deferred | Inline chart injection | Focus on persist + surface first. Writer multimodal requires model capability gating. |
+| UI chart layout | 2×3 grid (Market + Strategy) | Single row of 3 | Strategy-performance charts (PnL, Inventory, Fills) deserve equal visibility with market microstructure charts. |
