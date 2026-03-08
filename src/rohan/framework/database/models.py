@@ -52,6 +52,10 @@ class ArtifactType(str, enum.Enum):
     LOG_FILE = "LOG_FILE"
     CODE = "CODE"
     REPORT = "REPORT"
+    PNL_CHART = "PNL_CHART"
+    INVENTORY_CHART = "INVENTORY_CHART"
+    FILL_SCATTER = "FILL_SCATTER"
+    RICH_ANALYSIS = "RICH_ANALYSIS"
 
 
 class StrategySession(Base):

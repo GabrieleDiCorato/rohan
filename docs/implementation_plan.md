@@ -263,7 +263,7 @@ OTT penalties, drawdown penalties, liquidity averaging, weighted final score, an
 
 These changes build toward the future product: deep, investigative analysis of strategy behaviour. They have lasting architectural value regardless of whether the refinement loop stays or goes.
 
-### Step 8: Expose rich simulation data — build the analysis toolbox
+### Step 8: Expose rich simulation data — build the analysis toolbox ✅ DONE
 
 **Why this matters most:** The explainer (and in the future, the interpretation system) currently receives a 22-line text summary of a simulation that produces thousands of data points. You have a full MRI and you're handing your AI analyst a Post-it note. Every improvement to interpretation quality starts here.
 

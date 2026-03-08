@@ -63,6 +63,12 @@ class ScenarioResult(BaseModel):
     spread_chart_b64: str | None = None
     volume_chart_b64: str | None = None
 
+    # Rich analysis (Step 8)
+    pnl_chart_b64: str | None = None
+    inventory_chart_b64: str | None = None
+    fill_scatter_b64: str | None = None
+    rich_analysis_json: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # Graph state

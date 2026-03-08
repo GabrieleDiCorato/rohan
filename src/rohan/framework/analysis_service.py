@@ -9,6 +9,14 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
+from rohan.framework.analysis_models import (
+    CounterpartySummary,
+    FillRecord,
+    InventoryPoint,
+    OrderLifecycleRecord,
+    PnLPoint,
+    RichAnalysisBundle,
+)
 from rohan.simulation import AgentMetrics, SimulationMetrics, SimulationOutput
 
 if TYPE_CHECKING:
@@ -628,11 +636,99 @@ class AnalysisService:
 
         return float(n_submitted) / float(n_executed)
 
+    # ==================================================================
+    # Private: fill parsing (shared by risk metrics & rich analysis)
+    # ==================================================================
+
+    @staticmethod
+    def _parse_fills(raw_fills: list[tuple]) -> list[dict]:
+        """Parse raw agent log fill tuples into structured dicts.
+
+        Each raw entry is ``(timestamp_ns_epoch, "ORDER_EXECUTED", payload_dict)``.
+        Returns a sorted list of dicts with keys:
+        ``time`` (ns-since-midnight), ``signed_qty``, ``cash_delta``,
+        ``price`` (int cents), ``qty`` (unsigned int), ``side`` ("BUY"/"SELL"),
+        ``order_id`` (int or None).
+        """
+        from abides_markets.order_book import ns_date
+
+        records: list[dict] = []
+        for entry in raw_fills:
+            ts_ns = entry[0]
+            payload = entry[2]
+            if not isinstance(payload, dict):
+                continue
+
+            fp = payload.get("fill_price")
+            qty = payload.get("quantity")
+            side = payload.get("side")
+            if fp is None or qty is None or side is None:
+                continue
+
+            side_str = str(side)
+            if "BID" in side_str.upper():
+                signed_qty = int(qty)
+                cash_delta = -int(fp) * int(qty)
+                side_label = "BUY"
+            elif "ASK" in side_str.upper():
+                signed_qty = -int(qty)
+                cash_delta = int(fp) * int(qty)
+                side_label = "SELL"
+            else:
+                continue
+
+            try:
+                t_midnight = int(ts_ns) - ns_date(int(ts_ns))
+            except Exception:
+                continue
+
+            records.append(
+                {
+                    "time": t_midnight,
+                    "signed_qty": signed_qty,
+                    "cash_delta": cash_delta,
+                    "price": int(fp),
+                    "qty": int(qty),
+                    "side": side_label,
+                    "order_id": payload.get("order_id"),
+                }
+            )
+
+        records.sort(key=lambda r: r["time"])
+        return records
+
+    @staticmethod
+    def _build_mid_lookup(two_sided: pd.DataFrame) -> pd.Series:
+        """Build a sorted mid-price Series indexed by ns-since-midnight."""
+        mid = (two_sided["bid_price"] + two_sided["ask_price"]) / 2
+        return mid.set_axis(two_sided["time"]).sort_index()
+
+    @staticmethod
+    def _nearest_mid(mid_lookup: pd.Series, t_midnight: int) -> float | None:
+        """Find the nearest mid-price to a given timestamp."""
+        if mid_lookup.empty:
+            return None
+        idx = mid_lookup.index.searchsorted(t_midnight)
+        candidates = []
+        if idx > 0:
+            candidates.append(mid_lookup.index[idx - 1])
+        if idx < len(mid_lookup):
+            candidates.append(mid_lookup.index[idx])
+        if not candidates:
+            return None
+        nearest_t = min(candidates, key=lambda t: abs(t - t_midnight))
+        val = mid_lookup.loc[nearest_t]
+        if isinstance(val, pd.Series):
+            val = val.iloc[0]
+        return float(val) if not pd.isna(val) else None
+
     @staticmethod
     def _agent_risk_metrics(
         fills: list[tuple],
         two_sided: pd.DataFrame,
         initial_cash: int,
+        *,
+        parsed_fills: list[dict] | None = None,
     ) -> tuple[float | None, float | None, float | None]:
         """Compute Sharpe ratio, max drawdown, and inventory std for an agent.
 
@@ -643,84 +739,38 @@ class AnalysisService:
             fills: List of raw log tuples ``(timestamp_ns, "ORDER_EXECUTED", payload)``.
             two_sided: L1 DataFrame filtered to rows with both bid and ask.
             initial_cash: Agent's starting cash in cents.
+            parsed_fills: Optional pre-parsed fills from ``_parse_fills``.
+                When provided, *fills* is ignored.
 
         Returns:
             (sharpe_ratio, max_drawdown_cents, inventory_std)
         """
-        from abides_markets.order_book import ns_date
-
-        # --- Extract fill events into a structured list ---
-        fill_records: list[dict] = []
-        for entry in fills:
-            ts_ns = entry[0]  # nanosecond timestamp (epoch)
-            payload = entry[2]  # order dict from to_dict()
-            if not isinstance(payload, dict):
-                continue
-
-            fp = payload.get("fill_price")
-            qty = payload.get("quantity")
-            side = payload.get("side")
-            if fp is None or qty is None or side is None:
-                continue
-
-            # Determine sign: buy (+inventory) vs sell (-inventory)
-            # In ABIDES, Side.BID = buy, Side.ASK = sell
-            side_str = str(side)
-            if "BID" in side_str.upper():
-                signed_qty = int(qty)
-                cash_delta = -int(fp) * int(qty)  # pay cash to buy
-            elif "ASK" in side_str.upper():
-                signed_qty = -int(qty)
-                cash_delta = int(fp) * int(qty)  # receive cash from sell
-            else:
-                continue
-
-            try:
-                t_midnight = int(ts_ns) - ns_date(int(ts_ns))
-            except Exception:
-                continue
-
-            fill_records.append(
-                {
-                    "time": t_midnight,
-                    "signed_qty": signed_qty,
-                    "cash_delta": cash_delta,
-                }
-            )
+        fill_records = parsed_fills if parsed_fills is not None else AnalysisService._parse_fills(fills)
 
         if not fill_records:
             return None, None, None
 
-        fill_records.sort(key=lambda r: r["time"])
-
         # --- Build inventory & cash trajectory at each fill ---
         cash = initial_cash
         inv = 0
-        inventory_series: list[int] = [inv]  # inventory before any fill
+        inventory_series: list[int] = [inv]
 
-        # Also build PnL at each L1 two-sided snapshot for Sharpe estimation
         mid_times = two_sided["time"].values
         mid_prices = ((two_sided["bid_price"] + two_sided["ask_price"]) / 2).values
 
-        # Merge fill and mid timelines for a full PnL curve
-        # Strategy: compute PnL at each mid-price observation using the
-        # most recent cash & inventory state (updated by fills).
         fill_idx = 0
         pnl_curve: list[float] = []
 
         for i in range(len(mid_times)):
-            # Process any fills that occurred before this mid snapshot
             while fill_idx < len(fill_records) and fill_records[fill_idx]["time"] <= mid_times[i]:
                 cash += fill_records[fill_idx]["cash_delta"]
                 inv += fill_records[fill_idx]["signed_qty"]
                 inventory_series.append(inv)
                 fill_idx += 1
 
-            # Mark-to-market: PnL = cash + inventory × mid − initial_cash
             mtm = cash + inv * mid_prices[i]
             pnl_curve.append(float(mtm - initial_cash))
 
-        # Process remaining fills after all mid snapshots
         while fill_idx < len(fill_records):
             cash += fill_records[fill_idx]["cash_delta"]
             inv += fill_records[fill_idx]["signed_qty"]
@@ -731,13 +781,11 @@ class AnalysisService:
         sharpe = None
         if len(pnl_curve) >= _MIN_RETURNS_FOR_SHARPE:
             pnl_arr = np.array(pnl_curve, dtype=float)
-            # Period-over-period PnL change as returns
             pnl_returns = np.diff(pnl_arr)
             if len(pnl_returns) > 1:
                 mu = float(np.mean(pnl_returns))
                 sigma = float(np.std(pnl_returns, ddof=1))
                 if sigma > 0:
-                    # Annualise using the same frequency approach as volatility
                     diffs = np.diff(mid_times.astype(float))
                     median_dt = float(np.median(diffs)) if len(diffs) > 0 else 0
                     if median_dt > 0:
@@ -761,6 +809,623 @@ class AnalysisService:
             inv_std = float(np.std(inventory_series, ddof=1))
 
         return sharpe, max_dd, inv_std
+
+    # ==================================================================
+    # Rich analysis methods  (Step 8)
+    # ==================================================================
+
+    @staticmethod
+    def get_fill_analysis(
+        result: SimulationOutput,
+        agent_id: int,
+    ) -> list[FillRecord]:
+        """Per-fill execution quality with slippage and counterparty info.
+
+        For each fill, joins to the nearest L1 mid-price and computes
+        signed slippage in basis points.  Counterparty type is resolved
+        from ``end_state["agents"]`` when available.
+
+        Returns an empty list if the agent has no fills.
+        """
+        if not hasattr(result, "end_state"):
+            return []
+
+        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
+        if agent_id not in agents:
+            return []
+
+        agent = agents[agent_id]
+        log: list = getattr(agent, "log", [])
+        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
+        parsed = AnalysisService._parse_fills(raw_fills)
+
+        if not parsed:
+            return []
+
+        # Build mid lookup
+        l1 = result.get_order_book_l1()
+        two_sided = l1.dropna(subset=["bid_price", "ask_price"]).copy() if not l1.empty else pd.DataFrame()
+        mid_lookup = AnalysisService._build_mid_lookup(two_sided) if not two_sided.empty else pd.Series(dtype=float)
+
+        # Build counterparty map — match fills across all agents
+        # Both sides of a trade see ORDER_EXECUTED at (same timestamp, same fill_price, same qty, opposite side)
+        counterparty_map = AnalysisService._build_counterparty_map(result, agent_id)
+
+        records: list[FillRecord] = []
+        for fill in parsed:
+            mid = AnalysisService._nearest_mid(mid_lookup, fill["time"])
+            slippage: float | None = None
+            if mid is not None and mid > 0:
+                side_sign = 1.0 if fill["side"] == "BUY" else -1.0
+                slippage = side_sign * (fill["price"] - mid) / mid * 10_000
+
+            cp_type = counterparty_map.get((fill["time"], fill["price"], fill["qty"]))
+
+            records.append(
+                FillRecord(
+                    timestamp_ns=fill["time"],
+                    side=fill["side"],
+                    price=fill["price"],
+                    qty=fill["qty"],
+                    mid_at_fill=mid,
+                    slippage_bps=slippage,
+                    counterparty_type=cp_type,
+                )
+            )
+        return records
+
+    @staticmethod
+    def _build_counterparty_map(
+        result: SimulationOutput,
+        agent_id: int,
+    ) -> dict[tuple[int, int, int], str | None]:
+        """Build a mapping from (time, price, qty) → counterparty agent type.
+
+        Scans all agents' ORDER_EXECUTED events for fills that match the
+        strategic agent's fills on the opposite side.
+        """
+        if not hasattr(result, "end_state"):
+            return {}
+
+        agents_list = result.end_state["agents"]  # type: ignore[union-attr]
+        agent_type_map: dict[int, str] = {a.id: getattr(a, "type", type(a).__name__) for a in agents_list}
+
+        # Get strategic agent fills
+        strategic_agent = {a.id: a for a in agents_list}.get(agent_id)
+        if strategic_agent is None:
+            return {}
+
+        log: list = getattr(strategic_agent, "log", [])
+        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
+        strategic_parsed = AnalysisService._parse_fills(raw_fills)
+
+        # Collect fills from all OTHER agents
+        other_fills: list[tuple[int, int, int, str, str]] = []  # (time, price, qty, side, agent_type)
+        for agent in agents_list:
+            if agent.id == agent_id:
+                continue
+            a_log: list = getattr(agent, "log", [])
+            a_raw = [e for e in a_log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
+            a_parsed = AnalysisService._parse_fills(a_raw)
+            a_type = agent_type_map.get(agent.id, "Unknown")
+            for f in a_parsed:
+                other_fills.append((f["time"], f["price"], f["qty"], f["side"], a_type))
+
+        # Build lookup: for each strategic fill, find a matching counterparty fill
+        # (same time, same price, same qty, opposite side)
+        opposite = {"BUY": "SELL", "SELL": "BUY"}
+        other_index: dict[tuple[int, int, int, str], str] = {}
+        for t, p, q, s, at in other_fills:
+            other_index[(t, p, q, s)] = at
+
+        cp_map: dict[tuple[int, int, int], str | None] = {}
+        for f in strategic_parsed:
+            opp_side = opposite.get(f["side"], "")
+            key = (f["time"], f["price"], f["qty"], opp_side)
+            cp_map[(f["time"], f["price"], f["qty"])] = other_index.get(key)
+
+        return cp_map
+
+    @staticmethod
+    def get_pnl_curve(
+        result: SimulationOutput,
+        agent_id: int,
+        initial_cash: int = 0,
+    ) -> list[PnLPoint]:
+        """Mark-to-market PnL curve at each L1 observation.
+
+        Merges agent fill events with the two-sided L1 mid-price timeline
+        to produce a PnL observation at every mid-price tick.
+
+        Returns an empty list when there are no fills or no two-sided book.
+        """
+        if not hasattr(result, "end_state"):
+            return []
+
+        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
+        if agent_id not in agents:
+            return []
+
+        agent = agents[agent_id]
+        log: list = getattr(agent, "log", [])
+        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
+        parsed = AnalysisService._parse_fills(raw_fills)
+
+        if not parsed:
+            return []
+
+        l1 = result.get_order_book_l1()
+        two_sided = l1.dropna(subset=["bid_price", "ask_price"]).copy() if not l1.empty else pd.DataFrame()
+
+        if two_sided.empty:
+            return []
+
+        mid_times = two_sided["time"].values
+        mid_prices = ((two_sided["bid_price"] + two_sided["ask_price"]) / 2).values
+
+        cash = initial_cash
+        inv = 0
+        fill_idx = 0
+        points: list[PnLPoint] = []
+
+        for i in range(len(mid_times)):
+            while fill_idx < len(parsed) and parsed[fill_idx]["time"] <= mid_times[i]:
+                cash += parsed[fill_idx]["cash_delta"]
+                inv += parsed[fill_idx]["signed_qty"]
+                fill_idx += 1
+
+            mtm = cash + inv * mid_prices[i]
+            points.append(PnLPoint(timestamp_ns=int(mid_times[i]), mark_to_market_pnl=float(mtm - initial_cash)))
+
+        return points
+
+    @staticmethod
+    def get_inventory_trajectory(
+        result: SimulationOutput,
+        agent_id: int,
+    ) -> list[InventoryPoint]:
+        """Position trajectory at each fill event.
+
+        Returns a list of ``InventoryPoint`` showing cumulative position
+        after each fill.  Includes an initial point at timestamp 0 with
+        position 0.
+        """
+        if not hasattr(result, "end_state"):
+            return []
+
+        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
+        if agent_id not in agents:
+            return []
+
+        agent = agents[agent_id]
+        log: list = getattr(agent, "log", [])
+        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
+        parsed = AnalysisService._parse_fills(raw_fills)
+
+        if not parsed:
+            return []
+
+        points: list[InventoryPoint] = [InventoryPoint(timestamp_ns=0, position=0)]
+        cumulative = 0
+        for fill in parsed:
+            cumulative += fill["signed_qty"]
+            points.append(InventoryPoint(timestamp_ns=fill["time"], position=cumulative))
+        return points
+
+    @staticmethod
+    def get_adverse_selection(
+        result: SimulationOutput,
+        agent_id: int,
+        window_ns: int = 500_000_000,
+    ) -> float | None:
+        """Average mid-price move against fill direction within a look-ahead window.
+
+        For each fill, measures how the mid-price moves in the subsequent
+        ``window_ns`` nanoseconds.  *Adverse* selection means the market
+        moved against the agent after filling (buy → price drops,
+        sell → price rises).
+
+        Returns the average adverse move in basis points (positive = adverse).
+        Returns ``None`` if there are no fills or insufficient L1 data.
+        """
+        if not hasattr(result, "end_state"):
+            return None
+
+        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
+        if agent_id not in agents:
+            return None
+
+        agent = agents[agent_id]
+        log: list = getattr(agent, "log", [])
+        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
+        parsed = AnalysisService._parse_fills(raw_fills)
+
+        if not parsed:
+            return None
+
+        l1 = result.get_order_book_l1()
+        two_sided = l1.dropna(subset=["bid_price", "ask_price"]).copy() if not l1.empty else pd.DataFrame()
+        if two_sided.empty:
+            return None
+
+        mid_lookup = AnalysisService._build_mid_lookup(two_sided)
+        mid_times = mid_lookup.index.values
+        mid_values = mid_lookup.values
+
+        adverse_moves: list[float] = []
+        for fill in parsed:
+            mid_at_fill = AnalysisService._nearest_mid(mid_lookup, fill["time"])
+            if mid_at_fill is None or mid_at_fill <= 0:
+                continue
+
+            # Find mid-price at fill_time + window_ns
+            target_time = fill["time"] + window_ns
+            idx = mid_times.searchsorted(target_time)
+            # Pick nearest observation at or before target_time
+            if idx >= len(mid_times):
+                idx = len(mid_times) - 1
+            if idx < 0:
+                continue
+
+            raw_mid = mid_values[idx]
+            if pd.isna(raw_mid):
+                continue
+            future_mid = float(raw_mid)  # type: ignore[arg-type]
+
+            # Adverse selection: for a BUY, adverse = price drops; for SELL, adverse = price rises
+            # Convention: positive return = adverse
+            side_sign = 1.0 if fill["side"] == "BUY" else -1.0
+            move_bps = -side_sign * (future_mid - mid_at_fill) / mid_at_fill * 10_000
+            adverse_moves.append(move_bps)
+
+        if not adverse_moves:
+            return None
+
+        return float(np.mean(adverse_moves))
+
+    @staticmethod
+    def get_order_lifecycle(
+        result: SimulationOutput,
+        agent_id: int,
+    ) -> list[OrderLifecycleRecord]:
+        """Order lifecycle: submission → fill/cancel/resting for each order.
+
+        Cross-references ``ORDER_SUBMITTED``, ``ORDER_EXECUTED``, and
+        ``ORDER_CANCELLED`` events by order_id in the agent's raw log.
+        """
+        if not hasattr(result, "end_state"):
+            return []
+
+        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
+        if agent_id not in agents:
+            return []
+
+        agent = agents[agent_id]
+        log: list = getattr(agent, "log", [])
+
+        from abides_markets.order_book import ns_date
+
+        # Collect events keyed by order_id
+        submissions: dict[int, dict] = {}
+        executions: dict[int, list[dict]] = {}
+        cancellations: dict[int, dict] = {}
+
+        for entry in log:
+            if not isinstance(entry, tuple) or len(entry) < 3:
+                continue
+            ts_ns = entry[0]
+            etype = entry[1]
+            payload = entry[2]
+            if not isinstance(payload, dict):
+                continue
+
+            oid = payload.get("order_id")
+            if oid is None:
+                continue
+            oid = int(oid)
+
+            try:
+                t_midnight = int(ts_ns) - ns_date(int(ts_ns))
+            except Exception:
+                continue
+
+            if etype == "ORDER_SUBMITTED":
+                submissions[oid] = {
+                    "submitted_at_ns": t_midnight,
+                    "qty": int(payload.get("quantity", 0)),
+                }
+            elif etype == "ORDER_EXECUTED":
+                executions.setdefault(oid, []).append(
+                    {
+                        "time": t_midnight,
+                        "qty": int(payload.get("quantity", 0)),
+                    }
+                )
+            elif etype == "ORDER_CANCELLED":
+                cancellations[oid] = {"time": t_midnight}
+
+        # Build lifecycle records
+        all_order_ids = set(submissions.keys()) | set(executions.keys()) | set(cancellations.keys())
+        records: list[OrderLifecycleRecord] = []
+
+        for oid in sorted(all_order_ids):
+            sub = submissions.get(oid)
+            submitted_at = sub["submitted_at_ns"] if sub else 0
+            submitted_qty = sub["qty"] if sub else 0
+
+            execs = executions.get(oid, [])
+            filled_qty = sum(e["qty"] for e in execs)
+
+            if oid in cancellations:
+                status = "cancelled"
+                resolve_time = cancellations[oid]["time"]
+            elif filled_qty > 0:
+                status = "filled"
+                resolve_time = max(e["time"] for e in execs)
+            else:
+                status = "resting"
+                resolve_time = None
+
+            resting_time = (resolve_time - submitted_at) if resolve_time is not None and sub else None
+
+            records.append(
+                OrderLifecycleRecord(
+                    order_id=oid,
+                    submitted_at_ns=submitted_at,
+                    status=status,
+                    resting_time_ns=resting_time,
+                    filled_qty=filled_qty,
+                    submitted_qty=submitted_qty,
+                )
+            )
+
+        return records
+
+    @staticmethod
+    def get_counterparty_breakdown(
+        result: SimulationOutput,
+        agent_id: int,
+    ) -> list[CounterpartySummary]:
+        """Breakdown of which agent types the strategy traded against.
+
+        Builds a mapping from ``end_state["agents"]`` and matches fills
+        by ``(timestamp, fill_price, qty, opposite side)``.
+        """
+        cp_map = AnalysisService._build_counterparty_map(result, agent_id)
+
+        if not cp_map:
+            return []
+
+        # Also need fill records to get qty
+        if not hasattr(result, "end_state"):
+            return []
+        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
+        if agent_id not in agents:
+            return []
+        agent = agents[agent_id]
+        log: list = getattr(agent, "log", [])
+        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
+        parsed = AnalysisService._parse_fills(raw_fills)
+
+        # Aggregate by counterparty type
+        type_stats: dict[str, dict] = {}
+        for fill in parsed:
+            cp_type = cp_map.get((fill["time"], fill["price"], fill["qty"]), "Unknown")
+            if cp_type is None:
+                cp_type = "Unknown"
+            if cp_type not in type_stats:
+                type_stats[cp_type] = {"count": 0, "total_qty": 0}
+            type_stats[cp_type]["count"] += 1
+            type_stats[cp_type]["total_qty"] += fill["qty"]
+
+        return [
+            CounterpartySummary(
+                agent_type=at,
+                trade_count=stats["count"],
+                avg_size=stats["total_qty"] / stats["count"] if stats["count"] > 0 else 0.0,
+                total_volume=stats["total_qty"],
+            )
+            for at, stats in sorted(type_stats.items())
+        ]
+
+    @staticmethod
+    def query_book_depth(
+        result: SimulationOutput,
+        timestamp_ns: int,
+        n_levels: int = 5,
+    ) -> dict[str, list[tuple[float, int]]]:
+        """L2 order-book snapshot at the nearest timestamp.
+
+        Note: requires a live ``SimulationOutput`` — cannot be used from
+        serialized data.  For container scenarios, pre-compute interesting
+        snapshots during the executor phase.
+
+        Returns ``{"bids": [(price, qty), ...], "asks": [(price, qty), ...]}``
+        or empty lists if data is unavailable.
+        """
+        try:
+            l2 = result.get_order_book_l2(n_levels)
+        except Exception:
+            return {"bids": [], "asks": []}
+
+        if l2.empty:
+            return {"bids": [], "asks": []}
+
+        # Find the nearest timestamp in the L2 data
+        times = l2["time"].unique()
+        if len(times) == 0:
+            return {"bids": [], "asks": []}
+
+        nearest_t = times[int(np.argmin(np.abs(times.astype(np.int64) - timestamp_ns)))]
+        snapshot = l2[l2["time"] == nearest_t]
+
+        bids_df = snapshot.loc[snapshot["side"] == "bid"].sort_values("level")
+        asks_df = snapshot.loc[snapshot["side"] == "ask"].sort_values("level")
+
+        bids = [(float(row["price"]), int(row["qty"])) for _, row in bids_df.iterrows()]
+        asks = [(float(row["price"]), int(row["qty"])) for _, row in asks_df.iterrows()]
+
+        return {"bids": bids, "asks": asks}
+
+    @staticmethod
+    def compute_rich_analysis(
+        result: SimulationOutput,
+        agent_id: int,
+        initial_cash: int = 0,
+        adverse_window_ns: int = 500_000_000,
+    ) -> RichAnalysisBundle:
+        """Compute the full rich-analysis bundle for one agent in one scenario.
+
+        Convenience method that calls all analysis methods and returns
+        a serialisable ``RichAnalysisBundle``.
+        """
+        fills = AnalysisService.get_fill_analysis(result, agent_id)
+        pnl_curve = AnalysisService.get_pnl_curve(result, agent_id, initial_cash)
+        inventory = AnalysisService.get_inventory_trajectory(result, agent_id)
+        adverse = AnalysisService.get_adverse_selection(result, agent_id, adverse_window_ns)
+        counterparties = AnalysisService.get_counterparty_breakdown(result, agent_id)
+        lifecycle = AnalysisService.get_order_lifecycle(result, agent_id)
+
+        return RichAnalysisBundle(
+            fills=fills,
+            pnl_curve=pnl_curve,
+            inventory_trajectory=inventory,
+            adverse_selection_bps=adverse,
+            counterparty_breakdown=counterparties,
+            order_lifecycle=lifecycle,
+        )
+
+    # ==================================================================
+    # Chart methods — rich analysis  (Step 8)
+    # ==================================================================
+
+    @staticmethod
+    def plot_pnl_curve(
+        pnl_points: list[PnLPoint],
+        title: str = "Mark-to-Market PnL",
+    ) -> Figure:
+        """Line chart of PnL over time with drawdown shading.
+
+        Accepts ``list[PnLPoint]`` (serialised data), not raw
+        SimulationOutput — container-safe.
+        """
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        if not pnl_points:
+            ax.text(0.5, 0.5, "No PnL data available", ha="center", va="center")
+            return fig
+
+        times = [p.timestamp_ns for p in pnl_points]
+        pnl_vals = [p.mark_to_market_pnl for p in pnl_points]
+
+        ax.plot(times, pnl_vals, linewidth=1.5, label="PnL")
+        ax.axhline(y=0, color="gray", linestyle="--", linewidth=0.8)
+
+        # Shade drawdown regions
+        pnl_arr = np.array(pnl_vals)
+        running_max = np.maximum.accumulate(pnl_arr)
+        drawdown = running_max - pnl_arr
+        dd_mask = drawdown > 0
+        ax.fill_between(times, pnl_vals, running_max.tolist(), where=dd_mask.tolist(), alpha=0.2, color="red", label="Drawdown")
+
+        ax.set_xlabel("Time (ns since midnight)")
+        ax.set_ylabel("PnL (cents)")
+        ax.set_title(title)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        return fig
+
+    @staticmethod
+    def plot_inventory(
+        inventory_points: list[InventoryPoint],
+        title: str = "Inventory Trajectory",
+    ) -> Figure:
+        """Step chart of inventory position over time.
+
+        Accepts ``list[InventoryPoint]`` — container-safe.
+        """
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        if not inventory_points:
+            ax.text(0.5, 0.5, "No inventory data available", ha="center", va="center")
+            return fig
+
+        times = [p.timestamp_ns for p in inventory_points]
+        positions = [p.position for p in inventory_points]
+
+        ax.step(times, positions, where="post", linewidth=1.5, label="Position")
+        ax.axhline(y=0, color="gray", linestyle="--", linewidth=0.8)
+
+        # Color long/short regions
+        pos_arr = np.array(positions)
+        ax.fill_between(times, positions, 0, where=(pos_arr > 0).tolist(), step="post", alpha=0.2, color="green", label="Long")
+        ax.fill_between(times, positions, 0, where=(pos_arr < 0).tolist(), step="post", alpha=0.2, color="red", label="Short")
+
+        ax.set_xlabel("Time (ns since midnight)")
+        ax.set_ylabel("Position (shares)")
+        ax.set_title(title)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        return fig
+
+    @staticmethod
+    def plot_fills_vs_mid(
+        fill_records: list[FillRecord],
+        title: str = "Fills vs Mid-Price",
+    ) -> Figure:
+        """Scatter of fills plotted against mid-price with buy/sell markers.
+
+        Accepts ``list[FillRecord]`` — container-safe.
+        """
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        if not fill_records:
+            ax.text(0.5, 0.5, "No fill data available", ha="center", va="center")
+            return fig
+
+        # Plot mid-price line where available
+        fills_with_mid = [f for f in fill_records if f.mid_at_fill is not None]
+        if fills_with_mid:
+            mid_times = [f.timestamp_ns for f in fills_with_mid]
+            mid_prices: list[float] = [f.mid_at_fill for f in fills_with_mid if f.mid_at_fill is not None]
+            ax.plot(mid_times, mid_prices, color="gray", linewidth=0.8, alpha=0.7, label="Mid at fill")
+
+        # Scatter buys and sells
+        buys = [f for f in fill_records if f.side == "BUY"]
+        sells = [f for f in fill_records if f.side == "SELL"]
+
+        if buys:
+            ax.scatter(
+                [f.timestamp_ns for f in buys],
+                [f.price for f in buys],
+                marker="^",
+                color="green",
+                s=40,
+                alpha=0.8,
+                label="Buy",
+                zorder=5,
+            )
+        if sells:
+            ax.scatter(
+                [f.timestamp_ns for f in sells],
+                [f.price for f in sells],
+                marker="v",
+                color="red",
+                s=40,
+                alpha=0.8,
+                label="Sell",
+                zorder=5,
+            )
+
+        ax.set_xlabel("Time (ns since midnight)")
+        ax.set_ylabel("Price (cents)")
+        ax.set_title(title)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        return fig
 
     @staticmethod
     def plot_price_series(result: SimulationOutput, title: str = "Price Series") -> Figure:

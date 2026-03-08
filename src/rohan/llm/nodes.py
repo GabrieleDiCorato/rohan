@@ -417,8 +417,6 @@ def scenario_executor_node(state: RefinementState) -> dict:
                 duration_seconds=sim_result.duration_seconds,
             )
 
-            prompt = format_interpreter_prompt(summary, goal=state.get("goal", ""))
-
             # Generate charts for the UI
             import matplotlib.pyplot as plt
 
@@ -444,6 +442,45 @@ def scenario_executor_node(state: RefinementState) -> dict:
             except Exception:
                 pass
 
+            # --- Rich analysis (Step 8) ---
+            rich_bundle = None
+            pnl_chart_b64: str | None = None
+            inventory_chart_b64: str | None = None
+            fill_scatter_b64: str | None = None
+            rich_analysis_json: str | None = None
+            try:
+                rich_bundle = analyzer.compute_rich_analysis(
+                    strategy_output,
+                    strategy_output.strategic_agent_id,
+                    initial_cash=settings.starting_cash,
+                )
+                rich_analysis_json = rich_bundle.model_dump_json()
+            except Exception:
+                logger.warning("Rich analysis failed for scenario %r", scenario.name, exc_info=True)
+
+            # Generate prompt AFTER rich analysis so it includes execution quality
+            prompt = format_interpreter_prompt(summary, goal=state.get("goal", ""), rich_analysis_json=rich_analysis_json)
+
+            if rich_bundle is not None:
+                try:
+                    fig = analyzer.plot_pnl_curve(rich_bundle.pnl_curve, title=f"{scenario.name} — PnL")
+                    pnl_chart_b64 = analyzer.figure_to_base64(fig)
+                    plt.close(fig)
+                except Exception:
+                    pass
+                try:
+                    fig = analyzer.plot_inventory(rich_bundle.inventory_trajectory, title=f"{scenario.name} — Inventory")
+                    inventory_chart_b64 = analyzer.figure_to_base64(fig)
+                    plt.close(fig)
+                except Exception:
+                    pass
+                try:
+                    fig = analyzer.plot_fills_vs_mid(rich_bundle.fills, title=f"{scenario.name} — Fills")
+                    fill_scatter_b64 = analyzer.figure_to_base64(fig)
+                    plt.close(fig)
+                except Exception:
+                    pass
+
             results.append(
                 ScenarioResult(
                     scenario_name=scenario.name,
@@ -466,6 +503,10 @@ def scenario_executor_node(state: RefinementState) -> dict:
                     price_chart_b64=price_chart_b64,
                     spread_chart_b64=spread_chart_b64,
                     volume_chart_b64=volume_chart_b64,
+                    pnl_chart_b64=pnl_chart_b64,
+                    inventory_chart_b64=inventory_chart_b64,
+                    fill_scatter_b64=fill_scatter_b64,
+                    rich_analysis_json=rich_analysis_json,
                 )
             )
 

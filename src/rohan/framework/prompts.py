@@ -25,6 +25,11 @@ INTERPRETER_PROMPT_TEMPLATE = """You are analyzing the results of a trading stra
 - **Max Drawdown**: {max_drawdown}
 - **Inventory Std**: {inventory_std}
 
+### Execution Quality
+- **Adverse Selection**: {adverse_selection}
+- **Counterparty Mix**: {counterparty_mix}
+- **Avg Fill Slippage**: {avg_slippage}
+
 ### Market Impact (vs Baseline)
 - **Volatility Change**: {volatility_delta_pct}
 - **Spread Change**: {spread_delta_pct}
@@ -78,12 +83,13 @@ def _fmt_ns(v: float | None) -> str:
     return f"{v / 1e6:.2f} ms"
 
 
-def format_interpreter_prompt(summary: "RunSummary", goal: str = "") -> str:
+def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analysis_json: str | None = None) -> str:
     """Format the interpreter prompt with RunSummary data.
 
     Args:
         summary: RunSummary from generate_summary().
         goal: Optional strategy goal description.
+        rich_analysis_json: Optional JSON string from RichAnalysisBundle.
 
     Returns:
         Formatted prompt string.
@@ -100,6 +106,29 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "") -> str:
     if summary.spread_chart:
         charts_section += "[Spread Chart attached]\n"
 
+    # --- Rich analysis summary ---
+    adverse_selection = "N/A"
+    counterparty_mix = "N/A"
+    avg_slippage = "N/A"
+
+    if rich_analysis_json:
+        try:
+            import json
+
+            bundle = json.loads(rich_analysis_json)
+            if bundle.get("adverse_selection_bps") is not None:
+                adverse_selection = f"{bundle['adverse_selection_bps']:.1f} bps"
+            cps = bundle.get("counterparty_breakdown", [])
+            if cps:
+                parts = [f"{cp['agent_type']}({cp['trade_count']})" for cp in cps]
+                counterparty_mix = ", ".join(parts)
+            fills = bundle.get("fills", [])
+            slippages = [f["slippage_bps"] for f in fills if f.get("slippage_bps") is not None]
+            if slippages:
+                avg_slippage = f"{sum(slippages) / len(slippages):.1f} bps"
+        except Exception:
+            pass
+
     return INTERPRETER_PROMPT_TEMPLATE.format(
         goal=goal,
         # Agent metrics
@@ -112,6 +141,10 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "") -> str:
         sharpe_ratio=_fmt_float(agent.sharpe_ratio, ".3f"),
         max_drawdown=fmt_dollar_metric(agent.max_drawdown),
         inventory_std=_fmt_float(agent.inventory_std, ".1f"),
+        # Execution quality (rich analysis)
+        adverse_selection=adverse_selection,
+        counterparty_mix=counterparty_mix,
+        avg_slippage=avg_slippage,
         # Market impact deltas
         volatility_delta_pct=_fmt_pct(impact.volatility_delta_pct),
         spread_delta_pct=_fmt_pct(impact.spread_delta_pct),
