@@ -104,13 +104,16 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
     "slow: marks tests as slow-running (deselect with '-m not slow')",
+    "integration: marks tests as integration tests that don't need to run on every file save",
 ]
 addopts = [
     "-v",
-    "-m", "not slow",
+    "-m", "not slow and not integration",
     "--cov=src/rohan",
     "--cov-report=term-missing",
     "--cov-report=html",
+    "-n", "auto",
+    "--lf",
 ]
 
 [tool.coverage.run]

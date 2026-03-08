@@ -200,3 +200,6 @@ class TestLengthMismatchGuard:
 
         with pytest.raises(ValueError, match="parallel-array invariant"):
             output.get_order_book_l1()
+
+
+pytestmark = pytest.mark.integration

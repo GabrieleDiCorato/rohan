@@ -219,3 +219,7 @@ class TestDatabaseAndRepository:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+pytestmark = pytest.mark.integration
+
+pytestmark = pytest.mark.integration

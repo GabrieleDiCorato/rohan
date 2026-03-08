@@ -205,3 +205,10 @@ def test_agent_count_bounds(num_agents: int):
     else:
         s = NoiseAgentSettings(num_agents=num_agents)
         assert s.num_agents == num_agents
+
+
+pytestmark = pytest.mark.slow
+
+pytestmark = pytest.mark.slow
+
+pytestmark = pytest.mark.slow
