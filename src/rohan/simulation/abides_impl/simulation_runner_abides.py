@@ -36,6 +36,7 @@ class SimulationRunnerAbides(SimulationRunner):
         return AbidesOutput(
             end_state,
             strategic_agent_id=self.abides_wrapper.strategic_agent_id,
+            ticker=self.settings.ticker,
         )
 
     @override

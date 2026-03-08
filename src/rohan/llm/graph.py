@@ -37,28 +37,21 @@ from rohan.llm.nodes import (
     writer_node,
 )
 from rohan.llm.state import RefinementState, ScenarioConfig
+from rohan.config import LLMSettings
 
 logger = logging.getLogger(__name__)
 
-# Maximum validation retries before giving up
-MAX_VALIDATION_RETRIES = 3
+# Load settings once at module level for use in graph building / routing.
+_llm_settings = LLMSettings()
 
-# ── Centralized refinement defaults ──────────────────────────────────────
-# Single source of truth for defaults used by UI, CLI, and nodes.py.
-DEFAULT_MAX_ITERATIONS = 5
-DEFAULT_CONVERGENCE_THRESHOLD = 7.0
+# Re-export for backward compatibility (UI, CLI, tests import these names).
+MAX_VALIDATION_RETRIES: int = _llm_settings.max_validation_retries
+DEFAULT_MAX_ITERATIONS: int = _llm_settings.default_max_iterations
+DEFAULT_CONVERGENCE_THRESHOLD: float = _llm_settings.default_convergence_threshold
+DEFAULT_RECURSION_LIMIT: int = _llm_settings.default_recursion_limit
 
-# Maximum graph steps before LangGraph raises a recursion error.
-# writer→validator→executor→explainer→aggregator = 5 steps per iteration,
-# plus potential validation retries.
-_DEFAULT_RECURSION_LIMIT = 80
-
-# ── Suppress LangSmith tracing unless explicitly enabled ──────────────────
-# LangSmith tracing can block the main thread with synchronous HTTP calls
-# when transmitting large state payloads.  Disable by default to prevent
-# hidden network hangs during the refinement loop.
-if "LANGCHAIN_TRACING_V2" not in os.environ:
-    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+# Legacy alias used by tests and UI
+_DEFAULT_RECURSION_LIMIT = DEFAULT_RECURSION_LIMIT
 
 
 # ── Node instrumentation ─────────────────────────────────────────────────
@@ -123,6 +116,11 @@ def build_refinement_graph() -> Any:
     CompiledGraph
         A compiled LangGraph ready for ``.invoke()`` or ``.stream()``.
     """
+    # Suppress LangSmith tracing unless explicitly enabled.
+    # Done at build time (not module level) to avoid mutating env on import.
+    if "LANGCHAIN_TRACING_V2" not in os.environ:
+        os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
     graph = StateGraph(RefinementState)  # type: ignore[invalid-argument-type]
 
     # ── Nodes (wrapped with timing instrumentation) ──
@@ -229,7 +227,7 @@ def run_refinement(
     logger.info("Starting refinement loop: goal=%r, max_iterations=%d", goal, max_iterations)
 
     config = {
-        "recursion_limit": _DEFAULT_RECURSION_LIMIT,
+        "recursion_limit": DEFAULT_RECURSION_LIMIT,
     }
     final_state = graph.invoke(initial_state, config=config)
 

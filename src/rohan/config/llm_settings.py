@@ -41,6 +41,32 @@ class LLMSettings(BaseSettings):
         populate_by_name=True,
     )
 
+    # --- Refinement loop defaults ---
+    max_validation_retries: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum validation retries before giving up",
+    )
+    default_max_iterations: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Default maximum refinement iterations",
+    )
+    default_convergence_threshold: float = Field(
+        default=7.0,
+        ge=0,
+        le=10,
+        description="Judge score at/above which the strategy is considered converged",
+    )
+    default_recursion_limit: int = Field(
+        default=80,
+        ge=10,
+        le=500,
+        description="Maximum LangGraph steps before raising a recursion error",
+    )
+
     provider: LLMProvider = Field(
         default=LLMProvider.OPENROUTER,
         description="LLM API provider",

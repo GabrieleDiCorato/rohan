@@ -7,6 +7,7 @@ Performance optimizations:
 - Conditional rendering
 """
 
+import html
 import logging
 import traceback
 from datetime import datetime
@@ -32,6 +33,7 @@ from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.simulation.simulation_service import SimulationService
 from rohan.ui.utils.metric_display import build_comparison_table, get_delta_color, get_help, metric_delta
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
+from rohan.ui.utils.startup import ensure_db_initialized
 from rohan.ui.utils.theme import COLORS, apply_theme
 from rohan.utils.formatting import fmt_dollar
 
@@ -39,12 +41,7 @@ _logger = logging.getLogger(__name__)
 
 # Ensure DB tables exist (once per session — avoids noisy re-creation
 # logs on every Streamlit rerun).
-if not st.session_state.get("_db_initialised"):
-    try:
-        initialize_database()
-    except Exception:
-        _logger.warning("Database initialization failed — persistence disabled", exc_info=True)
-    st.session_state["_db_initialised"] = True
+ensure_db_initialized()
 
 _scenario_repo = ScenarioRepository()
 
@@ -761,7 +758,7 @@ def render_execute_tab():
             f"""
             <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["primary"]};'>
                 <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>DATE</p>
-                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.date}</p>
+                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{html.escape(str(config.date))}</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -772,7 +769,7 @@ def render_execute_tab():
             f"""
             <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["secondary"]};'>
                 <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>TIME RANGE</p>
-                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.start_time} - {config.end_time}</p>
+                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{html.escape(str(config.start_time))} - {html.escape(str(config.end_time))}</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -783,7 +780,7 @@ def render_execute_tab():
             f"""
             <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["success"]};'>
                 <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>TICKER</p>
-                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.ticker}</p>
+                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{html.escape(str(config.ticker))}</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -794,7 +791,7 @@ def render_execute_tab():
             f"""
             <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["danger"]};'>
                 <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>SEED</p>
-                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{config.seed}</p>
+                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{html.escape(str(config.seed))}</p>
             </div>
             """,
             unsafe_allow_html=True,
