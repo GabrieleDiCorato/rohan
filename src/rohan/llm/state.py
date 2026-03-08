@@ -28,6 +28,10 @@ class ScenarioConfig(BaseModel):
 
     name: str = "default"
     config_override: dict[str, Any] = Field(default_factory=dict)
+    seed: int | None = Field(
+        default=None,
+        description="Deterministic seed for this scenario.  Assigned by run_refinement() when not explicitly provided.",
+    )
 
 
 class ScenarioResult(BaseModel):

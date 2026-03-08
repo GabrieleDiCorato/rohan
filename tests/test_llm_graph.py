@@ -5,12 +5,14 @@ are mocked since they require LLM API keys.
 """
 
 from rohan.llm.graph import (
+    _DEFAULT_RECURSION_LIMIT,
     MAX_VALIDATION_RETRIES,
+    _deterministic_seed,
     build_refinement_graph,
     should_continue,
     validation_router,
 )
-from rohan.llm.state import RefinementState
+from rohan.llm.state import RefinementState, ScenarioConfig
 
 
 def _state(**overrides) -> RefinementState:
@@ -105,3 +107,43 @@ class TestBuildGraph:
         assert "executor" in node_names
         assert "explainer" in node_names
         assert "aggregator" in node_names
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Constants (Step 6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestDefaults:
+    def test_recursion_limit(self):
+        assert _DEFAULT_RECURSION_LIMIT == 80
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Deterministic seed assignment (Step 5)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestDeterministicSeed:
+    def test_same_inputs_same_seed(self):
+        assert _deterministic_seed("default", 12345) == _deterministic_seed("default", 12345)
+
+    def test_different_names_different_seeds(self):
+        assert _deterministic_seed("alpha", 1) != _deterministic_seed("beta", 1)
+
+    def test_different_timestamps_different_seeds(self):
+        assert _deterministic_seed("default", 1) != _deterministic_seed("default", 2)
+
+    def test_seed_in_uint32_range(self):
+        seed = _deterministic_seed("stress-test-name-long", 999_999_999)
+        assert 0 <= seed <= 2**32 - 1
+
+
+class TestScenarioConfigSeed:
+    def test_seed_defaults_to_none(self):
+        sc = ScenarioConfig(name="test")
+        assert sc.seed is None
+
+    def test_seed_explicit(self):
+        sc = ScenarioConfig(name="test", seed=42)
+        assert sc.seed == 42

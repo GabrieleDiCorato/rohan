@@ -323,6 +323,9 @@ def scenario_executor_node(state: RefinementState) -> dict:
             # Apply overrides — supports both full-config and partial diffs
             merged = base_settings.model_dump()
             merged.update(scenario.config_override)
+            # Use deterministic per-scenario seed when available
+            if scenario.seed is not None:
+                merged["seed"] = scenario.seed
             settings = SimulationSettings.model_validate(merged)
 
             # Log seed for reproducibility (2.7.9)

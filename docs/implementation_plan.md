@@ -231,19 +231,31 @@ explanations, aggregator metrics). None values now display as "N/A"; negative Pn
 `-$7.41` not `$-7.41`. 20 new tests added (13 for helpers, 4 for integration edge cases,
 3 for history table formatting).
 
-### Step 5: Fix seed consistency — per-scenario fixed seeds
-**File: graph.py**
-- In `run_refinement()`, assign deterministic seed per scenario (hash of name + session timestamp) if not already set.
-- Same seed reused across all iterations for that scenario.
+### Step 5: Fix seed consistency — per-scenario fixed seeds ✅ DONE
+**File: graph.py, state.py, nodes.py**
+- ~~In `run_refinement()`, assign deterministic seed per scenario (hash of name + session timestamp) if not already set.~~
+- ~~Same seed reused across all iterations for that scenario.~~
 
-### Step 6: Increase default max iterations
-**File: graph.py**
-- `max_iterations`: 3 → 5.
-- `_DEFAULT_RECURSION_LIMIT`: 50 → 80.
+**Completed:** Added `seed: int | None` field to `ScenarioConfig`.  `run_refinement()` now assigns
+deterministic seeds via `_deterministic_seed(name, session_ts)` (SHA-256 hash, uint32 range).
+`scenario_executor_node` injects scenario seed into `SimulationSettings`.  4 tests added for
+seed determinism and `ScenarioConfig.seed`.
 
-### Step 7: Parametrized test suite for scoring
+### Step 6: Increase default max iterations ✅ DONE
+**File: graph.py**
+- ~~`max_iterations`: 3 → 5.~~
+- ~~`_DEFAULT_RECURSION_LIMIT`: 50 → 80.~~
+
+**Completed:** `max_iterations` default changed to 5, `_DEFAULT_RECURSION_LIMIT` changed to 80.
+Test added to verify constant value.
+
+### Step 7: Parametrized test suite for scoring ✅ DONE
 **File: tests/test_deterministic_scoring.py (new)**
-- 15-20+ test vectors covering every piecewise boundary, edge case, and guard condition in all 6 axes.
+- ~~15-20+ test vectors covering every piecewise boundary, edge case, and guard condition in all 6 axes.~~
+
+**Completed:** New test file with 89 parametrized test vectors across 8 test classes covering
+all 6 axis boundary conditions, guard conditions (None, zero trades, missing baselines),
+OTT penalties, drawdown penalties, liquidity averaging, weighted final score, and rounding.
 
 ---
 

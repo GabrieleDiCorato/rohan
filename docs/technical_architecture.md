@@ -228,5 +228,5 @@ The Explainer agent uses **tool calling** to deeply analyze simulation results. 
 *   **Database Factory:** Uses a module-level factory function `get_database_connector()` with `@lru_cache(maxsize=1)`.
 *   **Formatting Utilities:** Consolidated in `src/rohan/utils/formatting.py`. LLM node formatting uses private helpers `_fmt_dollar`, `_fmt_pct`, `_fmt_float` in `nodes.py` for consistent `None→"N/A"` handling and proper negative-dollar sign placement (`-$7.41` not `$-7.41`).
 *   **UI Monolith Split:** Extracted into a Streamlit multipage app structure.
-*   **Test Hardening:** Added failure-path tests, edge-case tests, property-based testing with `hypothesis`, and minimal integration tests.
-*   **Seed Logging:** Logs the random seed for reproducibility.
+*   **Test Hardening:** Added failure-path tests, edge-case tests, property-based testing with `hypothesis`, minimal integration tests, and 89 parametrized piecewise-boundary tests for deterministic scoring.
+*   **Seed Consistency:** Each scenario receives a deterministic seed (SHA-256 hash of name + session timestamp) assigned once per `run_refinement()` call, ensuring identical random state across all iterations for a given scenario. Seeds are logged for reproducibility.

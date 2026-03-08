@@ -7,7 +7,7 @@ Usage::
     # Quick start
     final_state = run_refinement(
         goal="Create a market-making strategy that profits from the spread",
-        max_iterations=3,
+        max_iterations=5,
     )
     print(final_state["current_code"])
 
@@ -20,6 +20,7 @@ Usage::
 from __future__ import annotations
 
 import functools
+import hashlib
 import logging
 import os
 import time
@@ -45,7 +46,7 @@ MAX_VALIDATION_RETRIES = 3
 # Maximum graph steps before LangGraph raises a recursion error.
 # writer→validator→executor→explainer→aggregator = 5 steps per iteration,
 # plus potential validation retries.
-_DEFAULT_RECURSION_LIMIT = 50
+_DEFAULT_RECURSION_LIMIT = 80
 
 # ── Suppress LangSmith tracing unless explicitly enabled ──────────────────
 # LangSmith tracing can block the main thread with synchronous HTTP calls
@@ -163,9 +164,15 @@ def build_refinement_graph() -> Any:
 # ── Convenience runner ────────────────────────────────────────────────────
 
 
+def _deterministic_seed(scenario_name: str, session_ts: int) -> int:
+    """Derive a reproducible uint32 seed from scenario name + session timestamp."""
+    digest = hashlib.sha256(f"{scenario_name}:{session_ts}".encode()).digest()
+    return int.from_bytes(digest[:4], "big") % (2**32 - 1)
+
+
 def run_refinement(
     goal: str,
-    max_iterations: int = 3,
+    max_iterations: int = 5,
     scenarios: list[ScenarioConfig] | None = None,
 ) -> RefinementState:
     """Run the full refinement loop and return the final state.
@@ -188,6 +195,13 @@ def run_refinement(
     """
     if scenarios is None:
         scenarios = [ScenarioConfig(name="default")]
+
+    # Assign deterministic per-scenario seeds (same seed every iteration)
+    session_ts = int(time.monotonic_ns())
+    for sc in scenarios:
+        if sc.seed is None:
+            sc.seed = _deterministic_seed(sc.name, session_ts)
+            logger.debug("Assigned seed %d to scenario %r", sc.seed, sc.name)
 
     initial_state: RefinementState = {
         "goal": goal,
