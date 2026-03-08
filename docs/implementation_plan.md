@@ -450,26 +450,13 @@ These changes clean up the prompt architecture and data models to align with the
 
 ### Step 12: Update models for 6-axis scoring + qualitative output ✅ DONE (completed in Step 3)
 
-### Step 13: Restructure feedback routing
-**File: models.py**
-- Add `scenario_weaknesses: list[tuple[str, list[str]]]` and `scenario_recommendations: list[tuple[str, list[str]]]` to `AggregatedFeedback`.
+### Step 13: Restructure feedback routing ✅ DONE
 
-**File: nodes.py (aggregator)**
-- Populate structured fields directly from explainer `ScenarioExplanation` objects.
-
-**File: nodes.py (writer feedback)**
-- Change `weaknesses=feedback.verdict.reasoning` to render structured per-scenario weaknesses/recommendations:
-  ```
-  ### Weaknesses
-  **Scenario X:** weakness1; weakness2
-  **Scenario Y:** weakness3
-
-  ### Recommendations
-  **Scenario X:** rec1; rec2
-  ```
-
-**File: prompts.py**
-- Update `WRITER_FEEDBACK_TEMPLATE` format.
+Implemented structured per-scenario feedback routing:
+- Added `scenario_weaknesses` and `scenario_recommendations` fields to `AggregatedFeedback` (models.py).
+- Aggregator populates them from explainer `ScenarioExplanation` objects (nodes.py).
+- Added `_render_per_scenario_feedback()` helper to format per-scenario bullet lists for the writer prompt (nodes.py).
+- Writer feedback template now includes structured weaknesses/recommendations per scenario instead of flattened verdict reasoning.
 
 ### Step 14: Audit UI for 6-axis scoring ✅ DONE (completed in Step 3)
 
@@ -548,3 +535,7 @@ Phase 3:
 | `rich_analysis_json` storage | Inline in `RefinementScenarioResult` (Text column) | Separate artifacts table | Acceptable for dev/PoC (50–200 KB per scenario). Production should migrate to `artifacts` table. |
 | Writer multimodal | Deferred | Inline chart injection | Focus on persist + surface first. Writer multimodal requires model capability gating. |
 | UI chart layout | 2×3 grid (Market + Strategy) | Single row of 3 | Strategy-performance charts (PnL, Inventory, Fills) deserve equal visibility with market microstructure charts. |
+| Defaults centralization | Constants in graph.py | Per-module hardcoded | Single source of truth for max_iterations (5), convergence threshold (7.0), recursion_limit (80). Eliminates UI/CLI/nodes.py drift. |
+| Convergence threshold | 7.0 | 8.0 | Matches deterministic scoring where 7+ is "good". UI chart line + sidebar tips now consistent with code. |
+| Writer prompt OTT fix | modify()/replace() example pattern | cancel_all()+re-place | cancel_all inflates OTT 10–20×, penalizing OTT score. Rules 5-6 now warn against it. |
+| Simulation duration | 2 hours (09:30–11:30) | 30 minutes (09:30–10:00) | Enough for multiple mean-reversion cycles, meaningful PnL curves, realistic market microstructure dynamics. |

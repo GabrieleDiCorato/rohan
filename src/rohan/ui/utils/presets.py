@@ -39,7 +39,7 @@ def _default_config() -> SimulationSettings:
     return SimulationSettings(
         date="20260130",
         start_time="09:30:00",
-        end_time="10:00:00",
+        end_time="11:30:00",
         starting_cash=10_000_000,
         log_orders=True,
     )
@@ -75,7 +75,7 @@ def _high_volatility_config() -> SimulationSettings:
     return SimulationSettings(
         date="20260130",
         start_time="09:30:00",
-        end_time="10:00:00",
+        end_time="11:30:00",
         starting_cash=10_000_000,
         log_orders=True,
         agents=agents,
@@ -101,7 +101,7 @@ def _low_liquidity_config() -> SimulationSettings:
     return SimulationSettings(
         date="20260130",
         start_time="09:30:00",
-        end_time="10:00:00",
+        end_time="11:30:00",
         starting_cash=10_000_000,
         log_orders=True,
         agents=agents,
@@ -135,7 +135,7 @@ def _market_maker_stress_config() -> SimulationSettings:
     return SimulationSettings(
         date="20260130",
         start_time="09:30:00",
-        end_time="10:00:00",
+        end_time="11:30:00",
         starting_cash=10_000_000,
         log_orders=True,
         agents=agents,
@@ -163,7 +163,7 @@ def _momentum_dominated_config() -> SimulationSettings:
     return SimulationSettings(
         date="20260130",
         start_time="09:30:00",
-        end_time="10:00:00",
+        end_time="11:30:00",
         starting_cash=10_000_000,
         log_orders=True,
         agents=agents,

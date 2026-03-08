@@ -60,7 +60,7 @@ class TestUIPresets:
 
         assert config.date == "20260130"
         assert config.start_time == "09:30:00"
-        assert config.end_time == "10:00:00"
+        assert config.end_time == "11:30:00"
         assert config.starting_cash == 10_000_000
         assert config.log_orders is True
 
@@ -154,7 +154,7 @@ class TestUIPresets:
 
             # All should use the same time window for comparison
             assert config.start_time == "09:30:00"
-            assert config.end_time == "10:00:00"
+            assert config.end_time == "11:30:00"
 
     def test_presets_have_safe_parameter_values(self):
         """Test that presets don't have extreme/unsafe values."""

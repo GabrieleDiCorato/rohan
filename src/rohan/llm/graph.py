@@ -43,6 +43,11 @@ logger = logging.getLogger(__name__)
 # Maximum validation retries before giving up
 MAX_VALIDATION_RETRIES = 3
 
+# ── Centralized refinement defaults ──────────────────────────────────────
+# Single source of truth for defaults used by UI, CLI, and nodes.py.
+DEFAULT_MAX_ITERATIONS = 5
+DEFAULT_CONVERGENCE_THRESHOLD = 7.0
+
 # Maximum graph steps before LangGraph raises a recursion error.
 # writer→validator→executor→explainer→aggregator = 5 steps per iteration,
 # plus potential validation retries.

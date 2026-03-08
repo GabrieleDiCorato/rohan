@@ -31,7 +31,7 @@ class SimulationSettings(BaseSettings):
     )
     date: str = Field(default="20210205", description="Date of the simulation.")
     start_time: str = Field(default="09:30:00", description="Start time of the simulation.")
-    end_time: str = Field(default="10:00:00", description="End time of the simulation.")
+    end_time: str = Field(default="11:30:00", description="End time of the simulation.")
     stdout_log_level: str = Field(default="INFO", description="Log level for stdout logging.")
     ticker: str = Field(default=DEFAULT_TICKER, description="Ticker symbol for the simulation.")
     starting_cash: int = Field(default=10_000_000, description="Starting cash for agents in CENTS.")

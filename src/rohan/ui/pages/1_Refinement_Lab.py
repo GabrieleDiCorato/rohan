@@ -28,7 +28,12 @@ from rohan.framework.refinement_repository import (
     ScenarioResultData,
 )
 from rohan.framework.scenario_repository import ScenarioRepository
-from rohan.llm.graph import build_refinement_graph
+from rohan.llm.graph import (
+    _DEFAULT_RECURSION_LIMIT,
+    DEFAULT_CONVERGENCE_THRESHOLD,
+    DEFAULT_MAX_ITERATIONS,
+    build_refinement_graph,
+)
 from rohan.llm.state import RefinementState, ScenarioConfig
 from rohan.ui.utils.metric_display import get_help, get_scoring_help
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
@@ -71,7 +76,8 @@ EXAMPLE_GOALS: dict[str, str] = {
         "against inventory (Avellaneda-Stoikov: shift mid by −κ×inventory). "
         "Widen quotes when state.bid_liquidity or state.ask_liquidity is thin. "
         "Use is_post_only=True on all limit orders to guarantee maker fills. "
-        "Cancel stale quotes with OrderAction.cancel_all() each tick. "
+        "Use OrderAction.modify() to update existing quote prices each tick "
+        "instead of cancel-replace, keeping the order-to-trade ratio low. "
         "Monitor state.unrealized_pnl and stop quoting if drawdown exceeds a threshold. "
         "In the last 60 seconds (state.time_remaining_ns < 60e9), aggressively "
         "flatten inventory by crossing the spread. Never place orders when "
@@ -115,10 +121,11 @@ EXAMPLE_GOALS: dict[str, str] = {
         "adjust prices when signals change, avoiding the latency of cancel-replace. "
         "Use OrderAction.partial_cancel() to reduce oversized positions without "
         "full cancellation. Track state.unrealized_pnl each tick and lock in "
-        "profits when PnL exceeds a target — cancel all with OrderAction.cancel_all() "
-        "and stop trading. Guard against state.is_market_closed. Flatten all "
-        "positions in the last 30 seconds using state.time_remaining_ns. "
-        "Report final state.portfolio_value and state.inventory in on_simulation_end."
+        "profits when PnL exceeds a target — flatten inventory with "
+        "OrderAction.cancel_all() and stop trading. Guard against "
+        "state.is_market_closed. Flatten all positions in the last 30 seconds "
+        "using state.time_remaining_ns. Report final state.portfolio_value and "
+        "state.inventory in on_simulation_end."
     ),
 }
 
@@ -130,7 +137,7 @@ EXAMPLE_GOALS: dict[str, str] = {
 _DEFAULTS: dict[str, Any] = {
     "goal_input": "",
     "refine_goal": "",
-    "refine_max_iterations": 3,
+    "refine_max_iterations": DEFAULT_MAX_ITERATIONS,
     "refine_running": False,
     "refine_final_state": None,
     "refine_duration": None,
@@ -301,7 +308,7 @@ def _save_current_run(run_name: str | None = None) -> bool:
         saved = _refinement_repo.save_session(
             name=run_name,
             goal=goal,
-            max_iterations=fs.get("max_iterations", 3),
+            max_iterations=fs.get("max_iterations", DEFAULT_MAX_ITERATIONS),
             scenario_configs=scenario_dicts,
             status=fs.get("status", "done"),
             final_score=final_score,
@@ -427,9 +434,9 @@ with st.sidebar:
             """
 - Be **specific** about the strategy's risk constraints
 - Mention inventory limits, spread targets, position sizing
-- Start with **2–3 iterations** for quick experiments
+- Start with **3–5 iterations** for meaningful refinement
 - Pipeline: Writer → Validator → Simulator → Explainer → Judge
-- Convergence: score ≥ 8/10 or plateau → auto-stop
+- Convergence: score ≥ 7/10 + plateau → auto-stop
 - Each iteration takes ~60–120 s (simulation is the bottleneck)
             """
         )
@@ -688,7 +695,7 @@ def _run_refinement(
             iter_display = 1
             st.write(f"### Iteration {iter_display}")
 
-            config = {"recursion_limit": 50}
+            config = {"recursion_limit": _DEFAULT_RECURSION_LIMIT}
 
             for event in graph.stream(initial_state, config=config, stream_mode="updates"):
                 if not event:
@@ -1032,10 +1039,10 @@ if final_state is not None:
 
                 # Convergence threshold line
                 fig.add_hline(
-                    y=8,
+                    y=DEFAULT_CONVERGENCE_THRESHOLD,
                     line_dash="dash",
                     line_color=COLORS["success"],
-                    annotation_text="Convergence (8/10)",
+                    annotation_text=f"Convergence ({DEFAULT_CONVERGENCE_THRESHOLD:.0f}/10)",
                     annotation_position="top right",
                     annotation_font_color=COLORS["success"],
                 )

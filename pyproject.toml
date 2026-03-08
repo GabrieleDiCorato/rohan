@@ -1,6 +1,6 @@
 [project]
 name = "rohan"
-version = "0.2.0"
+version = "0.2.1"
 description = "Risk Optimization with Heuristic Agent Network"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -42,6 +42,7 @@ dev = [
     "ipykernel>=7.1.0",
     "nbstripout>=0.9.0",
     "pyright>=1.1.408",
+    "pytest-xdist>=3.8.0",
 ]
 test = [
     "pytest>=8.3.0",

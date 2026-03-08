@@ -84,8 +84,6 @@ def on_market_data(self, state: MarketState) -> list[OrderAction]:
     actions: list[OrderAction] = []
     if state.is_market_closed:
         return actions
-    if state.open_orders:
-        actions.append(OrderAction.cancel_all())
     if state.mid_price is None:
         return actions
 
@@ -109,10 +107,26 @@ def on_market_data(self, state: MarketState) -> list[OrderAction]:
                                        quantity=state.inventory, price=state.best_bid))
         return actions
 
-    actions.append(OrderAction(side=Side.BID, order_type=OrderType.LIMIT,
-                               quantity=qty, price=fair - half))
-    actions.append(OrderAction(side=Side.ASK, order_type=OrderType.LIMIT,
-                               quantity=qty, price=fair + half))
+    bid_price = fair - half
+    ask_price = fair + half
+
+    # Update existing orders in-place instead of cancel-replace
+    # to keep the order-to-trade ratio low.
+    bid_orders = [o for o in state.open_orders if o.side == Side.BID]
+    ask_orders = [o for o in state.open_orders if o.side == Side.ASK]
+
+    if bid_orders:
+        actions.append(OrderAction.modify(order_id=bid_orders[0].order_id,
+                                          new_price=bid_price, new_quantity=qty))
+    else:
+        actions.append(OrderAction(side=Side.BID, order_type=OrderType.LIMIT,
+                                   quantity=qty, price=bid_price))
+    if ask_orders:
+        actions.append(OrderAction.modify(order_id=ask_orders[0].order_id,
+                                          new_price=ask_price, new_quantity=qty))
+    else:
+        actions.append(OrderAction(side=Side.ASK, order_type=OrderType.LIMIT,
+                                   quantity=qty, price=ask_price))
     return actions
 ```
 
@@ -129,9 +143,14 @@ rohan.simulation.models.strategy_api, rohan.config
    Baseline formula: ``max(10, state.cash // (max(1, state.mid_price) * 100))``
    gives ~1% of capital per side.  Scale up or down as strategy demands.
 5. Avoid excessive order submission (keep order-to-trade ratio reasonable).
-6. **Always cancel stale orders** before placing new ones to avoid flooding
-   the order book. Use ``OrderAction.cancel_all()`` at the start of
-   ``on_market_data`` if you are replacing your entire quote.
+   **WARNING**: calling ``cancel_all()`` every tick then re-placing quotes
+   inflates the order-to-trade ratio (OTT) to 10-20×, which is penalised
+   heavily by the execution quality score.  Prefer ``OrderAction.modify()``
+   or ``OrderAction.replace()`` to update existing orders in-place.
+6. **Manage stale orders** — use ``OrderAction.modify()`` or
+   ``OrderAction.replace()`` to update prices on existing quotes.
+   Reserve ``cancel_all()`` for emergency flatten or end-of-session cleanup,
+   not routine requoting.
 7. Do NOT use private/dunder attributes on external objects.
 """
 

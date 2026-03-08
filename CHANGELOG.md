@@ -5,6 +5,28 @@ All notable changes to ROHAN are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-03-09
+
+### Added
+
+- **Centralized refinement defaults** — `DEFAULT_MAX_ITERATIONS`, `DEFAULT_CONVERGENCE_THRESHOLD`, `_DEFAULT_RECURSION_LIMIT` constants in `graph.py`, imported by UI, CLI, and nodes.py. Eliminates scattered hardcoded values.
+- **Structured per-scenario feedback routing (Step 13)** — `AggregatedFeedback` now carries `scenario_weaknesses` and `scenario_recommendations` populated from explainer `ScenarioExplanation` objects. `_render_per_scenario_feedback()` helper formats them for the writer prompt.
+
+### Changed
+
+- **Simulation duration** — Default session length extended from 30 minutes (09:30–10:00) to 2 hours (09:30–11:30) for meaningful market dynamics and PnL curves. All 5 presets updated.
+- **Writer prompt example pattern** — Replaced `cancel_all()` + re-place with `OrderAction.modify()` to avoid inflating OTT 10–20×.
+- **Prompt Rules 5-6** — Rule 5 now warns against OTT inflation from cancel_all. Rule 6 recommends `modify()`/`replace()` for stale order management; reserves `cancel_all()` for emergency flatten.
+- **Example goals** — All 4 UI example prompts rewritten to use `modify()`/`replace()` instead of `cancel_all()` every tick.
+- **Sidebar tips** — Updated to "3–5 iterations" (was 2-3) and "score ≥ 7/10" (was 8/10) to match actual convergence threshold.
+
+### Fixed
+
+- **Convergence threshold mismatch** — UI chart line and sidebar displayed threshold as 8 while code used 7. Now uses `DEFAULT_CONVERGENCE_THRESHOLD` (7.0) everywhere.
+- **`max_iterations` default drift** — UI and CLI defaulted to 3 while docs said 5. Now all reference `DEFAULT_MAX_ITERATIONS` (5).
+- **`recursion_limit` too low** — Was hardcoded at 50, causing premature graph termination. Increased to 80 via `_DEFAULT_RECURSION_LIMIT`.
+- **`_save_current_run` fallback** — Used hardcoded 3 instead of centralized default.
+
 ## [0.2.0] — 2026-03-08
 
 ### Added
@@ -68,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Streamlit Terminal UI for running simulations.
 - Reproducibility tests.
 
+[0.2.1]: https://github.com/GabrieleDiCorato/rohan/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/GabrieleDiCorato/rohan/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/GabrieleDiCorato/rohan/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/GabrieleDiCorato/rohan/releases/tag/v0.1.0

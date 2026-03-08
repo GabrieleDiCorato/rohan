@@ -84,6 +84,25 @@ def _fmt_float(value: float | None, fmt: str = ".2f") -> str:
     return f"{value:{fmt}}"
 
 
+def _render_per_scenario_feedback(
+    per_scenario: list[tuple[str, list[str]]],
+    fallback: str,
+) -> str:
+    """Render per-scenario weaknesses or recommendations for the writer.
+
+    If per-scenario data is available, format as labelled blocks so the
+    writer can attribute fixes to specific market conditions.  Otherwise
+    fall back to the aggregated string (e.g. verdict.reasoning).
+    """
+    if not per_scenario:
+        return fallback
+    lines: list[str] = []
+    for scenario_name, items in per_scenario:
+        if items:
+            lines.append(f"**{scenario_name}:** " + "; ".join(items))
+    return "\n".join(lines) if lines else fallback
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Writer Node
 # ═══════════════════════════════════════════════════════════════════════════
@@ -135,8 +154,8 @@ def writer_node(state: RefinementState) -> dict:
             score=feedback.verdict.score if feedback else "N/A",
             metrics_summary=metrics_summary,
             strengths="\n".join(f"- {s}" for s in (feedback.cross_scenario_patterns or [])),
-            weaknesses=feedback.verdict.reasoning if feedback else "",
-            recommendations=feedback.unified_feedback if feedback else "",
+            weaknesses=_render_per_scenario_feedback(feedback.scenario_weaknesses, feedback.verdict.reasoning),
+            recommendations=_render_per_scenario_feedback(feedback.scenario_recommendations, feedback.unified_feedback),
             previous_code=current_code,
             iteration_history=history_text,
         )
@@ -880,6 +899,8 @@ def aggregator_node(state: RefinementState) -> dict:
         verdict=verdict,
         cross_scenario_patterns=[s for exp in explanations for s in exp.strengths],
         unified_feedback=("Consolidated recommendations:\n" + "\n".join(f"- {r}" for exp in explanations for r in exp.recommendations)),
+        scenario_weaknesses=[(exp.scenario_name, exp.weaknesses) for exp in explanations if exp.weaknesses],
+        scenario_recommendations=[(exp.scenario_name, exp.recommendations) for exp in explanations if exp.recommendations],
     )
 
     # Build per-scenario metrics snapshot for history
@@ -959,7 +980,9 @@ def aggregator_node(state: RefinementState) -> dict:
     new_iterations = list(iterations) + [iteration_summary]
 
     # ── Stop conditions (deterministic) ──────────────────────────────────
-    max_iterations = state.get("max_iterations", 3)
+    from rohan.llm.graph import DEFAULT_MAX_ITERATIONS
+
+    max_iterations = state.get("max_iterations", DEFAULT_MAX_ITERATIONS)
 
     # Regression always forces continue
     if is_regression:

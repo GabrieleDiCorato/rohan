@@ -76,6 +76,15 @@ class AggregatedFeedback(BaseModel):
         description="Patterns observed across all scenarios",
     )
     unified_feedback: str = Field(description="Consolidated feedback for the Writer agent")
+    # Per-scenario structured feedback (from explainer ScenarioExplanation)
+    scenario_weaknesses: list[tuple[str, list[str]]] = Field(
+        default_factory=list,
+        description="Per-scenario weaknesses: list of (scenario_name, weaknesses)",
+    )
+    scenario_recommendations: list[tuple[str, list[str]]] = Field(
+        default_factory=list,
+        description="Per-scenario recommendations: list of (scenario_name, recommendations)",
+    )
 
 
 # ---------------------------------------------------------------------------

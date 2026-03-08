@@ -12,7 +12,7 @@ import json
 import logging
 import sys
 
-from rohan.llm.graph import run_refinement
+from rohan.llm.graph import DEFAULT_MAX_ITERATIONS, run_refinement
 from rohan.llm.state import ScenarioConfig
 
 
@@ -29,8 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-iterations",
         type=int,
-        default=3,
-        help="Maximum refinement iterations (default: 3)",
+        default=DEFAULT_MAX_ITERATIONS,
+        help=f"Maximum refinement iterations (default: {DEFAULT_MAX_ITERATIONS})",
     )
     parser.add_argument(
         "--scenarios",
