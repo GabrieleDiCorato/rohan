@@ -1,12 +1,12 @@
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseSettings):
     """Configuration for the database connection."""
 
-    connection_string: str = Field(
-        default="sqlite:///./rohan.db",
+    connection_string: SecretStr = Field(
+        default=SecretStr("sqlite:///./rohan.db"),
         description="SQLAlchemy connection string for the database.",
     )
     pool_size: int = Field(default=10, description="Database connection pool size.")
