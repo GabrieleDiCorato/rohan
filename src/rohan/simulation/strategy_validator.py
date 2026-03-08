@@ -14,6 +14,26 @@ from rohan.simulation.models import (
 from rohan.simulation.simulation_service import SimulationService
 
 
+def _make_safe_import(allowed: set[str]):
+    """Return a ``__import__`` replacement that enforces the module whitelist.
+
+    Only modules whose root package or exact dotted name appears in *allowed*
+    are permitted.  All other imports raise ``ImportError``.
+    """
+    _real_import = builtins.__import__
+
+    def _safe_import(name: str, *args: Any, **kwargs: Any):
+        root = name.split(".")[0]
+        if root not in allowed and name not in allowed:
+            raise ImportError(
+                f"Import of {name!r} is not allowed. "
+                f"Permitted modules: {sorted(allowed)}"
+            )
+        return _real_import(name, *args, **kwargs)
+
+    return _safe_import
+
+
 class StrategyValidator:
     """Validates strategy code for safety before execution."""
 
@@ -26,7 +46,8 @@ class StrategyValidator:
         "datetime",
         "typing",
         "rohan.simulation.models.strategy_api",
-        "rohan.config",
+        # NOTE: "rohan.config" deliberately excluded — it re-exports
+        # LLMSettings / SecretSettings which contain API keys.
     }
 
     SAFE_BUILTINS = {
@@ -58,7 +79,39 @@ class StrategyValidator:
         "print",  # Useful for debugging
         "__build_class__",  # Required for class definitions
         "super",  # Required for inheritance
-        "__import__",  # Required for import statements
+        # NOTE: __import__ deliberately excluded from this set.
+        # A safe wrapper (_make_safe_import) is injected in execute_strategy()
+        # so that `import foo` statements still work for whitelisted modules
+        # but `__import__('os')` function calls are blocked.
+    }
+
+    # Dangerous dunder attributes — accessing these can escape the sandbox.
+    # Legitimate dunders like __init__, __class__, __name__ are allowed.
+    DANGEROUS_DUNDERS = {
+        "__builtins__",
+        "__globals__",
+        "__code__",
+        "__subclasses__",
+        "__bases__",
+        "__mro__",
+        "__import__",
+        "__loader__",
+        "__spec__",
+        "__qualname__",
+    }
+
+    # Built-in function names that must never appear as direct calls.
+    FORBIDDEN_CALLS = {
+        "eval",
+        "exec",
+        "compile",
+        "globals",
+        "locals",
+        "vars",
+        "getattr",
+        "setattr",
+        "delattr",
+        "breakpoint",
     }
 
     def validate(self, code: str) -> ValidationResult:
@@ -73,9 +126,13 @@ class StrategyValidator:
             if isinstance(node, ast.Import | ast.ImportFrom):
                 errors.extend(self._check_import(node))
 
-            elif isinstance(node, ast.Attribute) and node.attr.startswith("__"):
-                # Check access to private attributes
-                errors.append(f"Access to private attribute '{node.attr}' is restricted")
+            elif isinstance(node, ast.Attribute) and node.attr in self.DANGEROUS_DUNDERS:
+                errors.append(f"Access to dangerous attribute '{node.attr}' is restricted")
+
+            elif isinstance(node, ast.Call):
+                # Block calls to dangerous built-in functions
+                if isinstance(node.func, ast.Name) and node.func.id in self.FORBIDDEN_CALLS:
+                    errors.append(f"Call to '{node.func.id}()' is forbidden")
 
         return ValidationResult(is_valid=len(errors) == 0, errors=errors)
 
@@ -103,8 +160,12 @@ class StrategyValidator:
         # Prepare restricted execution context
         # We need to inject necessary modules and builtins
 
+        safe_builtins_dict = {k: getattr(builtins, k) for k in self.SAFE_BUILTINS if hasattr(builtins, k)}
+        # Inject a safe __import__ that enforces the whitelist
+        safe_builtins_dict["__import__"] = _make_safe_import(self.SAFE_IMPORTS)
+
         context: dict[str, Any] = {
-            "__builtins__": {k: getattr(builtins, k) for k in self.SAFE_BUILTINS if hasattr(builtins, k)},
+            "__builtins__": safe_builtins_dict,
             "__name__": "__main__",
         }
 
@@ -118,7 +179,6 @@ class StrategyValidator:
         import numpy as np
         import pandas as pd
 
-        import rohan.config as config
         import rohan.simulation.models.strategy_api as strategy_api
 
         context.update(
@@ -131,7 +191,6 @@ class StrategyValidator:
                 "np": np,
                 "pd": pd,
                 "strategy_api": strategy_api,
-                "config": config,
                 # Also inject commonly used types directly for convenience
                 "List": list,
                 "Dict": dict,
@@ -295,12 +354,22 @@ def execute_strategy_safely(
         4. Otherwise, return the SimulationResult.
     """
     start_time = time.monotonic()
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future: Future[SimulationResult] = executor.submit(_run_simulation_in_thread, strategy_code, settings)
-        try:
-            return future.result(timeout=timeout_seconds)
-        except TimeoutError:
-            elapsed = time.monotonic() - start_time
-            raise SimulationTimeoutError(f"Strategy execution timed out after {elapsed:.1f}s (limit: {timeout_seconds}s). The strategy may contain an infinite loop.") from None
-        except Exception as exc:
-            raise StrategyExecutionError(f"Strategy execution failed: {exc}") from exc
+    # NOTE: We intentionally do NOT use `with ThreadPoolExecutor` as a
+    # context manager.  If the future times out, __exit__ calls
+    # shutdown(wait=True) which blocks forever when the worker thread is
+    # stuck in an infinite loop — defeating the timeout entirely.
+    executor = ThreadPoolExecutor(max_workers=1)
+    future: Future[SimulationResult] = executor.submit(_run_simulation_in_thread, strategy_code, settings)
+    try:
+        return future.result(timeout=timeout_seconds)
+    except TimeoutError:
+        # Abandon the stuck thread — don't wait for it
+        executor.shutdown(wait=False, cancel_futures=True)
+        elapsed = time.monotonic() - start_time
+        raise SimulationTimeoutError(
+            f"Strategy execution timed out after {elapsed:.1f}s "
+            f"(limit: {timeout_seconds}s). The strategy may contain an infinite loop."
+        ) from None
+    except Exception as exc:
+        executor.shutdown(wait=False)
+        raise StrategyExecutionError(f"Strategy execution failed: {exc}") from exc
