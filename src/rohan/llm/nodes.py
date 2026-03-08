@@ -47,11 +47,10 @@ from rohan.llm.state import RefinementState, ScenarioResult
 from rohan.simulation.models.simulation_metrics import (
     ComparisonResult,
     MarketImpact,
-    MarketMetrics,
-    SimulationMetrics,
 )
 from rohan.simulation.simulation_service import SimulationService
 from rohan.simulation.strategy_validator import StrategyValidator, execute_strategy_safely
+from rohan.simulation.utils import _pct_change, _to_market_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -369,39 +368,17 @@ def scenario_executor_node(state: RefinementState) -> dict:
             baseline_sim_metrics = analyzer.compute_metrics(baseline_result.result)
 
             # Build comparison
-            def _to_market(m: SimulationMetrics) -> MarketMetrics:
-                return MarketMetrics(
-                    volatility=m.volatility,
-                    mean_spread=m.mean_spread,
-                    effective_spread=m.effective_spread,
-                    avg_bid_liquidity=m.avg_bid_liquidity,
-                    avg_ask_liquidity=m.avg_ask_liquidity,
-                    traded_volume=m.traded_volume,
-                    lob_imbalance_mean=m.lob_imbalance_mean,
-                    lob_imbalance_std=m.lob_imbalance_std,
-                    vpin=m.vpin,
-                    resilience_mean_ns=m.resilience_mean_ns,
-                    market_ott_ratio=m.market_ott_ratio,
-                )
-
-            def _pct(a: float | None, b: float | None) -> float | None:
-                if a is None or b is None:
-                    return None
-                if b == 0:
-                    return 0.0 if a == 0 else float("inf")
-                return (a - b) / b
-
-            strat_market = _to_market(strategy_sim_metrics)
-            base_market = _to_market(baseline_sim_metrics)
+            strat_market = _to_market_metrics(strategy_sim_metrics)
+            base_market = _to_market_metrics(baseline_sim_metrics)
             impact = MarketImpact(
-                spread_delta_pct=_pct(strat_market.mean_spread, base_market.mean_spread),
-                volatility_delta_pct=_pct(strat_market.volatility, base_market.volatility),
-                bid_liquidity_delta_pct=_pct(strat_market.avg_bid_liquidity, base_market.avg_bid_liquidity),
-                ask_liquidity_delta_pct=_pct(strat_market.avg_ask_liquidity, base_market.avg_ask_liquidity),
-                lob_imbalance_delta_pct=_pct(strat_market.lob_imbalance_mean, base_market.lob_imbalance_mean),
-                vpin_delta_pct=_pct(strat_market.vpin, base_market.vpin),
-                resilience_delta_pct=_pct(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
-                ott_ratio_delta_pct=_pct(strat_market.market_ott_ratio, base_market.market_ott_ratio),
+                spread_delta_pct=_pct_change(strat_market.mean_spread, base_market.mean_spread),
+                volatility_delta_pct=_pct_change(strat_market.volatility, base_market.volatility),
+                bid_liquidity_delta_pct=_pct_change(strat_market.avg_bid_liquidity, base_market.avg_bid_liquidity),
+                ask_liquidity_delta_pct=_pct_change(strat_market.avg_ask_liquidity, base_market.avg_ask_liquidity),
+                lob_imbalance_delta_pct=_pct_change(strat_market.lob_imbalance_mean, base_market.lob_imbalance_mean),
+                vpin_delta_pct=_pct_change(strat_market.vpin, base_market.vpin),
+                resilience_delta_pct=_pct_change(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
+                ott_ratio_delta_pct=_pct_change(strat_market.market_ott_ratio, base_market.market_ott_ratio),
             )
 
             comparison = ComparisonResult(
@@ -418,29 +395,24 @@ def scenario_executor_node(state: RefinementState) -> dict:
             )
 
             # Generate charts for the UI
-            import matplotlib.pyplot as plt
-
             price_chart_b64: str | None = None
             spread_chart_b64: str | None = None
             volume_chart_b64: str | None = None
             try:
                 fig = analyzer.plot_price_series(strategy_output, title=f"{scenario.name} — Price")
                 price_chart_b64 = analyzer.figure_to_base64(fig)
-                plt.close(fig)
             except Exception:
-                pass
+                logger.debug("Price chart generation failed for %r", scenario.name, exc_info=True)
             try:
                 fig = analyzer.plot_spread(strategy_output, title=f"{scenario.name} — Spread")
                 spread_chart_b64 = analyzer.figure_to_base64(fig)
-                plt.close(fig)
             except Exception:
-                pass
+                logger.debug("Spread chart generation failed for %r", scenario.name, exc_info=True)
             try:
                 fig = analyzer.plot_volume(strategy_output, title=f"{scenario.name} — Volume")
                 volume_chart_b64 = analyzer.figure_to_base64(fig)
-                plt.close(fig)
             except Exception:
-                pass
+                logger.debug("Volume chart generation failed for %r", scenario.name, exc_info=True)
 
             # --- Rich analysis (Step 8) ---
             rich_bundle = None
@@ -465,21 +437,18 @@ def scenario_executor_node(state: RefinementState) -> dict:
                 try:
                     fig = analyzer.plot_pnl_curve(rich_bundle.pnl_curve, title=f"{scenario.name} — PnL")
                     pnl_chart_b64 = analyzer.figure_to_base64(fig)
-                    plt.close(fig)
                 except Exception:
-                    pass
+                    logger.debug("PnL chart generation failed for %r", scenario.name, exc_info=True)
                 try:
                     fig = analyzer.plot_inventory(rich_bundle.inventory_trajectory, title=f"{scenario.name} — Inventory")
                     inventory_chart_b64 = analyzer.figure_to_base64(fig)
-                    plt.close(fig)
                 except Exception:
-                    pass
+                    logger.debug("Inventory chart generation failed for %r", scenario.name, exc_info=True)
                 try:
                     fig = analyzer.plot_fills_vs_mid(rich_bundle.fills, title=f"{scenario.name} — Fills")
                     fill_scatter_b64 = analyzer.figure_to_base64(fig)
-                    plt.close(fig)
                 except Exception:
-                    pass
+                    logger.debug("Fill scatter chart generation failed for %r", scenario.name, exc_info=True)
 
             results.append(
                 ScenarioResult(

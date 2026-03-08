@@ -7,6 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from abides_markets.order_book import ns_date
 from matplotlib.figure import Figure
 
 from rohan.framework.analysis_models import (
@@ -55,6 +56,48 @@ class AnalysisService:
     """
 
     # ==================================================================
+    # Shared extraction helpers
+    # ==================================================================
+
+    @staticmethod
+    def _get_two_sided_l1(result: SimulationOutput) -> pd.DataFrame:
+        """Extract two-sided L1 rows (both bid and ask present).
+
+        Returns an empty DataFrame when no two-sided observations exist.
+        """
+        l1 = result.get_order_book_l1()
+        if l1.empty:
+            return pd.DataFrame()
+        return l1.dropna(subset=["bid_price", "ask_price"]).copy()
+
+    @staticmethod
+    def _get_agent_fills(
+        result: SimulationOutput,
+        agent_id: int,
+    ) -> tuple[object, list[dict]] | None:
+        """Extract an agent object and its parsed fill records.
+
+        Returns ``(agent, parsed_fills)`` or ``None`` when the agent cannot
+        be found or has no fills.  The *agent* object is the raw ABIDES
+        agent from ``end_state["agents"]``.
+        """
+        if not hasattr(result, "end_state"):
+            return None
+
+        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
+        if agent_id not in agents:
+            return None
+
+        agent = agents[agent_id]
+        log: list = getattr(agent, "log", [])
+        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
+        parsed = AnalysisService._parse_fills(raw_fills)
+        if not parsed:
+            return None
+
+        return agent, parsed
+
+    # ==================================================================
     # Market-wide metrics
     # ==================================================================
 
@@ -77,7 +120,7 @@ class AnalysisService:
         # ----- Two-sided subset (both bid and ask present) -----
         # Only these rows have a meaningful mid-price.  Rows where one
         # side is NaN represent genuinely empty book states (cannot trade).
-        two_sided = l1.dropna(subset=["bid_price", "ask_price"]).copy()
+        two_sided = AnalysisService._get_two_sided_l1(result)
 
         if two_sided.empty:
             return SimulationMetrics()
@@ -169,8 +212,7 @@ class AnalysisService:
                 break
 
         # --- Mark-to-market using last two-sided mid ---
-        l1 = result.get_order_book_l1()
-        two_sided = l1.dropna(subset=["bid_price", "ask_price"]).copy() if not l1.empty else pd.DataFrame()
+        two_sided = AnalysisService._get_two_sided_l1(result)
         last_mid = 0.0
         if not two_sided.empty:
             last_row = two_sided.iloc[-1]
@@ -318,16 +360,12 @@ class AnalysisService:
         if fills.empty or "EventTime" not in fills.columns:
             return None, volume
 
-        # Build a mid-price lookup from the two-sided L1 (use ns-since-midnight 'time')
-        mid_series = two_sided.set_index("time")["mid_price"].sort_index()
-
-        # ABIDES EventTime is ns-since-epoch; convert to ns-since-midnight
-        # to match the L1 'time' column.
-        from abides_markets.order_book import ns_date
+        # Build a mid-price lookup from the two-sided L1
+        mid_lookup = AnalysisService._build_mid_lookup(two_sided)
 
         eff_spreads = []
         for _, fill_row in fills.iterrows():
-            fp_raw = pd.to_numeric(fill_row.get("fill_price"), errors="coerce")
+            fp_raw = pd.to_numeric(fill_row.get("fill_price"), errors="coerce")  # type: ignore[arg-type]
             try:
                 fp = float(fp_raw)  # type: ignore[arg-type]
             except (TypeError, ValueError):
@@ -345,27 +383,12 @@ class AnalysisService:
             except Exception:
                 continue
 
-            # Find nearest mid-price by timestamp
-            idx = mid_series.index.searchsorted(t_midnight)
-            # Pick the closer of the two neighbours
-            candidates = []
-            if idx > 0:
-                candidates.append(mid_series.index[idx - 1])
-            if idx < len(mid_series):
-                candidates.append(mid_series.index[idx])
-            if not candidates:
-                continue
-
-            nearest_t = min(candidates, key=lambda t: abs(t - t_midnight))
-            mid_at_fill = mid_series.loc[nearest_t]
-            # .loc may return a Series if the index has duplicates — take first
-            if isinstance(mid_at_fill, pd.Series):
-                mid_at_fill = mid_at_fill.iloc[0]
-            if pd.isna(mid_at_fill):
+            mid_at_fill = AnalysisService._nearest_mid(mid_lookup, t_midnight)
+            if mid_at_fill is None:
                 continue
 
             # Effective spread = 2 × |fill_price − mid|
-            eff_spreads.append(2.0 * abs(fp - float(mid_at_fill)))  # type: ignore[arg-type]
+            eff_spreads.append(2.0 * abs(fp - mid_at_fill))
 
         if not eff_spreads:
             return None, volume
@@ -442,9 +465,7 @@ class AnalysisService:
             return None
 
         # Build mid-price lookup (time → mid) for Lee-Ready classification
-        from abides_markets.order_book import ns_date
-
-        mid_lookup = two_sided.set_index("time")["mid_price"].sort_index()
+        mid_lookup = AnalysisService._build_mid_lookup(two_sided)
 
         # Classify each fill
         signed_qty: list[float] = []  # +qty = buy, -qty = sell
@@ -461,24 +482,8 @@ class AnalysisService:
                 prev_price = fp
                 continue
 
-            # Find nearest mid
-            idx = mid_lookup.index.searchsorted(t_midnight)
-            candidates = []
-            if idx > 0:
-                candidates.append(mid_lookup.index[idx - 1])
-            if idx < len(mid_lookup):
-                candidates.append(mid_lookup.index[idx])
-            if not candidates:
-                prev_price = fp
-                continue
-
-            nearest_t = min(candidates, key=lambda t: abs(t - t_midnight))
-            mid = mid_lookup.loc[nearest_t]
-            # .loc may return a Series if the index has duplicates — take first
-            if isinstance(mid, pd.Series):
-                mid = mid.iloc[0]
-            mid = float(mid)
-            if pd.isna(mid):
+            mid = AnalysisService._nearest_mid(mid_lookup, t_midnight)
+            if mid is None:
                 prev_price = fp
                 continue
 
@@ -650,8 +655,6 @@ class AnalysisService:
         ``price`` (int cents), ``qty`` (unsigned int), ``side`` ("BUY"/"SELL"),
         ``order_id`` (int or None).
         """
-        from abides_markets.order_book import ns_date
-
         records: list[dict] = []
         for entry in raw_fills:
             ts_ns = entry[0]
@@ -708,7 +711,7 @@ class AnalysisService:
         """Find the nearest mid-price to a given timestamp."""
         if mid_lookup.empty:
             return None
-        idx = mid_lookup.index.searchsorted(t_midnight)
+        idx = int(mid_lookup.index.searchsorted(t_midnight))
         candidates = []
         if idx > 0:
             candidates.append(mid_lookup.index[idx - 1])
@@ -786,7 +789,7 @@ class AnalysisService:
                 mu = float(np.mean(pnl_returns))
                 sigma = float(np.std(pnl_returns, ddof=1))
                 if sigma > 0:
-                    diffs = np.diff(mid_times.astype(float))
+                    diffs = np.diff(np.asarray(mid_times, dtype=float))
                     median_dt = float(np.median(diffs)) if len(diffs) > 0 else 0
                     if median_dt > 0:
                         trading_day_ns = 6.5 * 3600 * 1e9
@@ -827,24 +830,13 @@ class AnalysisService:
 
         Returns an empty list if the agent has no fills.
         """
-        if not hasattr(result, "end_state"):
+        agent_fills = AnalysisService._get_agent_fills(result, agent_id)
+        if agent_fills is None:
             return []
-
-        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
-        if agent_id not in agents:
-            return []
-
-        agent = agents[agent_id]
-        log: list = getattr(agent, "log", [])
-        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
-        parsed = AnalysisService._parse_fills(raw_fills)
-
-        if not parsed:
-            return []
+        _agent, parsed = agent_fills
 
         # Build mid lookup
-        l1 = result.get_order_book_l1()
-        two_sided = l1.dropna(subset=["bid_price", "ask_price"]).copy() if not l1.empty else pd.DataFrame()
+        two_sided = AnalysisService._get_two_sided_l1(result)
         mid_lookup = AnalysisService._build_mid_lookup(two_sided) if not two_sided.empty else pd.Series(dtype=float)
 
         # Build counterparty map — match fills across all agents
@@ -890,14 +882,11 @@ class AnalysisService:
         agents_list = result.end_state["agents"]  # type: ignore[union-attr]
         agent_type_map: dict[int, str] = {a.id: getattr(a, "type", type(a).__name__) for a in agents_list}
 
-        # Get strategic agent fills
-        strategic_agent = {a.id: a for a in agents_list}.get(agent_id)
-        if strategic_agent is None:
+        # Get strategic agent fills via helper
+        agent_fills = AnalysisService._get_agent_fills(result, agent_id)
+        if agent_fills is None:
             return {}
-
-        log: list = getattr(strategic_agent, "log", [])
-        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
-        strategic_parsed = AnalysisService._parse_fills(raw_fills)
+        _agent, strategic_parsed = agent_fills
 
         # Collect fills from all OTHER agents
         other_fills: list[tuple[int, int, int, str, str]] = []  # (time, price, qty, side, agent_type)
@@ -939,23 +928,12 @@ class AnalysisService:
 
         Returns an empty list when there are no fills or no two-sided book.
         """
-        if not hasattr(result, "end_state"):
+        agent_fills = AnalysisService._get_agent_fills(result, agent_id)
+        if agent_fills is None:
             return []
+        _agent, parsed = agent_fills
 
-        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
-        if agent_id not in agents:
-            return []
-
-        agent = agents[agent_id]
-        log: list = getattr(agent, "log", [])
-        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
-        parsed = AnalysisService._parse_fills(raw_fills)
-
-        if not parsed:
-            return []
-
-        l1 = result.get_order_book_l1()
-        two_sided = l1.dropna(subset=["bid_price", "ask_price"]).copy() if not l1.empty else pd.DataFrame()
+        two_sided = AnalysisService._get_two_sided_l1(result)
 
         if two_sided.empty:
             return []
@@ -990,20 +968,10 @@ class AnalysisService:
         after each fill.  Includes an initial point at timestamp 0 with
         position 0.
         """
-        if not hasattr(result, "end_state"):
+        agent_fills = AnalysisService._get_agent_fills(result, agent_id)
+        if agent_fills is None:
             return []
-
-        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
-        if agent_id not in agents:
-            return []
-
-        agent = agents[agent_id]
-        log: list = getattr(agent, "log", [])
-        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
-        parsed = AnalysisService._parse_fills(raw_fills)
-
-        if not parsed:
-            return []
+        _agent, parsed = agent_fills
 
         points: list[InventoryPoint] = [InventoryPoint(timestamp_ns=0, position=0)]
         cumulative = 0
@@ -1028,23 +996,12 @@ class AnalysisService:
         Returns the average adverse move in basis points (positive = adverse).
         Returns ``None`` if there are no fills or insufficient L1 data.
         """
-        if not hasattr(result, "end_state"):
+        agent_fills = AnalysisService._get_agent_fills(result, agent_id)
+        if agent_fills is None:
             return None
+        _agent, parsed = agent_fills
 
-        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
-        if agent_id not in agents:
-            return None
-
-        agent = agents[agent_id]
-        log: list = getattr(agent, "log", [])
-        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
-        parsed = AnalysisService._parse_fills(raw_fills)
-
-        if not parsed:
-            return None
-
-        l1 = result.get_order_book_l1()
-        two_sided = l1.dropna(subset=["bid_price", "ask_price"]).copy() if not l1.empty else pd.DataFrame()
+        two_sided = AnalysisService._get_two_sided_l1(result)
         if two_sided.empty:
             return None
 
@@ -1102,8 +1059,6 @@ class AnalysisService:
 
         agent = agents[agent_id]
         log: list = getattr(agent, "log", [])
-
-        from abides_markets.order_book import ns_date
 
         # Collect events keyed by order_id
         submissions: dict[int, dict] = {}
@@ -1197,15 +1152,10 @@ class AnalysisService:
             return []
 
         # Also need fill records to get qty
-        if not hasattr(result, "end_state"):
+        agent_fills = AnalysisService._get_agent_fills(result, agent_id)
+        if agent_fills is None:
             return []
-        agents = {a.id: a for a in result.end_state["agents"]}  # type: ignore[union-attr]
-        if agent_id not in agents:
-            return []
-        agent = agents[agent_id]
-        log: list = getattr(agent, "log", [])
-        raw_fills = [e for e in log if isinstance(e, tuple) and len(e) > 1 and e[1] == "ORDER_EXECUTED"]
-        parsed = AnalysisService._parse_fills(raw_fills)
+        _agent, parsed = agent_fills
 
         # Aggregate by counterparty type
         type_stats: dict[str, dict] = {}
@@ -1583,13 +1533,13 @@ class AnalysisService:
                 price_fig = AnalysisService.plot_price_series(strategy_output)
                 price_chart = AnalysisService.figure_to_base64(price_fig)
             except Exception:
-                pass
+                logger.debug("Price chart generation failed in generate_summary", exc_info=True)
 
             try:
                 spread_fig = AnalysisService.plot_spread(strategy_output)
                 spread_chart = AnalysisService.figure_to_base64(spread_fig)
             except Exception:
-                pass
+                logger.debug("Spread chart generation failed in generate_summary", exc_info=True)
 
         return RunSummary(
             comparison=comparison,
