@@ -36,7 +36,7 @@ def _pct_change(a: float | None, b: float | None) -> float | None:
     if a is None or b is None:
         return None
     if b == 0:
-        return 0.0 if a == 0 else float("inf")
+        return 0.0 if a == 0 else None  # undefined when baseline is zero
     return (a - b) / b
 
 
@@ -44,18 +44,25 @@ def run_with_baseline(
     strategy_code: str,
     settings: SimulationSettings,
     baseline_override: dict[str, Any] | None = None,
-    timeout_seconds: int = 300,
+    timeout_seconds: int | None = None,
 ) -> ComparisonResult:
     """Run strategy + baseline simulations and return a typed ComparisonResult."""
 
     # 1. Run Strategy
-    res1 = execute_strategy_safely(strategy_code, settings, timeout_seconds)
+    effective_timeout = timeout_seconds if timeout_seconds is not None else settings.timeout_seconds
+    res1 = execute_strategy_safely(strategy_code, settings, effective_timeout)
     if res1.error:
         raise RuntimeError(f"Strategy run failed: {res1.error}")
     if not res1.result:
         raise RuntimeError("Strategy run returned no result")
 
-    metrics1 = AnalysisService.compute_agent_metrics(res1.result, 1)
+    if res1.result.strategic_agent_id is None:
+        raise RuntimeError("No strategic agent in simulation output")
+    metrics1 = AnalysisService.compute_agent_metrics(
+        res1.result,
+        res1.result.strategic_agent_id,
+        initial_cash=settings.starting_cash,
+    )
     metrics1_sim = AnalysisService.compute_metrics(res1.result)
 
     # 2. Run Baseline

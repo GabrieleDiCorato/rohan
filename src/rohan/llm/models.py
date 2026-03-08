@@ -6,7 +6,7 @@ guarantee that LLM responses parse into well-typed Python objects.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -123,7 +123,7 @@ class IterationSummary(BaseModel):
     aggregated_explanation: str = ""
     judge_score: float | None = None
     judge_reasoning: str | None = None
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     # True when this iteration scored below the previous best and triggered a rollback.
     rolled_back: bool = False
     # 6-axis sub-scores (1-10 each, or None when unavailable)

@@ -7,8 +7,8 @@ class LatencyType(str, Enum):
     """Specifies the type of latency model to be used in the simulation.
     See LatencyModel class in abides_core.latency_model for details."""
 
-    NO_LATENCY = ("no_latency",)
-    DETERMINISTIC = ("deterministic",)
+    NO_LATENCY = "no_latency"
+    DETERMINISTIC = "deterministic"
     CUBIC = "cubic"
 
 

@@ -7,7 +7,7 @@ Performance optimizations:
 - Conditional rendering
 """
 
-import contextlib
+import logging
 import traceback
 from datetime import datetime
 
@@ -35,11 +35,15 @@ from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.theme import COLORS, apply_theme
 from rohan.utils.formatting import fmt_dollar
 
+_logger = logging.getLogger(__name__)
+
 # Ensure DB tables exist (once per session — avoids noisy re-creation
 # logs on every Streamlit rerun).
 if not st.session_state.get("_db_initialised"):
-    with contextlib.suppress(Exception):  # DB may not be configured; features degrade gracefully
+    try:
         initialize_database()
+    except Exception:
+        _logger.warning("Database initialization failed — persistence disabled", exc_info=True)
     st.session_state["_db_initialised"] = True
 
 _scenario_repo = ScenarioRepository()
@@ -1021,7 +1025,7 @@ def render_execute_tab():
             # Show quick metrics
             st.markdown("### 📊 Quick Metrics")
 
-            prev = None
+            prev = st.session_state.get("previous_metrics")
 
             col1, col2, col3, col4 = st.columns(4)
 
@@ -1180,7 +1184,7 @@ with tab2:
             """Render metrics tab as a fragment."""
             st.markdown("### 📊 Key Metrics")
 
-            prev = None
+            prev = st.session_state.get("previous_metrics")
 
             def _mv(v: float | None, fmt: str = ".6f") -> str:
                 return f"{v:{fmt}}" if v is not None else "N/A"

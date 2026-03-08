@@ -11,7 +11,6 @@ Autonomous LLM-driven strategy optimization.  This page lets you:
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
 import traceback
@@ -57,8 +56,10 @@ apply_theme()
 # Ensure DB tables exist (once per session — avoids noisy re-creation
 # logs on every Streamlit rerun).
 if not st.session_state.get("_db_initialised"):
-    with contextlib.suppress(Exception):
+    try:
         initialize_database()
+    except Exception:
+        logger.warning("Database initialization failed — persistence disabled", exc_info=True)
     st.session_state["_db_initialised"] = True
 
 _scenario_repo = ScenarioRepository()

@@ -176,4 +176,15 @@ def get_structured_model[T](
     ``.invoke()`` returns an instance of *schema*, or ``None`` on parse failure.
     """
     raw_runnable = model.with_structured_output(schema, method="function_calling", include_raw=True)  # type: ignore[call-overload]
-    return raw_runnable.pipe(lambda x: x.get("parsed"))  # type: ignore[return-value]
+
+    def _extract_or_log(x: dict) -> T | None:
+        if x.get("parsed") is not None:
+            return x["parsed"]
+        logger.warning(
+            "Structured output parse failure for %s: %s",
+            schema.__name__,
+            x.get("parsing_error", "unknown error"),
+        )
+        return None
+
+    return raw_runnable.pipe(_extract_or_log)  # type: ignore[return-value]
