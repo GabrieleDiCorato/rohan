@@ -78,7 +78,7 @@ class PipelineConfig:
     settings: SimulationSettings = field(default_factory=SimulationSettings)
     baseline_override: dict[str, Any] | None = None
     goal_description: str = ""
-    timeout_seconds: int = 300
+    timeout_seconds: int | None = None  # defaults to settings.timeout_seconds
     # When True the pipeline persists iterations & artifacts to the DB.
     persist: bool = False
     # DB ids (required when persist=True)
@@ -226,7 +226,11 @@ class IterationPipeline:
         """Run strategy + baseline and return (ComparisonResult, strategy_output)."""
 
         # --- Run strategy ---
-        strategy_result = execute_strategy_safely(strategy_code, config.settings, config.timeout_seconds)
+        strategy_result = execute_strategy_safely(
+            strategy_code,
+            config.settings,
+            config.timeout_seconds if config.timeout_seconds is not None else config.settings.timeout_seconds,
+        )
         if strategy_result.error:
             raise RuntimeError(f"Strategy run failed: {strategy_result.error}")
         if not strategy_result.result:

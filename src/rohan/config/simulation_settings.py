@@ -36,6 +36,7 @@ class SimulationSettings(BaseSettings):
     ticker: str = Field(default=DEFAULT_TICKER, description="Ticker symbol for the simulation.")
     starting_cash: int = Field(default=10_000_000, description="Starting cash for agents in CENTS.")
     log_orders: bool = Field(default=True, description="Whether to log all orders.")
+    timeout_seconds: int = Field(default=300, ge=10, le=3600, description="Maximum duration in seconds for a single strategy simulation run.")
 
     computation_delay_ns: int = Field(default=50, description="Computation delay in nanoseconds.")
     latency: LatencyModelSettings = Field(

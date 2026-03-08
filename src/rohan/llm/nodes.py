@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import traceback
 
+import matplotlib.pyplot as plt
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
@@ -351,7 +353,7 @@ def process_scenario_node(state: RefinementState) -> dict:
         # Run strategy
         if not code:
             raise ValueError("No strategy code to execute")
-        sim_result = execute_strategy_safely(code, settings, timeout_seconds=300)
+        sim_result = execute_strategy_safely(code, settings, timeout_seconds=settings.timeout_seconds)
         if sim_result.error or not sim_result.result:
             result = ScenarioResult(
                 scenario_name=scenario.name,
@@ -412,21 +414,33 @@ def process_scenario_node(state: RefinementState) -> dict:
         price_chart_b64: str | None = None
         spread_chart_b64: str | None = None
         volume_chart_b64: str | None = None
+        fig = None
         try:
             fig = analyzer.plot_price_series(strategy_output, title=f"{scenario.name} — Price")
             price_chart_b64 = analyzer.figure_to_base64(fig)
         except Exception:
-            logger.debug("Price chart generation failed for %r", scenario.name, exc_info=True)
+            logger.warning("Price chart generation failed for %r", scenario.name, exc_info=True)
+        finally:
+            if fig is not None:
+                plt.close(fig)
+        fig = None
         try:
             fig = analyzer.plot_spread(strategy_output, title=f"{scenario.name} — Spread")
             spread_chart_b64 = analyzer.figure_to_base64(fig)
         except Exception:
-            logger.debug("Spread chart generation failed for %r", scenario.name, exc_info=True)
+            logger.warning("Spread chart generation failed for %r", scenario.name, exc_info=True)
+        finally:
+            if fig is not None:
+                plt.close(fig)
+        fig = None
         try:
             fig = analyzer.plot_volume(strategy_output, title=f"{scenario.name} — Volume")
             volume_chart_b64 = analyzer.figure_to_base64(fig)
         except Exception:
-            logger.debug("Volume chart generation failed for %r", scenario.name, exc_info=True)
+            logger.warning("Volume chart generation failed for %r", scenario.name, exc_info=True)
+        finally:
+            if fig is not None:
+                plt.close(fig)
 
         # --- Rich analysis (Step 8) ---
         rich_bundle = None
@@ -448,21 +462,33 @@ def process_scenario_node(state: RefinementState) -> dict:
         prompt = format_interpreter_prompt(summary, goal=state.get("goal", ""), rich_analysis_json=rich_bundle.model_dump_json() if rich_bundle else None)
 
         if rich_bundle is not None:
+            fig = None
             try:
                 fig = analyzer.plot_pnl_curve(rich_bundle.pnl_curve, title=f"{scenario.name} — PnL")
                 pnl_chart_b64 = analyzer.figure_to_base64(fig)
             except Exception:
-                logger.debug("PnL chart generation failed for %r", scenario.name, exc_info=True)
+                logger.warning("PnL chart generation failed for %r", scenario.name, exc_info=True)
+            finally:
+                if fig is not None:
+                    plt.close(fig)
+            fig = None
             try:
                 fig = analyzer.plot_inventory(rich_bundle.inventory_trajectory, title=f"{scenario.name} — Inventory")
                 inventory_chart_b64 = analyzer.figure_to_base64(fig)
             except Exception:
-                logger.debug("Inventory chart generation failed for %r", scenario.name, exc_info=True)
+                logger.warning("Inventory chart generation failed for %r", scenario.name, exc_info=True)
+            finally:
+                if fig is not None:
+                    plt.close(fig)
+            fig = None
             try:
                 fig = analyzer.plot_fills_vs_mid(rich_bundle.fills, title=f"{scenario.name} — Fills")
                 fill_scatter_b64 = analyzer.figure_to_base64(fig)
             except Exception:
-                logger.debug("Fill scatter chart generation failed for %r", scenario.name, exc_info=True)
+                logger.warning("Fill scatter chart generation failed for %r", scenario.name, exc_info=True)
+            finally:
+                if fig is not None:
+                    plt.close(fig)
 
         result = ScenarioResult(
             scenario_name=scenario.name,
@@ -495,13 +521,13 @@ def process_scenario_node(state: RefinementState) -> dict:
 
     except Exception as exc:
         logger.error("Scenario %r failed: %s", scenario.name, exc, exc_info=True)
+        error_result = ScenarioResult(
+            scenario_name=scenario.name,
+            error=f"{exc}\n{traceback.format_exc()}",
+        )
         return {
-            "scenario_results": [
-                ScenarioResult(
-                    scenario_name=scenario.name,
-                    error=f"{exc}\n{traceback.format_exc()}",
-                )
-            ]
+            "scenario_results": [error_result],
+            "explanations": [_error_explanation(scenario.name, str(exc))],
         }
 
 
