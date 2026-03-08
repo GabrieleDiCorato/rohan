@@ -313,6 +313,8 @@ def validator_node(state: RefinementState) -> dict:
         "validation_errors": [],
         "validation_attempts": attempts,
         "status": "executing",
+        "scenario_results": "clear",
+        "explanations": "clear",
     }
 
 
@@ -321,199 +323,186 @@ def validator_node(state: RefinementState) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def scenario_executor_node(state: RefinementState) -> dict:
-    """Run the validated strategy across all configured scenarios."""
+def process_scenario_node(state: RefinementState) -> dict:
+    """Run the validated strategy across a single active configured scenario."""
     code = state.get("current_code", "")
-    scenarios = state.get("scenarios", [])
-    if not scenarios:
-        # Default: single scenario with no overrides
-        from rohan.llm.state import ScenarioConfig
+    scenario = state.get("active_scenario")
+    if not scenario:
+        raise ValueError("active_scenario must be provided")
 
-        scenarios = [ScenarioConfig(name="default")]
-
-    logger.info("Executor node — %d scenario(s)", len(scenarios))
+    logger.info("Executor node — processing scenario %r", scenario.name)
 
     base_settings = SimulationSettings()
     analyzer = AnalysisService()
     service = SimulationService()
-    results: list[ScenarioResult] = []
 
-    for scenario in scenarios:
-        logger.info("Running scenario %r", scenario.name)
+    try:
+        # Apply overrides — supports both full-config and partial diffs
+        merged = base_settings.model_dump()
+        merged.update(scenario.config_override)
+        # Use deterministic per-scenario seed when available
+        if scenario.seed is not None:
+            merged["seed"] = scenario.seed
+        settings = SimulationSettings.model_validate(merged)
+
+        # Log seed for reproducibility (2.7.9)
+        logger.info("Scenario %r  seed=%d", scenario.name, settings.seed)
+
+        # Run strategy
+        if not code:
+            raise ValueError("No strategy code to execute")
+        sim_result = execute_strategy_safely(code, settings, timeout_seconds=300)
+        if sim_result.error or not sim_result.result:
+            result = ScenarioResult(
+                scenario_name=scenario.name,
+                error=str(sim_result.error) if sim_result.error else "No result",
+            )
+            return {"scenario_results": [result], "explanations": [_run_explainer(result, state)]}
+
+        strategy_output = sim_result.result
+        strategy_sim_metrics = analyzer.compute_metrics(strategy_output)
+
+        if strategy_output.strategic_agent_id is None:
+            raise RuntimeError("No strategic agent in simulation output")
+        strategy_agent_metrics = analyzer.compute_agent_metrics(
+            strategy_output,
+            strategy_output.strategic_agent_id,
+            initial_cash=settings.starting_cash,
+        )
+
+        # Run baseline
+        baseline_result = service.run_simulation(settings, strategy=None)
+        if baseline_result.error or not baseline_result.result:
+            result = ScenarioResult(
+                scenario_name=scenario.name,
+                error=f"Baseline failed: {baseline_result.error}",
+            )
+            return {"scenario_results": [result], "explanations": [_run_explainer(result, state)]}
+
+        baseline_sim_metrics = analyzer.compute_metrics(baseline_result.result)
+
+        # Build comparison
+        strat_market = _to_market_metrics(strategy_sim_metrics)
+        base_market = _to_market_metrics(baseline_sim_metrics)
+        impact = MarketImpact(
+            spread_delta_pct=_pct_change(strat_market.mean_spread, base_market.mean_spread),
+            volatility_delta_pct=_pct_change(strat_market.volatility, base_market.volatility),
+            bid_liquidity_delta_pct=_pct_change(strat_market.avg_bid_liquidity, base_market.avg_bid_liquidity),
+            ask_liquidity_delta_pct=_pct_change(strat_market.avg_ask_liquidity, base_market.avg_ask_liquidity),
+            lob_imbalance_delta_pct=_pct_change(strat_market.lob_imbalance_mean, base_market.lob_imbalance_mean),
+            vpin_delta_pct=_pct_change(strat_market.vpin, base_market.vpin),
+            resilience_delta_pct=_pct_change(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
+            ott_ratio_delta_pct=_pct_change(strat_market.market_ott_ratio, base_market.market_ott_ratio),
+        )
+
+        comparison = ComparisonResult(
+            strategy_metrics=strategy_agent_metrics,
+            strategy_market_metrics=strat_market,
+            baseline_metrics=base_market,
+            market_impact=impact,
+        )
+
+        summary = analyzer.generate_summary(
+            comparison,
+            strategy_output=strategy_output,
+            duration_seconds=sim_result.duration_seconds,
+        )
+
+        # Generate charts for the UI
+        price_chart_b64: str | None = None
+        spread_chart_b64: str | None = None
+        volume_chart_b64: str | None = None
         try:
-            # Apply overrides — supports both full-config and partial diffs
-            merged = base_settings.model_dump()
-            merged.update(scenario.config_override)
-            # Use deterministic per-scenario seed when available
-            if scenario.seed is not None:
-                merged["seed"] = scenario.seed
-            settings = SimulationSettings.model_validate(merged)
+            fig = analyzer.plot_price_series(strategy_output, title=f"{scenario.name} — Price")
+            price_chart_b64 = analyzer.figure_to_base64(fig)
+        except Exception:
+            logger.debug("Price chart generation failed for %r", scenario.name, exc_info=True)
+        try:
+            fig = analyzer.plot_spread(strategy_output, title=f"{scenario.name} — Spread")
+            spread_chart_b64 = analyzer.figure_to_base64(fig)
+        except Exception:
+            logger.debug("Spread chart generation failed for %r", scenario.name, exc_info=True)
+        try:
+            fig = analyzer.plot_volume(strategy_output, title=f"{scenario.name} — Volume")
+            volume_chart_b64 = analyzer.figure_to_base64(fig)
+        except Exception:
+            logger.debug("Volume chart generation failed for %r", scenario.name, exc_info=True)
 
-            # Log seed for reproducibility (2.7.9)
-            logger.info("Scenario %r  seed=%d", scenario.name, settings.seed)
-
-            # Run strategy
-            if not code:
-                raise ValueError("No strategy code to execute")
-            sim_result = execute_strategy_safely(code, settings, timeout_seconds=300)
-            if sim_result.error or not sim_result.result:
-                results.append(
-                    ScenarioResult(
-                        scenario_name=scenario.name,
-                        error=str(sim_result.error) if sim_result.error else "No result",
-                    )
-                )
-                continue
-
-            strategy_output = sim_result.result
-            strategy_sim_metrics = analyzer.compute_metrics(strategy_output)
-
-            if strategy_output.strategic_agent_id is None:
-                raise RuntimeError("No strategic agent in simulation output")
-            strategy_agent_metrics = analyzer.compute_agent_metrics(
+        # --- Rich analysis (Step 8) ---
+        rich_bundle = None
+        pnl_chart_b64: str | None = None
+        inventory_chart_b64: str | None = None
+        fill_scatter_b64: str | None = None
+        rich_analysis_json: str | None = None
+        try:
+            rich_bundle = analyzer.compute_rich_analysis(
                 strategy_output,
                 strategy_output.strategic_agent_id,
                 initial_cash=settings.starting_cash,
             )
+            rich_analysis_json = rich_bundle.model_dump_json()
+        except Exception:
+            logger.warning("Rich analysis failed for scenario %r", scenario.name, exc_info=True)
 
-            # Run baseline
-            baseline_result = service.run_simulation(settings, strategy=None)
-            if baseline_result.error or not baseline_result.result:
-                results.append(
-                    ScenarioResult(
-                        scenario_name=scenario.name,
-                        error=f"Baseline failed: {baseline_result.error}",
-                    )
-                )
-                continue
+        # Generate prompt AFTER rich analysis so it includes execution quality
+        prompt = format_interpreter_prompt(summary, goal=state.get("goal", ""), rich_analysis_json=rich_bundle.model_dump_json() if rich_bundle else None)
 
-            baseline_sim_metrics = analyzer.compute_metrics(baseline_result.result)
-
-            # Build comparison
-            strat_market = _to_market_metrics(strategy_sim_metrics)
-            base_market = _to_market_metrics(baseline_sim_metrics)
-            impact = MarketImpact(
-                spread_delta_pct=_pct_change(strat_market.mean_spread, base_market.mean_spread),
-                volatility_delta_pct=_pct_change(strat_market.volatility, base_market.volatility),
-                bid_liquidity_delta_pct=_pct_change(strat_market.avg_bid_liquidity, base_market.avg_bid_liquidity),
-                ask_liquidity_delta_pct=_pct_change(strat_market.avg_ask_liquidity, base_market.avg_ask_liquidity),
-                lob_imbalance_delta_pct=_pct_change(strat_market.lob_imbalance_mean, base_market.lob_imbalance_mean),
-                vpin_delta_pct=_pct_change(strat_market.vpin, base_market.vpin),
-                resilience_delta_pct=_pct_change(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
-                ott_ratio_delta_pct=_pct_change(strat_market.market_ott_ratio, base_market.market_ott_ratio),
-            )
-
-            comparison = ComparisonResult(
-                strategy_metrics=strategy_agent_metrics,
-                strategy_market_metrics=strat_market,
-                baseline_metrics=base_market,
-                market_impact=impact,
-            )
-
-            summary = analyzer.generate_summary(
-                comparison,
-                strategy_output=strategy_output,
-                duration_seconds=sim_result.duration_seconds,
-            )
-
-            # Generate charts for the UI
-            price_chart_b64: str | None = None
-            spread_chart_b64: str | None = None
-            volume_chart_b64: str | None = None
+        if rich_bundle is not None:
             try:
-                fig = analyzer.plot_price_series(strategy_output, title=f"{scenario.name} — Price")
-                price_chart_b64 = analyzer.figure_to_base64(fig)
+                fig = analyzer.plot_pnl_curve(rich_bundle.pnl_curve, title=f"{scenario.name} — PnL")
+                pnl_chart_b64 = analyzer.figure_to_base64(fig)
             except Exception:
-                logger.debug("Price chart generation failed for %r", scenario.name, exc_info=True)
+                logger.debug("PnL chart generation failed for %r", scenario.name, exc_info=True)
             try:
-                fig = analyzer.plot_spread(strategy_output, title=f"{scenario.name} — Spread")
-                spread_chart_b64 = analyzer.figure_to_base64(fig)
+                fig = analyzer.plot_inventory(rich_bundle.inventory_trajectory, title=f"{scenario.name} — Inventory")
+                inventory_chart_b64 = analyzer.figure_to_base64(fig)
             except Exception:
-                logger.debug("Spread chart generation failed for %r", scenario.name, exc_info=True)
+                logger.debug("Inventory chart generation failed for %r", scenario.name, exc_info=True)
             try:
-                fig = analyzer.plot_volume(strategy_output, title=f"{scenario.name} — Volume")
-                volume_chart_b64 = analyzer.figure_to_base64(fig)
+                fig = analyzer.plot_fills_vs_mid(rich_bundle.fills, title=f"{scenario.name} — Fills")
+                fill_scatter_b64 = analyzer.figure_to_base64(fig)
             except Exception:
-                logger.debug("Volume chart generation failed for %r", scenario.name, exc_info=True)
+                logger.debug("Fill scatter chart generation failed for %r", scenario.name, exc_info=True)
 
-            # --- Rich analysis (Step 8) ---
-            rich_bundle = None
-            pnl_chart_b64: str | None = None
-            inventory_chart_b64: str | None = None
-            fill_scatter_b64: str | None = None
-            rich_analysis_json: str | None = None
-            try:
-                rich_bundle = analyzer.compute_rich_analysis(
-                    strategy_output,
-                    strategy_output.strategic_agent_id,
-                    initial_cash=settings.starting_cash,
-                )
-                rich_analysis_json = rich_bundle.model_dump_json()
-            except Exception:
-                logger.warning("Rich analysis failed for scenario %r", scenario.name, exc_info=True)
+        result = ScenarioResult(
+            scenario_name=scenario.name,
+            interpreter_prompt=prompt,
+            strategy_pnl=strategy_agent_metrics.total_pnl,
+            volatility_delta_pct=impact.volatility_delta_pct,
+            spread_delta_pct=impact.spread_delta_pct,
+            trade_count=strategy_agent_metrics.trade_count,
+            fill_rate=strategy_agent_metrics.fill_rate,
+            order_to_trade_ratio=strategy_agent_metrics.order_to_trade_ratio,
+            sharpe_ratio=strategy_agent_metrics.sharpe_ratio,
+            max_drawdown=strategy_agent_metrics.max_drawdown,
+            end_inventory=strategy_agent_metrics.end_inventory,
+            inventory_std=strategy_agent_metrics.inventory_std,
+            starting_capital_cents=settings.starting_cash,
+            baseline_mean_spread=base_market.mean_spread,
+            baseline_traded_volume=base_market.traded_volume,
+            bid_liquidity_delta_pct=impact.bid_liquidity_delta_pct,
+            ask_liquidity_delta_pct=impact.ask_liquidity_delta_pct,
+            price_chart_b64=price_chart_b64,
+            spread_chart_b64=spread_chart_b64,
+            volume_chart_b64=volume_chart_b64,
+            pnl_chart_b64=pnl_chart_b64,
+            inventory_chart_b64=inventory_chart_b64,
+            fill_scatter_b64=fill_scatter_b64,
+            rich_analysis_json=rich_analysis_json,
+        )
+        explanation = _run_explainer(result, state)
+        return {"scenario_results": [result], "explanations": [explanation]}
 
-            # Generate prompt AFTER rich analysis so it includes execution quality
-            prompt = format_interpreter_prompt(summary, goal=state.get("goal", ""), rich_analysis_json=rich_analysis_json)
-
-            if rich_bundle is not None:
-                try:
-                    fig = analyzer.plot_pnl_curve(rich_bundle.pnl_curve, title=f"{scenario.name} — PnL")
-                    pnl_chart_b64 = analyzer.figure_to_base64(fig)
-                except Exception:
-                    logger.debug("PnL chart generation failed for %r", scenario.name, exc_info=True)
-                try:
-                    fig = analyzer.plot_inventory(rich_bundle.inventory_trajectory, title=f"{scenario.name} — Inventory")
-                    inventory_chart_b64 = analyzer.figure_to_base64(fig)
-                except Exception:
-                    logger.debug("Inventory chart generation failed for %r", scenario.name, exc_info=True)
-                try:
-                    fig = analyzer.plot_fills_vs_mid(rich_bundle.fills, title=f"{scenario.name} — Fills")
-                    fill_scatter_b64 = analyzer.figure_to_base64(fig)
-                except Exception:
-                    logger.debug("Fill scatter chart generation failed for %r", scenario.name, exc_info=True)
-
-            results.append(
-                ScenarioResult(
-                    scenario_name=scenario.name,
-                    interpreter_prompt=prompt,
-                    strategy_pnl=strategy_agent_metrics.total_pnl,
-                    volatility_delta_pct=impact.volatility_delta_pct,
-                    spread_delta_pct=impact.spread_delta_pct,
-                    trade_count=strategy_agent_metrics.trade_count,
-                    fill_rate=strategy_agent_metrics.fill_rate,
-                    order_to_trade_ratio=strategy_agent_metrics.order_to_trade_ratio,
-                    sharpe_ratio=strategy_agent_metrics.sharpe_ratio,
-                    max_drawdown=strategy_agent_metrics.max_drawdown,
-                    end_inventory=strategy_agent_metrics.end_inventory,
-                    inventory_std=strategy_agent_metrics.inventory_std,
-                    starting_capital_cents=settings.starting_cash,
-                    baseline_mean_spread=base_market.mean_spread,
-                    baseline_traded_volume=base_market.traded_volume,
-                    bid_liquidity_delta_pct=impact.bid_liquidity_delta_pct,
-                    ask_liquidity_delta_pct=impact.ask_liquidity_delta_pct,
-                    price_chart_b64=price_chart_b64,
-                    spread_chart_b64=spread_chart_b64,
-                    volume_chart_b64=volume_chart_b64,
-                    pnl_chart_b64=pnl_chart_b64,
-                    inventory_chart_b64=inventory_chart_b64,
-                    fill_scatter_b64=fill_scatter_b64,
-                    rich_analysis_json=rich_analysis_json,
-                )
-            )
-
-        except Exception as exc:
-            logger.error("Scenario %r failed: %s", scenario.name, exc, exc_info=True)
-            results.append(
+    except Exception as exc:
+        logger.error("Scenario %r failed: %s", scenario.name, exc, exc_info=True)
+        return {
+            "scenario_results": [
                 ScenarioResult(
                     scenario_name=scenario.name,
                     error=f"{exc}\n{traceback.format_exc()}",
                 )
-            )
-
-    return {
-        "scenario_results": results,
-        "status": "explaining",
-    }
+            ]
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -558,10 +547,9 @@ def _fallback_structured_explanation(
 _REACT_RECURSION_LIMIT = 25
 
 
-def explainer_node(state: RefinementState) -> dict:
-    """Analyse each scenario result using a ReAct agent with investigation tools.
+def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplanation:
+    """Analyse a scenario result using a ReAct agent with investigation tools.
 
-    For each non-error scenario the node:
     1. Builds parameterised investigation tools from the serialised
        ``RichAnalysisBundle`` attached to the scenario result.
     2. Creates a ``create_react_agent`` with those tools, the explainer
@@ -572,69 +560,59 @@ def explainer_node(state: RefinementState) -> dict:
     If the ReAct agent fails for any reason the node falls back to a
     single structured-output LLM call (no tools).
     """
-    scenario_results = state.get("scenario_results", [])
-    logger.info("Explainer node — %d scenario(s)", len(scenario_results))
+
+    logger.info("Explainer node — processing scenario %r", sr.scenario_name)
 
     model = get_analysis_model()
-    explanations: list[ScenarioExplanation] = []
 
-    for sr in scenario_results:
-        # ── Error scenarios ──────────────────────────────────────────
-        if sr.error:
-            explanations.append(_error_explanation(sr.scenario_name, sr.error))
-            continue
+    # ── Error scenarios ──────────────────────────────────────────
+    if sr.error:
+        return _error_explanation(sr.scenario_name, sr.error)
 
-        # ── Build human message ──────────────────────────────────────
-        human_msg = EXPLAINER_HUMAN.format(
-            scenario_name=sr.scenario_name,
-            strategy_code=state.get("current_code") or "(code unavailable)",
-            interpreter_prompt=sr.interpreter_prompt,
-            regime_context=sr.regime_context or "",
+    # ── Build human message ──────────────────────────────────────
+    human_msg = EXPLAINER_HUMAN.format(
+        scenario_name=sr.scenario_name,
+        strategy_code=state.get("current_code") or "(code unavailable)",
+        interpreter_prompt=sr.interpreter_prompt,
+        regime_context=sr.regime_context or "",
+    )
+
+    # ── ReAct agent path ─────────────────────────────────────────
+    try:
+        tools = make_investigation_tools(sr.rich_analysis_json)
+        agent = create_react_agent(
+            model,
+            tools=tools,
+            prompt=EXPLAINER_SYSTEM,
+            response_format=ScenarioExplanation,
         )
-
-        # ── ReAct agent path ─────────────────────────────────────────
+        agent_output = agent.invoke(
+            {"messages": [HumanMessage(content=human_msg)]},
+            config={"recursion_limit": _REACT_RECURSION_LIMIT},
+        )
+        result: ScenarioExplanation = agent_output["structured_response"]
+        result.scenario_name = sr.scenario_name
+        return result
+    except Exception as exc:
+        logger.warning(
+            "ReAct agent failed for %r, falling back to structured call: %s",
+            sr.scenario_name,
+            exc,
+        )
+        # ── Fallback: single structured-output call ──────────────
         try:
-            tools = make_investigation_tools(sr.rich_analysis_json)
-            agent = create_react_agent(
-                model,
-                tools=tools,
-                prompt=EXPLAINER_SYSTEM,
-                response_format=ScenarioExplanation,
-            )
-            agent_output = agent.invoke(
-                {"messages": [HumanMessage(content=human_msg)]},
-                config={"recursion_limit": _REACT_RECURSION_LIMIT},
-            )
-            result: ScenarioExplanation = agent_output["structured_response"]
-            result.scenario_name = sr.scenario_name
-            explanations.append(result)
-        except Exception as exc:
-            logger.warning(
-                "ReAct agent failed for %r, falling back to structured call: %s",
+            return _fallback_structured_explanation(model, sr, state)
+        except Exception as fallback_exc:
+            logger.error(
+                "Fallback also failed for %r: %s",
                 sr.scenario_name,
-                exc,
+                fallback_exc,
             )
-            # ── Fallback: single structured-output call ──────────────
-            try:
-                explanations.append(_fallback_structured_explanation(model, sr, state))
-            except Exception as fallback_exc:
-                logger.error(
-                    "Fallback also failed for %r: %s",
-                    sr.scenario_name,
-                    fallback_exc,
-                )
-                explanations.append(
-                    ScenarioExplanation(
-                        scenario_name=sr.scenario_name,
-                        weaknesses=[f"Analysis failed: {fallback_exc}"],
-                        raw_analysis=str(fallback_exc),
-                    )
-                )
-
-    return {
-        "explanations": explanations,
-        "status": "aggregating",
-    }
+            return ScenarioExplanation(
+                scenario_name=sr.scenario_name,
+                weaknesses=[f"Analysis failed: {fallback_exc}"],
+                raw_analysis=str(fallback_exc),
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

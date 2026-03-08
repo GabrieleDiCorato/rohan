@@ -19,6 +19,27 @@ from rohan.llm.models import (
 )
 
 # ---------------------------------------------------------------------------
+# Reducers
+# ---------------------------------------------------------------------------
+
+
+def _concat_or_clear(existing: list, update: list | str) -> list:
+    """LangGraph reducer for list fields used in map-reduce nodes.
+
+    Accepts two kinds of updates:
+    * A list  → concatenated onto *existing* (used by ``process_scenario_node``
+      fan-out via ``Send``).
+    * The string ``"clear"`` → returns an empty list (used by
+      ``validator_node`` to reset results at the start of each new iteration).
+    """
+    if update == "clear":
+        return []
+    if isinstance(update, list):
+        return existing + update
+    return existing  # defensive: ignore unknown sentinel values
+
+
+# ---------------------------------------------------------------------------
 # Scenario configuration  (lightweight – serialisable in state)
 # ---------------------------------------------------------------------------
 
@@ -89,6 +110,7 @@ class RefinementState(TypedDict, total=False):
     goal: str
     max_iterations: int
     scenarios: list[ScenarioConfig]
+    active_scenario: ScenarioConfig  # Used during mapped execution
 
     # --- Current iteration ---
     current_code: str | None
@@ -98,10 +120,13 @@ class RefinementState(TypedDict, total=False):
     validation_attempts: int
 
     # --- Execution results (current iteration) ---
-    scenario_results: list[ScenarioResult]
+    # Annotated with _concat_or_clear so that:
+    #   • process_scenario_node fan-out branches accumulate via operator.add semantics
+    #   • validator_node can reset with the sentinel string "clear"
+    scenario_results: Annotated[list[ScenarioResult], _concat_or_clear]
 
     # --- Analysis (current iteration) ---
-    explanations: list[ScenarioExplanation]
+    explanations: Annotated[list[ScenarioExplanation], _concat_or_clear]
     aggregated_feedback: AggregatedFeedback | None
 
     # --- History ---

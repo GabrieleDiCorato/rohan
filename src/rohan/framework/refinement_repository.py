@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from rohan.framework.database import (
     DatabaseConnector,
+    RefinementArtifact,
     RefinementIteration,
     RefinementScenarioResult,
     RefinementSession,
@@ -162,28 +163,30 @@ class RefinementRepository:
                 scoring_profile=it_data.scoring_profile,
             )
             for sr in it_data.scenario_results:
-                it_orm.scenario_results.append(
-                    RefinementScenarioResult(
-                        scenario_name=sr.scenario_name,
-                        total_pnl=sr.total_pnl,
-                        sharpe_ratio=sr.sharpe_ratio,
-                        max_drawdown=sr.max_drawdown,
-                        trade_count=sr.trade_count,
-                        volatility_delta_pct=sr.volatility_delta_pct,
-                        spread_delta_pct=sr.spread_delta_pct,
-                        fill_rate=sr.fill_rate,
-                        order_to_trade_ratio=sr.order_to_trade_ratio,
-                        inventory_std=sr.inventory_std,
-                        end_inventory=sr.end_inventory,
-                        price_chart_b64=sr.price_chart_b64,
-                        spread_chart_b64=sr.spread_chart_b64,
-                        volume_chart_b64=sr.volume_chart_b64,
-                        pnl_chart_b64=sr.pnl_chart_b64,
-                        inventory_chart_b64=sr.inventory_chart_b64,
-                        fill_scatter_b64=sr.fill_scatter_b64,
-                        rich_analysis_json=sr.rich_analysis_json,
-                    )
+                scen_orm = RefinementScenarioResult(
+                    scenario_name=sr.scenario_name,
+                    total_pnl=sr.total_pnl,
+                    sharpe_ratio=sr.sharpe_ratio,
+                    max_drawdown=sr.max_drawdown,
+                    trade_count=sr.trade_count,
+                    volatility_delta_pct=sr.volatility_delta_pct,
+                    spread_delta_pct=sr.spread_delta_pct,
+                    fill_rate=sr.fill_rate,
+                    order_to_trade_ratio=sr.order_to_trade_ratio,
+                    inventory_std=sr.inventory_std,
+                    end_inventory=sr.end_inventory,
                 )
+                # Map B64/JSON to RefinementArtifact
+                for field_name in ["price_chart_b64", "spread_chart_b64", "volume_chart_b64", "pnl_chart_b64", "inventory_chart_b64", "fill_scatter_b64", "rich_analysis_json"]:
+                    val = getattr(sr, field_name, None)
+                    if val is not None:
+                        scen_orm.artifacts.append(
+                            RefinementArtifact(
+                                artifact_type=field_name,
+                                content=val,
+                            )
+                        )
+                it_orm.scenario_results.append(scen_orm)
             session_obj.iterations.append(it_orm)
 
         db_session = self.db.get_session()
@@ -249,6 +252,7 @@ class RefinementRepository:
             for it_orm in session_obj.iterations:
                 sc_metrics: dict[str, ScenarioMetrics] = {}
                 for sr in it_orm.scenario_results:
+                    # We do NOT load artifacts here to keep the read lightweight
                     sc_metrics[sr.scenario_name] = ScenarioMetrics(
                         scenario_name=sr.scenario_name,
                         total_pnl=sr.total_pnl,
@@ -261,12 +265,13 @@ class RefinementRepository:
                         order_to_trade_ratio=sr.order_to_trade_ratio,
                         inventory_std=sr.inventory_std,
                         end_inventory=sr.end_inventory,
-                        price_chart_b64=sr.price_chart_b64,
-                        spread_chart_b64=sr.spread_chart_b64,
-                        volume_chart_b64=sr.volume_chart_b64,
-                        pnl_chart_b64=sr.pnl_chart_b64,
-                        inventory_chart_b64=sr.inventory_chart_b64,
-                        fill_scatter_b64=sr.fill_scatter_b64,
+                        # Set charts to None initially. Loaded on-demand later in UI.
+                        price_chart_b64=None,
+                        spread_chart_b64=None,
+                        volume_chart_b64=None,
+                        pnl_chart_b64=None,
+                        inventory_chart_b64=None,
+                        fill_scatter_b64=None,
                     )
                 iteration_summaries.append(
                     IterationSummary(
@@ -319,6 +324,27 @@ class RefinementRepository:
                 "refine_is_dirty": False,
                 "refine_error": None,
             }
+        finally:
+            self.db.remove_session()
+
+    # ------------------------------------------------------------------
+    # Load Artifacts
+    # ------------------------------------------------------------------
+
+    def load_scenario_artifacts(self, session_id: UUID, iteration_number: int, scenario_name: str) -> dict[str, str]:
+        """Lazy load the heavy artifacts (charts, logs) for a single scenario run.
+        Returns a dict mapping artifact_type to content (string).
+        """
+        db_session = self.db.get_session()
+        try:
+            stmt = (
+                select(RefinementArtifact)
+                .join(RefinementScenarioResult)
+                .join(RefinementIteration)
+                .where(RefinementIteration.session_id == session_id, RefinementIteration.iteration_number == iteration_number, RefinementScenarioResult.scenario_name == scenario_name)
+            )
+            artifacts = db_session.execute(stmt).scalars().all()
+            return {a.artifact_type: a.content for a in artifacts if a.content}
         finally:
             self.db.remove_session()
 

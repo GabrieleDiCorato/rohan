@@ -1223,6 +1223,16 @@ if final_state is not None:
                         # Simulation charts
                         import base64
 
+                        if sm.price_chart_b64 is None and st.session_state.get("refine_saved_id"):
+                            # Lazy load charts from the DB
+                            artifacts = _refinement_repo.load_scenario_artifacts(st.session_state["refine_saved_id"], it.iteration_number, sc_name)
+                            sm.price_chart_b64 = artifacts.get("price_chart_b64")
+                            sm.spread_chart_b64 = artifacts.get("spread_chart_b64")
+                            sm.volume_chart_b64 = artifacts.get("volume_chart_b64")
+                            sm.pnl_chart_b64 = artifacts.get("pnl_chart_b64")
+                            sm.inventory_chart_b64 = artifacts.get("inventory_chart_b64")
+                            sm.fill_scatter_b64 = artifacts.get("fill_scatter_b64")
+
                         # Row 1 — Market microstructure charts
                         st.markdown("##### Market")
                         market_cols = st.columns(3)

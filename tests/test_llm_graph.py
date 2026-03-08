@@ -4,6 +4,8 @@ Tests routing logic and graph compilation. Full end-to-end tests
 are mocked since they require LLM API keys.
 """
 
+from langgraph.types import Send
+
 from rohan.llm.graph import (
     _DEFAULT_RECURSION_LIMIT,
     MAX_VALIDATION_RETRIES,
@@ -44,8 +46,19 @@ def _state(**overrides) -> RefinementState:
 
 
 class TestValidationRouter:
-    def test_no_errors_executes(self):
-        assert validation_router(_state(validation_errors=[])) == "execute"
+    def test_no_errors_returns_send_list(self):
+        """With no errors, router returns a list of Send objects (one per scenario)."""
+        scenarios = [ScenarioConfig(name="s1"), ScenarioConfig(name="s2")]
+        result = validation_router(_state(validation_errors=[], scenarios=scenarios))
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert all(isinstance(item, Send) for item in result)
+        assert all(item.node == "process_scenario" for item in result)
+
+    def test_no_errors_no_scenarios_returns_empty_list(self):
+        """With no errors and no scenarios, returns an empty Send list."""
+        result = validation_router(_state(validation_errors=[]))
+        assert result == []
 
     def test_errors_with_retries_left(self):
         result = validation_router(_state(validation_errors=["err"], validation_attempts=1))
@@ -104,9 +117,11 @@ class TestBuildGraph:
         node_names = set(graph.nodes.keys())
         assert "writer" in node_names
         assert "validator" in node_names
-        assert "executor" in node_names
-        assert "explainer" in node_names
+        assert "process_scenario" in node_names
         assert "aggregator" in node_names
+        # executor and explainer were merged into process_scenario
+        assert "executor" not in node_names
+        assert "explainer" not in node_names
 
 
 # ═══════════════════════════════════════════════════════════════════════════

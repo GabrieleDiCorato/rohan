@@ -5,6 +5,7 @@ from .models import (
     Artifact,
     ArtifactType,
     MarketDataL1,
+    RefinementArtifact,
     RefinementIteration,
     RefinementScenarioResult,
     RefinementSession,
@@ -35,4 +36,5 @@ __all__ = [
     "RefinementSession",
     "RefinementIteration",
     "RefinementScenarioResult",
+    "RefinementArtifact",
 ]

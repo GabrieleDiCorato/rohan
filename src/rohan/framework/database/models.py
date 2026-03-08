@@ -263,15 +263,20 @@ class RefinementScenarioResult(Base):
     order_to_trade_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     inventory_std: Mapped[float | None] = mapped_column(Float, nullable=True)
     end_inventory: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    price_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
-    spread_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
-    volume_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
-    pnl_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
-    inventory_chart_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fill_scatter_b64: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Serialised RichAnalysisBundle JSON — stored inline for dev/PoC.
-    # For production scale, consider migrating to the artifacts table
-    # (ArtifactType.RICH_ANALYSIS) to avoid row bloat.
-    rich_analysis_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     iteration: Mapped["RefinementIteration"] = relationship(back_populates="scenario_results")
+    artifacts: Mapped[list["RefinementArtifact"]] = relationship(back_populates="scenario_result", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class RefinementArtifact(Base):
+    """Heavy artifacts (charts, analysis JSON) spun off into a separate table to keep main rows fast."""
+
+    __tablename__ = "refinement_artifacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scenario_result_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("refinement_scenario_results.result_id", ondelete="CASCADE"), nullable=False, index=True)
+    artifact_type: Mapped[str] = mapped_column(String, nullable=False)  # "price_chart", "rich_analysis_json", etc
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    scenario_result: Mapped["RefinementScenarioResult"] = relationship(back_populates="artifacts")

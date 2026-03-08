@@ -28,11 +28,11 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from langgraph.graph import END, StateGraph
+from langgraph.types import Send
 
 from rohan.llm.nodes import (
     aggregator_node,
-    explainer_node,
-    scenario_executor_node,
+    process_scenario_node,
     validator_node,
     writer_node,
 )
@@ -91,13 +91,13 @@ def _timed_node(name: str, fn: Callable) -> Callable:
 # ── Routing functions ─────────────────────────────────────────────────────
 
 
-def validation_router(state: RefinementState) -> Literal["retry", "execute", "fail"]:
+def validation_router(state: RefinementState):
     """Route after validation: retry, execute, or fail."""
     errors = state.get("validation_errors", [])
     attempts = state.get("validation_attempts", 0)
 
     if not errors:
-        return "execute"
+        return [Send("process_scenario", {"active_scenario": sc}) for sc in state.get("scenarios", [])]
     if attempts >= MAX_VALIDATION_RETRIES:
         logger.warning("Max validation retries (%d) exceeded", MAX_VALIDATION_RETRIES)
         return "fail"
@@ -128,8 +128,8 @@ def build_refinement_graph() -> Any:
     # ── Nodes (wrapped with timing instrumentation) ──
     graph.add_node("writer", _timed_node("writer", writer_node))
     graph.add_node("validator", _timed_node("validator", validator_node))
-    graph.add_node("executor", _timed_node("executor", scenario_executor_node))
-    graph.add_node("explainer", _timed_node("explainer", explainer_node))
+    graph.add_node("process_scenario", _timed_node("process_scenario", process_scenario_node))
+
     graph.add_node("aggregator", _timed_node("aggregator", aggregator_node))
 
     # ── Edges ──
@@ -140,13 +140,12 @@ def build_refinement_graph() -> Any:
         validation_router,
         {
             "retry": "writer",  # Invalid + retries left → regenerate
-            "execute": "executor",  # Valid → run simulation
             "fail": END,  # Max retries exceeded → abort
+            "process_scenario": "process_scenario",
         },
     )
 
-    graph.add_edge("executor", "explainer")
-    graph.add_edge("explainer", "aggregator")
+    graph.add_edge("process_scenario", "aggregator")
 
     graph.add_conditional_edges(
         "aggregator",
