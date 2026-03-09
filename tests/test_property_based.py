@@ -18,7 +18,16 @@ from rohan.config.agent_settings import (
     ValueAgentSettings,
 )
 from rohan.config.simulation_settings import SimulationSettings
-from rohan.simulation.models.strategy_api import OrderAction, OrderType, Side
+from rohan.simulation.models.strategy_api import (
+    CANCEL_ALL,
+    MarketState,
+    OrderAction,
+    OrderActionType,
+    OrderType,
+    Side,
+)
+
+pytestmark = pytest.mark.slow
 
 # Hypothesis profile: keep tests fast (default max_examples=100).
 SETTINGS = settings(max_examples=200, deadline=None)
@@ -207,8 +216,124 @@ def test_agent_count_bounds(num_agents: int):
         assert s.num_agents == num_agents
 
 
-pytestmark = pytest.mark.slow
+# ---------------------------------------------------------------------------
+# MarketState — computed fields (TEST-5)
+# ---------------------------------------------------------------------------
 
-pytestmark = pytest.mark.slow
 
-pytestmark = pytest.mark.slow
+@SETTINGS
+@given(
+    bid=st.integers(min_value=1, max_value=1_000_000),
+    ask=st.integers(min_value=1, max_value=1_000_000),
+)
+def test_market_state_mid_price(bid: int, ask: int):
+    """mid_price = (bid + ask) // 2 when both sides present."""
+    ms = MarketState(
+        timestamp_ns=0, best_bid=bid, best_ask=ask,
+        inventory=0, cash=100_000, open_orders=[],
+    )
+    assert ms.mid_price == (bid + ask) // 2
+
+
+@SETTINGS
+@given(
+    bid=st.integers(min_value=1, max_value=1_000_000),
+    ask=st.integers(min_value=1, max_value=1_000_000),
+)
+def test_market_state_spread(bid: int, ask: int):
+    """spread = ask - bid when both sides present."""
+    ms = MarketState(
+        timestamp_ns=0, best_bid=bid, best_ask=ask,
+        inventory=0, cash=100_000, open_orders=[],
+    )
+    assert ms.spread == ask - bid
+
+
+@SETTINGS
+@given(
+    bid=st.one_of(st.none(), st.integers(min_value=1, max_value=1_000_000)),
+    ask=st.one_of(st.none(), st.integers(min_value=1, max_value=1_000_000)),
+)
+def test_market_state_none_when_side_missing(bid: int | None, ask: int | None):
+    """mid_price and spread are None when either side is missing."""
+    ms = MarketState(
+        timestamp_ns=0, best_bid=bid, best_ask=ask,
+        inventory=0, cash=100_000, open_orders=[],
+    )
+    if bid is None or ask is None:
+        assert ms.mid_price is None
+        assert ms.spread is None
+    else:
+        assert ms.mid_price is not None
+        assert ms.spread is not None
+
+
+# ---------------------------------------------------------------------------
+# OrderAction — factory methods (TEST-5)
+# ---------------------------------------------------------------------------
+
+
+def test_cancel_factory():
+    """OrderAction.cancel() sets correct action_type and cancel_order_id."""
+    a = OrderAction.cancel(order_id=42)
+    assert a.action_type == OrderActionType.CANCEL
+    assert a.cancel_order_id == 42
+
+
+def test_cancel_all_factory():
+    """OrderAction.cancel_all() sets CANCEL_ALL action_type."""
+    a = OrderAction.cancel_all()
+    assert a.action_type == OrderActionType.CANCEL_ALL
+    assert a.cancel_order_id == CANCEL_ALL
+
+
+def test_modify_factory_price():
+    """OrderAction.modify() with new_price only."""
+    a = OrderAction.modify(order_id=10, new_price=5000)
+    assert a.action_type == OrderActionType.MODIFY
+    assert a.cancel_order_id == 10
+    assert a.new_price == 5000
+    assert a.new_quantity is None
+
+
+def test_modify_factory_quantity():
+    """OrderAction.modify() with new_quantity only."""
+    a = OrderAction.modify(order_id=10, new_quantity=50)
+    assert a.action_type == OrderActionType.MODIFY
+    assert a.new_quantity == 50
+
+
+def test_modify_factory_requires_at_least_one():
+    """modify() with neither new_price nor new_quantity raises ValueError."""
+    with pytest.raises(ValueError, match="At least one"):
+        OrderAction.modify(order_id=10)
+
+
+def test_partial_cancel_factory():
+    """OrderAction.partial_cancel() is wired correctly."""
+    a = OrderAction.partial_cancel(order_id=7, reduce_by=25)
+    assert a.action_type == OrderActionType.PARTIAL_CANCEL
+    assert a.cancel_order_id == 7
+    assert a.new_quantity == 25
+
+
+def test_replace_factory():
+    """OrderAction.replace() sets REPLACE type and all fields."""
+    a = OrderAction.replace(order_id=3, side=Side.ASK, quantity=100, price=9900)
+    assert a.action_type == OrderActionType.REPLACE
+    assert a.cancel_order_id == 3
+    assert a.side == Side.ASK
+    assert a.quantity == 100
+    assert a.price == 9900
+    assert a.order_type == OrderType.LIMIT
+
+
+@SETTINGS
+@given(order_id=st.integers(min_value=0, max_value=100_000))
+def test_infer_action_type_cancel(order_id: int):
+    """Setting cancel_order_id with PLACE auto-infers CANCEL."""
+    a = OrderAction(cancel_order_id=order_id)
+    if order_id == CANCEL_ALL:
+        assert a.action_type == OrderActionType.CANCEL_ALL
+    else:
+        assert a.action_type == OrderActionType.CANCEL
