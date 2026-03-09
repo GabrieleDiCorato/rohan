@@ -269,6 +269,38 @@ class RefinementScenarioResult(Base):
     iteration: Mapped["RefinementIteration"] = relationship(back_populates="scenario_results")
     artifacts: Mapped[list["RefinementArtifact"]] = relationship(back_populates="scenario_result", cascade="all, delete-orphan", passive_deletes=True)
 
+    def _get_artifact(self, artifact_type: str) -> str | None:
+        """Return the content of an artifact by type, or None if not present."""
+        return next((a.content for a in self.artifacts if a.artifact_type == artifact_type), None)
+
+    @property
+    def price_chart_b64(self) -> str | None:
+        return self._get_artifact("price_chart_b64")
+
+    @property
+    def spread_chart_b64(self) -> str | None:
+        return self._get_artifact("spread_chart_b64")
+
+    @property
+    def volume_chart_b64(self) -> str | None:
+        return self._get_artifact("volume_chart_b64")
+
+    @property
+    def pnl_chart_b64(self) -> str | None:
+        return self._get_artifact("pnl_chart_b64")
+
+    @property
+    def inventory_chart_b64(self) -> str | None:
+        return self._get_artifact("inventory_chart_b64")
+
+    @property
+    def fill_scatter_b64(self) -> str | None:
+        return self._get_artifact("fill_scatter_b64")
+
+    @property
+    def rich_analysis_json(self) -> str | None:
+        return self._get_artifact("rich_analysis_json")
+
 
 class RefinementArtifact(Base):
     """Heavy artifacts (charts, analysis JSON) spun off into a separate table to keep main rows fast."""

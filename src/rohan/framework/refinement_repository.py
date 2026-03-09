@@ -197,7 +197,8 @@ class RefinementRepository:
             db_session.refresh(session_obj)
             # Eagerly load relationships before detaching from session
             for it_orm in session_obj.iterations:
-                _ = it_orm.scenario_results
+                for sr_orm in it_orm.scenario_results:
+                    _ = sr_orm.artifacts
         except Exception:
             db_session.rollback()
             raise
@@ -245,7 +246,9 @@ class RefinementRepository:
         db_session = self.db.get_session()
         try:
             session_obj = db_session.execute(
-                select(RefinementSession).options(selectinload(RefinementSession.iterations).selectinload(RefinementIteration.scenario_results)).where(RefinementSession.session_id == session_id)
+                select(RefinementSession)
+                .options(selectinload(RefinementSession.iterations).selectinload(RefinementIteration.scenario_results).selectinload(RefinementScenarioResult.artifacts))
+                .where(RefinementSession.session_id == session_id)
             ).scalar_one_or_none()
             if session_obj is None:
                 return None
@@ -255,7 +258,6 @@ class RefinementRepository:
             for it_orm in session_obj.iterations:
                 sc_metrics: dict[str, ScenarioMetrics] = {}
                 for sr in it_orm.scenario_results:
-                    # We do NOT load artifacts here to keep the read lightweight
                     sc_metrics[sr.scenario_name] = ScenarioMetrics(
                         scenario_name=sr.scenario_name,
                         total_pnl=sr.total_pnl,
@@ -268,13 +270,12 @@ class RefinementRepository:
                         order_to_trade_ratio=sr.order_to_trade_ratio,
                         inventory_std=sr.inventory_std,
                         end_inventory=sr.end_inventory,
-                        # Set charts to None initially. Loaded on-demand later in UI.
-                        price_chart_b64=None,
-                        spread_chart_b64=None,
-                        volume_chart_b64=None,
-                        pnl_chart_b64=None,
-                        inventory_chart_b64=None,
-                        fill_scatter_b64=None,
+                        price_chart_b64=sr.price_chart_b64,
+                        spread_chart_b64=sr.spread_chart_b64,
+                        volume_chart_b64=sr.volume_chart_b64,
+                        pnl_chart_b64=sr.pnl_chart_b64,
+                        inventory_chart_b64=sr.inventory_chart_b64,
+                        fill_scatter_b64=sr.fill_scatter_b64,
                     )
                 iteration_summaries.append(
                     IterationSummary(

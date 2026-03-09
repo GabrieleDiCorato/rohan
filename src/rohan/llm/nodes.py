@@ -640,6 +640,19 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
             )
 
 
+def explainer_node(state: RefinementState) -> dict:
+    """Run the ReAct explainer on every scenario result in the current iteration.
+
+    Processes each :class:`~rohan.llm.state.ScenarioResult` in *state* through
+    :func:`_run_explainer` and returns a list of
+    :class:`~rohan.llm.models.ScenarioExplanation` objects together with a
+    status transition to ``"aggregating"``.
+    """
+    scenario_results: list[ScenarioResult] = state.get("scenario_results", [])
+    explanations = [_run_explainer(sr, state) for sr in scenario_results]
+    return {"explanations": explanations, "status": "aggregating"}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Aggregator Node
 # ═══════════════════════════════════════════════════════════════════════════
