@@ -214,11 +214,7 @@ class RefinementRepository:
         """Return lightweight summaries of all saved runs (newest first)."""
         db_session = self.db.get_session()
         try:
-            result = db_session.execute(
-                select(RefinementSession)
-                .options(selectinload(RefinementSession.iterations))
-                .order_by(RefinementSession.created_at.desc())
-            )
+            result = db_session.execute(select(RefinementSession).options(selectinload(RefinementSession.iterations)).order_by(RefinementSession.created_at.desc()))
             rows = result.scalars().all()
             return [
                 RefinementSessionSummary(
@@ -249,12 +245,7 @@ class RefinementRepository:
         db_session = self.db.get_session()
         try:
             session_obj = db_session.execute(
-                select(RefinementSession)
-                .options(
-                    selectinload(RefinementSession.iterations)
-                    .selectinload(RefinementIteration.scenario_results)
-                )
-                .where(RefinementSession.session_id == session_id)
+                select(RefinementSession).options(selectinload(RefinementSession.iterations).selectinload(RefinementIteration.scenario_results)).where(RefinementSession.session_id == session_id)
             ).scalar_one_or_none()
             if session_obj is None:
                 return None

@@ -21,6 +21,7 @@ from rohan.simulation.models.strategy_api import MarketState, OrderAction, Strat
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class _DummyStrategy(StrategicAgent):
     """Minimal strategy that does nothing — sufficient for testing agent creation."""
 
@@ -44,6 +45,7 @@ def _default_settings(**overrides) -> SimulationSettings:
 # ---------------------------------------------------------------------------
 # Agent count correctness
 # ---------------------------------------------------------------------------
+
 
 class TestAgentCounts:
     """Verify _build_agents creates the correct number and types of agents."""
@@ -110,6 +112,7 @@ class TestAgentCounts:
 # Configuration structure
 # ---------------------------------------------------------------------------
 
+
 class TestConfigStructure:
     """Verify build_configuration returns expected keys and values."""
 
@@ -119,9 +122,15 @@ class TestConfigStructure:
         config = mapper.build_configuration()
 
         required_keys = {
-            "seed", "start_time", "stop_time", "agents",
-            "agent_latency_model", "default_computation_delay",
-            "custom_properties", "random_state_kernel", "stdout_log_level",
+            "seed",
+            "start_time",
+            "stop_time",
+            "agents",
+            "agent_latency_model",
+            "default_computation_delay",
+            "custom_properties",
+            "random_state_kernel",
+            "stdout_log_level",
         }
         assert required_keys <= set(config.keys())
 
@@ -156,6 +165,7 @@ class TestConfigStructure:
 # Latency model type switching
 # ---------------------------------------------------------------------------
 
+
 class TestLatencyModel:
     """Verify _build_latency_model produces correct types for each LatencyType."""
 
@@ -171,6 +181,7 @@ class TestLatencyModel:
 
     def test_deterministic_latency_nonzero(self):
         from rohan.config.latency_settings import LatencyModelSettings
+
         handler = RandomStateHandler(42)
         settings = LatencyModelSettings(type=LatencyType.DETERMINISTIC)
         latency_model = AbidesConfigMapper._build_latency_model(
@@ -188,6 +199,7 @@ class TestLatencyModel:
 # Oracle parameter passthrough
 # ---------------------------------------------------------------------------
 
+
 class TestOracle:
     """Verify _build_oracle passes simulation settings correctly."""
 
@@ -196,6 +208,7 @@ class TestOracle:
         handler = RandomStateHandler(42)
         import pandas as pd
         from abides_core.utils import str_to_ns
+
         date = int(pd.to_datetime(settings.date).value)
         mkt_open = date + str_to_ns(settings.start_time)
         noise_mkt_close = date + str_to_ns("16:00:00")
@@ -206,6 +219,7 @@ class TestOracle:
 # ---------------------------------------------------------------------------
 # Reproducibility
 # ---------------------------------------------------------------------------
+
 
 class TestReproducibility:
     """Same settings must produce identical configurations."""

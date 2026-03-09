@@ -157,19 +157,21 @@ class ArtifactStore:
             log_json = self._sanitize_for_json(log_item)
 
             tp = row_dict.get("time_placed")
-            if pd.isna(tp):  # pyright: ignore[reportArgumentType]
+            if pd.isna(tp):  # pyright: ignore[reportArgumentType, reportGeneralTypeIssues]
                 tp = None
             elif isinstance(tp, pd.Timestamp):
                 tp = tp.to_pydatetime()
 
-            records.append({
-                "run_id": run_id,
-                "agent_id": int(row_dict["AgentID"]),
-                "agent_type": str(row_dict["AgentType"]),
-                "event_type": str(row_dict["EventType"]),
-                "time_placed": tp,
-                "log_json": log_json,
-            })
+            records.append(
+                {
+                    "run_id": run_id,
+                    "agent_id": int(row_dict["AgentID"]),
+                    "agent_type": str(row_dict["AgentType"]),
+                    "event_type": str(row_dict["EventType"]),
+                    "time_placed": tp,
+                    "log_json": log_json,
+                }
+            )
 
         if not records:
             return

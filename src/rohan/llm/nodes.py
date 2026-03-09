@@ -11,7 +11,6 @@ import logging
 import traceback
 
 import matplotlib.pyplot as plt
-
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
