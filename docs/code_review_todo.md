@@ -30,7 +30,7 @@ LLM-generated Python code in a restricted namespace. Three flaws combine into
 a **full sandbox escape chain** that allows arbitrary code execution and
 secret exfiltration.
 
-### - [ ] SEC-1: `__import__` in SAFE_BUILTINS bypasses the import whitelist (CRITICAL)
+### - [x] SEC-1: `__import__` in SAFE_BUILTINS bypasses the import whitelist (CRITICAL)
 
 **Location:** `src/rohan/simulation/strategy_validator.py`, line 62
 
@@ -99,7 +99,7 @@ safe_builtins_dict["__import__"] = _make_safe_import(self.SAFE_IMPORTS)
 3. Write a test where strategy code does `from math import sqrt` → assert it succeeds.
 
 
-### - [ ] SEC-2: `rohan.config` in SAFE_IMPORTS exposes API keys (CRITICAL)
+### - [x] SEC-2: `rohan.config` in SAFE_IMPORTS exposes API keys (CRITICAL)
 
 **Location:** `src/rohan/simulation/strategy_validator.py`, line 29
 
@@ -156,7 +156,7 @@ class SandboxConfig:
 3. Ensure no existing LLM-generated strategies import from `rohan.config`.
 
 
-### - [ ] SEC-3: ThreadPoolExecutor timeout blocks forever on stuck threads (CRITICAL)
+### - [x] SEC-3: ThreadPoolExecutor timeout blocks forever on stuck threads (CRITICAL)
 
 **Location:** `src/rohan/simulation/strategy_validator.py`, lines 296-307
 
@@ -214,7 +214,7 @@ except Exception as exc:
 2. Confirm that the main thread is not blocked by the stuck worker thread.
 
 
-### - [ ] SEC-4: No protection against `eval()`/`exec()`/`compile()` in strategy code (HIGH)
+### - [x] SEC-4: No protection against `eval()`/`exec()`/`compile()` in strategy code (HIGH)
 
 **Location:** `src/rohan/simulation/strategy_validator.py`, lines 33-62
 
@@ -239,7 +239,7 @@ for node in ast.walk(tree):
 by the validator.
 
 
-### - [ ] SEC-5: Dunder attribute block is overly broad — blocks `super().__init__()` (HIGH)
+### - [x] SEC-5: Dunder attribute block is overly broad — blocks `super().__init__()` (HIGH)
 
 **Location:** `src/rohan/simulation/strategy_validator.py`, lines 77-78
 
@@ -276,7 +276,7 @@ elif isinstance(node, ast.Attribute) and node.attr in DANGEROUS_DUNDERS:
 
 ## Workstream 2 — Data Integrity & Database Layer (HIGH)
 
-### - [ ] DB-1: Mutable default arguments in ORM column definitions (HIGH)
+### - [x] DB-1: Mutable default arguments in ORM column definitions (HIGH)
 
 **Location:** `src/rohan/framework/database/models.py`, lines 81, 207
 
@@ -307,7 +307,7 @@ progress_log: Mapped[dict[str, Any]] = mapped_column(
 `config_override`. Mutate one and verify the other is unaffected.
 
 
-### - [ ] DB-2: Detached ORM objects from session lifecycle pattern (HIGH)
+### - [x] DB-2: Detached ORM objects from session lifecycle pattern (HIGH)
 
 **Location:** `src/rohan/framework/repository.py` (throughout),
 `src/rohan/framework/refinement_repository.py` (throughout),
@@ -367,7 +367,7 @@ after eagerly loading all needed data.
 `.market_data` — should not raise `DetachedInstanceError`.
 
 
-### - [ ] DB-3: N+1 queries in `list_sessions()` and `load_session()` (HIGH)
+### - [x] DB-3: N+1 queries in `list_sessions()` and `load_session()` (HIGH)
 
 **Location:** `src/rohan/framework/refinement_repository.py`, lines 218-230 and 238-270
 
@@ -423,7 +423,7 @@ iter_count = (
 not 1+N.
 
 
-### - [ ] DB-4: `save_market_data` forward-fills NaN prices, contradicting analysis invariant (HIGH)
+### - [x] DB-4: `save_market_data` forward-fills NaN prices, contradicting analysis invariant (HIGH)
 
 **Location:** `src/rohan/framework/repository.py`, lines 77-80
 
@@ -478,7 +478,7 @@ There's already a deprecated column (`impact_score` at
 `alembic downgrade -1` and `alembic upgrade head` to verify reversibility.
 
 
-### - [ ] DB-6: `SecretSettings` class is redundant and broken (MEDIUM)
+### - [x] DB-6: `SecretSettings` class is redundant and broken (MEDIUM)
 
 **Location:** `src/rohan/config/secrets_settings.py`, lines 1-10
 
@@ -505,7 +505,7 @@ management correctly via `SecretStr` and env vars.
 imports remain. Run the full test suite.
 
 
-### - [ ] DB-7: Type annotation mismatches in ORM models (MEDIUM)
+### - [x] DB-7: Type annotation mismatches in ORM models (MEDIUM)
 
 **Location:** `src/rohan/framework/database/models.py`, lines 78, 204, 207
 
@@ -535,7 +535,7 @@ progress_log: Mapped[list[str]] = ...
 **Verification:** Run pyright / mypy and verify no type errors on these fields.
 
 
-### - [ ] DB-8: `DatabaseSettings.connection_string` should use `SecretStr` (LOW)
+### - [x] DB-8: `DatabaseSettings.connection_string` should use `SecretStr` (LOW)
 
 **Location:** `src/rohan/config/database_settings.py`, line 8
 
@@ -558,7 +558,7 @@ Update `DatabaseConnector.__init__` to use
 is masked as `SecretStr('**********')`.
 
 
-### - [ ] DB-9: Database connection string partially logged (LOW)
+### - [x] DB-9: Database connection string partially logged (LOW)
 
 **Location:** `src/rohan/framework/database/database_connector.py`, lines 49-52
 
@@ -580,7 +580,7 @@ leak. This becomes a non-issue if DB-8 is implemented with `SecretStr`.
 representation.
 
 
-### - [ ] DB-10: No composite index on `strategy_iterations(session_id, generation_number)` (LOW)
+### - [x] DB-10: No composite index on `strategy_iterations(session_id, generation_number)` (LOW)
 
 **Location:** `src/rohan/framework/database/models.py`, around line 97
 
@@ -602,7 +602,7 @@ index is used.
 
 ## Workstream 3 — Reliability & Correctness (HIGH-MEDIUM)
 
-### - [ ] REL-1: Matplotlib figure memory leak in chart generation (HIGH)
+### - [x] REL-1: Matplotlib figure memory leak in chart generation (HIGH)
 
 **Location:** `src/rohan/llm/nodes.py`, lines 414-470 (6 chart blocks);
 `src/rohan/framework/analysis_service.py` (all `plot_*` methods)
@@ -648,7 +648,7 @@ Alternatively, add `import gc; gc.collect()` and check that
 `plt.get_fignums()` is empty after each scenario.
 
 
-### - [ ] REL-2: `get_structured_model` silently discards LLM parse errors (HIGH)
+### - [x] REL-2: `get_structured_model` silently discards LLM parse errors (HIGH)
 
 **Location:** `src/rohan/llm/factory.py`, lines 176-178
 
@@ -683,7 +683,7 @@ return raw_runnable.pipe(_extract_or_log)
 garbage JSON) and verify the warning is logged.
 
 
-### - [ ] REL-3: `_pct_change` returns `float("inf")` which propagates to LLM prompts (HIGH)
+### - [x] REL-3: `_pct_change` returns `float("inf")` which propagates to LLM prompts (HIGH)
 
 **Location:** `src/rohan/simulation/utils.py`, lines 40-43
 
@@ -714,7 +714,7 @@ if b == 0:
 capped value), not `float("inf")`.
 
 
-### - [ ] REL-4: Hardcoded agent ID `1` in `run_with_baseline` (HIGH)
+### - [x] REL-4: Hardcoded agent ID `1` in `run_with_baseline` (HIGH)
 
 **Location:** `src/rohan/simulation/utils.py`, line 60
 
@@ -741,7 +741,7 @@ metrics1 = AnalysisService.compute_agent_metrics(
 returned metrics match those from `nodes.py`.
 
 
-### - [ ] REL-5: Missing `explanations` key in error return path (MEDIUM)
+### - [x] REL-5: Missing `explanations` key in error return path (MEDIUM)
 
 **Location:** `src/rohan/llm/nodes.py`, lines 496-504
 
@@ -783,7 +783,7 @@ a deliberately failing strategy) and verify that `state["explanations"]`
 contains the error explanation, not stale data.
 
 
-### - [ ] REL-6: `LatencyType` enum has accidental tuple values (MEDIUM)
+### - [x] REL-6: `LatencyType` enum has accidental tuple values (MEDIUM)
 
 **Location:** `src/rohan/config/latency_settings.py`, lines 10-12
 
@@ -812,7 +812,7 @@ class LatencyType(str, Enum):
 `isinstance(LatencyType.NO_LATENCY.value, str)`.
 
 
-### - [ ] REL-7: Dead delta-display logic in Terminal UI (`prev = None`) (MEDIUM)
+### - [x] REL-7: Dead delta-display logic in Terminal UI (`prev = None`) (MEDIUM)
 
 **Location:** `src/rohan/ui/0_Terminal.py`, line 1027 and line 1153
 
@@ -836,7 +836,7 @@ prev = st.session_state.get("previous_metrics")
 delta arrows (▲/▼) comparing to the first.
 
 
-### - [ ] REL-8: Silent DB initialization failure in UI (MEDIUM)
+### - [x] REL-8: Silent DB initialization failure in UI (MEDIUM)
 
 **Location:** `src/rohan/ui/0_Terminal.py`, lines 40-43;
 `src/rohan/ui/pages/1_Refinement_Lab.py`, lines 63-65
@@ -871,7 +871,7 @@ with contextlib.suppress(OperationalError):
 a warning is logged (not silently suppressed).
 
 
-### - [ ] REL-9: Chart generation failures logged at DEBUG level only (LOW)
+### - [x] REL-9: Chart generation failures logged at DEBUG level only (LOW)
 
 **Location:** `src/rohan/llm/nodes.py`, lines 416-450
 
@@ -894,7 +894,7 @@ except Exception:
 **Verification:** Cause a chart failure and verify it appears in INFO-level logs.
 
 
-### - [ ] REL-10: `datetime.now()` without timezone in `IterationSummary` (LOW)
+### - [x] REL-10: `datetime.now()` without timezone in `IterationSummary` (LOW)
 
 **Location:** `src/rohan/llm/models.py`, line 126
 
@@ -916,7 +916,7 @@ timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 is not `None`.
 
 
-### - [ ] REL-11: Hardcoded `timeout_seconds=300` in three locations (LOW)
+### - [x] REL-11: Hardcoded `timeout_seconds=300` in three locations (LOW)
 
 **Location:**
 - `src/rohan/simulation/strategy_validator.py`, line 263 (default parameter)
@@ -992,7 +992,7 @@ existing mocked tests still pass. Verify that `run_with_baseline` is the single
 implementation.
 
 
-### - [ ] ARCH-3: Circular import — `graph.py` ↔ `nodes.py` (MEDIUM)
+### - [x] ARCH-3: Circular import — `graph.py` ↔ `nodes.py` (MEDIUM)
 
 **Location:** `src/rohan/llm/nodes.py`, line 953
 
@@ -1016,7 +1016,7 @@ shared module.
 and `test_llm_nodes.py`.
 
 
-### - [ ] ARCH-4: Environment variable mutation at module import time (MEDIUM)
+### - [x] ARCH-4: Environment variable mutation at module import time (MEDIUM)
 
 **Location:** `src/rohan/llm/graph.py`, lines 55-56
 
@@ -1043,7 +1043,7 @@ def build_refinement_graph(...):
 `os.environ.get("LANGCHAIN_TRACING_V2")` is unchanged.
 
 
-### - [ ] ARCH-5: `lru_cache` on `_cached_settings` prevents runtime config updates (MEDIUM)
+### - [x] ARCH-5: `lru_cache` on `_cached_settings` prevents runtime config updates (MEDIUM)
 
 **Location:** `src/rohan/llm/factory.py`, lines 130-133
 
@@ -1176,7 +1176,7 @@ def __init__(self, connection_string: str | None = None) -> None:
 without setting env vars.
 
 
-### - [ ] ARCH-10: Hardcoded `"ABM"` ticker in `AbidesOutput` (LOW)
+### - [x] ARCH-10: Hardcoded `"ABM"` ticker in `AbidesOutput` (LOW)
 
 **Location:** `src/rohan/simulation/abides_impl/abides_output.py`, line 129
 
@@ -1200,7 +1200,7 @@ self.exchange_agent.order_books[self._ticker]
 doesn't crash.
 
 
-### - [ ] ARCH-11: `save_logs` uses slow `iterrows()` (LOW)
+### - [x] ARCH-11: `save_logs` uses slow `iterrows()` (LOW)
 
 **Location:** `src/rohan/framework/repository.py`, lines 113-155
 
@@ -1227,7 +1227,7 @@ session.execute(insert(AgentLog), records.to_dict(orient="records"))
 **Verification:** Benchmark with 10,000 log rows — should be 10x faster.
 
 
-### - [ ] ARCH-12: HTML injection risk in UI `unsafe_allow_html=True` (LOW)
+### - [x] ARCH-12: HTML injection risk in UI `unsafe_allow_html=True` (LOW)
 
 **Location:** `src/rohan/ui/0_Terminal.py`, lines 758-778;
 `src/rohan/ui/pages/1_Refinement_Lab.py`, line 968
@@ -1254,7 +1254,7 @@ st.markdown(f"<code>{html.escape(class_name)}</code>", unsafe_allow_html=True)
 text renders rather than executing.
 
 
-### - [ ] ARCH-13: Duplicated DB initialization logic across UI pages (LOW)
+### - [x] ARCH-13: Duplicated DB initialization logic across UI pages (LOW)
 
 **Location:** `src/rohan/ui/0_Terminal.py`, lines 38-43;
 `src/rohan/ui/pages/1_Refinement_Lab.py`, lines 63-66
@@ -1284,7 +1284,7 @@ def ensure_db_initialized():
 **Verification:** Both pages import and call the shared function.
 
 
-### - [ ] ARCH-14: `_save_rich_analysis_artifacts` is dead code (LOW)
+### - [x] ARCH-14: `_save_rich_analysis_artifacts` is dead code (LOW)
 
 **Location:** `src/rohan/framework/simulation_engine.py`, lines 93-143
 
@@ -1299,7 +1299,7 @@ a ticket reference.
 sites.
 
 
-### - [ ] ARCH-15: `SimulationRunner.validate()` is dead code (LOW)
+### - [x] ARCH-15: `SimulationRunner.validate()` is NOT dead code (FALSE POSITIVE)
 
 **Location:** `src/rohan/simulation/simulation_runner.py`, lines 39-45
 
@@ -1322,7 +1322,7 @@ def validate(self) -> None:
 
 ## Workstream 5 — Test Coverage & Quality (MEDIUM-LOW)
 
-### - [ ] TEST-1: Missing unit tests for `AbidesConfigMapper` (MEDIUM)
+### - [x] TEST-1: Missing unit tests for `AbidesConfigMapper` (MEDIUM)
 
 **Location:** `src/rohan/simulation/abides_impl/abides_config_mapper.py`
 
@@ -1338,7 +1338,7 @@ These are only exercised indirectly through slow integration tests.
 tests for each agent type, oracle configuration, and latency model.
 
 
-### - [ ] TEST-2: Missing unit tests for `RandomStateHandler` (MEDIUM)
+### - [x] TEST-2: Missing unit tests for `RandomStateHandler` (MEDIUM)
 
 **Location:** `src/rohan/simulation/abides_impl/random_state_handler.py`
 
@@ -1350,7 +1350,7 @@ tests for each agent type, oracle configuration, and latency model.
 **Proposed fix:** Create `tests/test_random_state_handler.py`.
 
 
-### - [ ] TEST-3: Missing tests for `StrategicAgentAdapter` order lifecycle (MEDIUM)
+### - [x] TEST-3: Missing tests for `StrategicAgentAdapter` order lifecycle (MEDIUM)
 
 **Location:** `src/rohan/simulation/abides_impl/strategic_agent_adapter.py`
 
@@ -1376,7 +1376,7 @@ exercises the full graph for 1 iteration. Verify state transitions and output
 shape.
 
 
-### - [ ] TEST-5: No property-based tests for simulation models (LOW)
+### - [x] TEST-5: No property-based tests for simulation models (LOW)
 
 **Location:** `tests/test_property_based.py`
 
@@ -1390,7 +1390,7 @@ shape.
 `test_property_based.py`.
 
 
-### - [ ] TEST-6: Pandera schemas lack value-range constraints (LOW)
+### - [x] TEST-6: Pandera schemas lack value-range constraints (LOW)
 
 **Location:** `src/rohan/simulation/models/schemas.py`, lines 68-70
 
@@ -1423,7 +1423,7 @@ def _base_state(**overrides: Unpack[RefinementState]) -> RefinementState:
     ...
 ```
 
-### - [ ] TEST-8: Triple `pytestmark` assignment in property-based tests (LOW)
+### - [x] TEST-8: Triple `pytestmark` assignment in property-based tests (LOW)
 
 **Location:** `tests/test_property_based.py`, lines 176-180
 
