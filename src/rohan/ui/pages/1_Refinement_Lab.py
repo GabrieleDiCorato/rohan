@@ -21,7 +21,6 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from rohan.config import SimulationSettings
-from rohan.framework.database import initialize_database
 from rohan.framework.refinement_repository import (
     IterationData,
     RefinementRepository,

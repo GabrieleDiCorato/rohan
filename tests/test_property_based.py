@@ -229,8 +229,12 @@ def test_agent_count_bounds(num_agents: int):
 def test_market_state_mid_price(bid: int, ask: int):
     """mid_price = (bid + ask) // 2 when both sides present."""
     ms = MarketState(
-        timestamp_ns=0, best_bid=bid, best_ask=ask,
-        inventory=0, cash=100_000, open_orders=[],
+        timestamp_ns=0,
+        best_bid=bid,
+        best_ask=ask,
+        inventory=0,
+        cash=100_000,
+        open_orders=[],
     )
     assert ms.mid_price == (bid + ask) // 2
 
@@ -243,8 +247,12 @@ def test_market_state_mid_price(bid: int, ask: int):
 def test_market_state_spread(bid: int, ask: int):
     """spread = ask - bid when both sides present."""
     ms = MarketState(
-        timestamp_ns=0, best_bid=bid, best_ask=ask,
-        inventory=0, cash=100_000, open_orders=[],
+        timestamp_ns=0,
+        best_bid=bid,
+        best_ask=ask,
+        inventory=0,
+        cash=100_000,
+        open_orders=[],
     )
     assert ms.spread == ask - bid
 
@@ -257,8 +265,12 @@ def test_market_state_spread(bid: int, ask: int):
 def test_market_state_none_when_side_missing(bid: int | None, ask: int | None):
     """mid_price and spread are None when either side is missing."""
     ms = MarketState(
-        timestamp_ns=0, best_bid=bid, best_ask=ask,
-        inventory=0, cash=100_000, open_orders=[],
+        timestamp_ns=0,
+        best_bid=bid,
+        best_ask=ask,
+        inventory=0,
+        cash=100_000,
+        open_orders=[],
     )
     if bid is None or ask is None:
         assert ms.mid_price is None

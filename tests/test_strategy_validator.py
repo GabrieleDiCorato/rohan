@@ -217,10 +217,14 @@ class SafeStrategy:
         instance = strategy_class()
         # Should not raise
         from rohan.simulation.models.strategy_api import MarketState
+
         mock_state = MarketState(
             timestamp_ns=1_000_000_000,
-            best_bid=10000, best_ask=10010,
-            inventory=0, cash=10_000_000, open_orders=[],
+            best_bid=10000,
+            best_ask=10010,
+            inventory=0,
+            cash=10_000_000,
+            open_orders=[],
         )
         instance.on_market_data(mock_state)
 

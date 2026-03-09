@@ -96,9 +96,7 @@ class StrategyIteration(Base):
     session: Mapped["StrategySession"] = relationship(back_populates="iterations")
     runs: Mapped[list["SimulationRun"]] = relationship(back_populates="iteration", cascade="all, delete-orphan", passive_deletes=True)
 
-    __table_args__ = (
-        Index("ix_strategy_iterations_session_gen", "session_id", "generation_number"),
-    )
+    __table_args__ = (Index("ix_strategy_iterations_session_gen", "session_id", "generation_number"),)
 
 
 class SimulationRun(Base):

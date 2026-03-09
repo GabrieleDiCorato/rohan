@@ -28,7 +28,6 @@ from rohan.config.agent_settings import (
 )
 from rohan.config.latency_settings import LatencyModelSettings, LatencyType
 from rohan.framework.analysis_service import AnalysisService
-from rohan.framework.database import initialize_database
 from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.simulation.simulation_service import SimulationService
 from rohan.ui.utils.metric_display import build_comparison_table, get_delta_color, get_help, metric_delta

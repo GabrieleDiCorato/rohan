@@ -25,10 +25,7 @@ def _make_safe_import(allowed: set[str]):
     def _safe_import(name: str, *args: Any, **kwargs: Any):
         root = name.split(".")[0]
         if root not in allowed and name not in allowed:
-            raise ImportError(
-                f"Import of {name!r} is not allowed. "
-                f"Permitted modules: {sorted(allowed)}"
-            )
+            raise ImportError(f"Import of {name!r} is not allowed. Permitted modules: {sorted(allowed)}")
         return _real_import(name, *args, **kwargs)
 
     return _safe_import
@@ -129,10 +126,9 @@ class StrategyValidator:
             elif isinstance(node, ast.Attribute) and node.attr in self.DANGEROUS_DUNDERS:
                 errors.append(f"Access to dangerous attribute '{node.attr}' is restricted")
 
-            elif isinstance(node, ast.Call):
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in self.FORBIDDEN_CALLS:
                 # Block calls to dangerous built-in functions
-                if isinstance(node.func, ast.Name) and node.func.id in self.FORBIDDEN_CALLS:
-                    errors.append(f"Call to '{node.func.id}()' is forbidden")
+                errors.append(f"Call to '{node.func.id}()' is forbidden")
 
         return ValidationResult(is_valid=len(errors) == 0, errors=errors)
 
@@ -366,10 +362,7 @@ def execute_strategy_safely(
         # Abandon the stuck thread — don't wait for it
         executor.shutdown(wait=False, cancel_futures=True)
         elapsed = time.monotonic() - start_time
-        raise SimulationTimeoutError(
-            f"Strategy execution timed out after {elapsed:.1f}s "
-            f"(limit: {timeout_seconds}s). The strategy may contain an infinite loop."
-        ) from None
+        raise SimulationTimeoutError(f"Strategy execution timed out after {elapsed:.1f}s (limit: {timeout_seconds}s). The strategy may contain an infinite loop.") from None
     except Exception as exc:
         executor.shutdown(wait=False)
         raise StrategyExecutionError(f"Strategy execution failed: {exc}") from exc
