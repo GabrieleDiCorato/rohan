@@ -137,11 +137,13 @@ class TestRefinementRepository:
         assert sr.scenario_name == "Default"
         assert sr.total_pnl == 100.0
         assert sr.trade_count == 10
-        assert sr.price_chart_b64 == "cHJpY2U="
-        assert sr.pnl_chart_b64 == "cG5s"
-        assert sr.inventory_chart_b64 == "aW52"
-        assert sr.fill_scatter_b64 == "ZmlsbA=="
-        assert sr.rich_analysis_json == '{"fills": []}'
+        # Charts are stored as RefinementArtifact rows, loaded via dedicated method
+        artifacts = repo.load_scenario_artifacts(session.session_id, 1, "Default")
+        assert artifacts["price_chart_b64"] == "cHJpY2U="
+        assert artifacts["pnl_chart_b64"] == "cG5s"
+        assert artifacts["inventory_chart_b64"] == "aW52"
+        assert artifacts["fill_scatter_b64"] == "ZmlsbA=="
+        assert artifacts["rich_analysis_json"] == '{"fills": []}'
 
     # ------------------------------------------------------------------
     # List
@@ -243,10 +245,17 @@ class TestRefinementRepository:
         assert isinstance(sm, ScenarioMetrics)
         assert sm.total_pnl == 100.0
         assert sm.trade_count == 10
-        assert sm.price_chart_b64 == "cHJpY2U="
-        assert sm.pnl_chart_b64 == "cG5s"
-        assert sm.inventory_chart_b64 == "aW52"
-        assert sm.fill_scatter_b64 == "ZmlsbA=="
+        # Charts are lazy-loaded via load_scenario_artifacts(), not on ScenarioMetrics
+        assert sm.price_chart_b64 is None
+        assert sm.pnl_chart_b64 is None
+        assert sm.inventory_chart_b64 is None
+        assert sm.fill_scatter_b64 is None
+        # Verify charts persisted via artifact loading
+        arts = repo.load_scenario_artifacts(saved.session_id, 1, "Default")
+        assert arts["price_chart_b64"] == "cHJpY2U="
+        assert arts["pnl_chart_b64"] == "cG5s"
+        assert arts["inventory_chart_b64"] == "aW52"
+        assert arts["fill_scatter_b64"] == "ZmlsbA=="
 
     def test_load_session_preserves_sub_scores(self):
         """Sub-scores and new metric fields survive a save/load round-trip."""

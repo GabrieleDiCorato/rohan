@@ -501,8 +501,11 @@ This class creates two conflicting sources of truth for the same secret.
 `src/rohan/config/__init__.py` exports. `LLMSettings` already handles API key
 management correctly via `SecretStr` and env vars.
 
-**Verification:** Grep for `SecretSettings` across the codebase and verify no
-imports remain. Run the full test suite.
+**Verification:** ~~Grep for `SecretSettings` across the codebase and verify no
+imports remain. Run the full test suite.~~
+
+**Status:** `secrets_settings.py` deleted, removed from `__init__.py` exports.
+Only remaining reference is an explanatory comment in `strategy_validator.py`.
 
 
 ### - [x] DB-7: Type annotation mismatches in ORM models (MEDIUM)

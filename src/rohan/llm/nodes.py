@@ -520,9 +520,11 @@ def process_scenario_node(state: RefinementState) -> dict:
 
     except Exception as exc:
         logger.error("Scenario %r failed: %s", scenario.name, exc, exc_info=True)
+        error_msg = f"{exc}\n{traceback.format_exc()}"
         error_result = ScenarioResult(
             scenario_name=scenario.name,
-            error=f"{exc}\n{traceback.format_exc()}",
+            error=error_msg,
+            interpreter_prompt=f"Scenario execution failed with error:\n{error_msg[:500]}",
         )
         return {
             "scenario_results": [error_result],
@@ -771,6 +773,8 @@ def aggregator_node(state: RefinementState) -> dict:
         )
         all_axis.append(axis)
 
+    all_scenarios_failed = all_axis == [] and len(scenario_results) > 0
+
     if all_axis:
         from rohan.llm.scoring import AxisScores
 
@@ -788,6 +792,8 @@ def aggregator_node(state: RefinementState) -> dict:
 
         avg_axis = AxisScores(1.0, 1.0, 5.5, 5.5, 5.5, 1.0)
         final_score = 1.0
+        if all_scenarios_failed:
+            logger.warning("All %d scenario(s) failed — forcing score floor and continue", len(scenario_results))
 
     # ── Deterministic comparison ─────────────────────────────────────────
     if best_score <= 0:
@@ -990,6 +996,10 @@ def aggregator_node(state: RefinementState) -> dict:
 
     # Regression always forces continue
     if is_regression:
+        recommendation = "continue"
+
+    # All-failed scenarios always forces continue (score is meaningless)
+    if all_scenarios_failed:
         recommendation = "continue"
 
     if recommendation in ("stop_converged", "stop_plateau") and not is_regression:

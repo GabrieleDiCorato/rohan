@@ -233,8 +233,9 @@ class StrategyValidator:
         Raises
         ------
         StrategyExecutionError
-            If ``__init__``, ``initialize``, ``on_tick``, or
-            ``on_market_data`` raise any exception.
+            If any of ``__init__``, ``initialize``, ``on_tick``,
+            ``on_market_data``, ``on_order_update``, or
+            ``on_simulation_end`` raise an exception.
         """
         from rohan.simulation.models.strategy_api import (
             AgentConfig,
@@ -276,6 +277,31 @@ class StrategyValidator:
             instance.on_tick(mock_state)
         except Exception as e:
             raise StrategyExecutionError(f"Strategy on_tick() failed on smoke test: {e}") from e
+
+        # 4. Dry-run on_order_update with a mock filled order
+        from rohan.simulation.models.strategy_api import Order, OrderStatus, OrderType, Side
+
+        mock_order = Order(
+            order_id=1,
+            symbol="TEST",
+            side=Side.BID,
+            quantity=10,
+            price=10000,
+            order_type=OrderType.LIMIT,
+            status=OrderStatus.FILLED,
+            filled_quantity=10,
+            fill_price=10000,
+        )
+        try:
+            instance.on_order_update(mock_order)
+        except Exception as e:
+            raise StrategyExecutionError(f"Strategy on_order_update() failed on smoke test: {e}") from e
+
+        # 5. Dry-run on_simulation_end with the same market state
+        try:
+            instance.on_simulation_end(mock_state)
+        except Exception as e:
+            raise StrategyExecutionError(f"Strategy on_simulation_end() failed on smoke test: {e}") from e
 
 
 def _run_simulation_in_thread(

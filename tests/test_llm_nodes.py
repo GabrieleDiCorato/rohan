@@ -22,8 +22,8 @@ from rohan.llm.nodes import (
     _fmt_float,
     _fmt_pct,
     _format_explanations,
+    _run_explainer,
     aggregator_node,
-    explainer_node,
     validator_node,
     writer_node,
 )
@@ -245,10 +245,9 @@ class TestExplainerNode:
                 ScenarioResult(scenario_name="broken", error="Simulation crashed"),
             ],
         )
-        result = explainer_node(state)
-        assert len(result["explanations"]) == 1
-        assert "Scenario failed" in result["explanations"][0].weaknesses[0]
-        assert result["status"] == "aggregating"
+        sr = state["scenario_results"][0]
+        result = _run_explainer(sr, state)
+        assert "Scenario failed" in result.weaknesses[0]
 
     @patch("rohan.llm.nodes.create_react_agent")
     @patch("rohan.llm.nodes.get_analysis_model")
@@ -274,10 +273,10 @@ class TestExplainerNode:
                 ),
             ],
         )
-        result = explainer_node(state)
-        assert len(result["explanations"]) == 1
-        assert result["explanations"][0].strengths == ["Good PnL"]
-        assert result["explanations"][0].scenario_name == "default"
+        sr = state["scenario_results"][0]
+        result = _run_explainer(sr, state)
+        assert result.strengths == ["Good PnL"]
+        assert result.scenario_name == "default"
         mock_create_agent.assert_called_once()
 
     @patch(_PATCH_STRUCTURED)
@@ -304,10 +303,10 @@ class TestExplainerNode:
                 ScenarioResult(scenario_name="default", interpreter_prompt="P"),
             ],
         )
-        result = explainer_node(state)
-        assert len(result["explanations"]) == 1
-        assert result["explanations"][0].strengths == ["Fallback succeeded"]
-        assert result["explanations"][0].scenario_name == "default"
+        sr = state["scenario_results"][0]
+        result = _run_explainer(sr, state)
+        assert result.strengths == ["Fallback succeeded"]
+        assert result.scenario_name == "default"
 
     @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.create_react_agent")
@@ -328,9 +327,9 @@ class TestExplainerNode:
                 ScenarioResult(scenario_name="default", interpreter_prompt="P"),
             ],
         )
-        result = explainer_node(state)
-        assert len(result["explanations"]) == 1
-        assert "Analysis failed" in result["explanations"][0].weaknesses[0]
+        sr = state["scenario_results"][0]
+        result = _run_explainer(sr, state)
+        assert "Analysis failed" in result.weaknesses[0]
 
     def test_error_explanation_helper(self):
         exp = _error_explanation("test_scenario", "boom")

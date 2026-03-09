@@ -462,6 +462,16 @@ Implemented structured per-scenario feedback routing:
 
 UI updated: 6-axis display (history table, score progression, radar chart, metric cards), `SCORING_AXIS_CONFIG` help text, `IterationData`/repository mappings. PnL curve/inventory/fill scatter charts deferred to Step 10.
 
+### Step 15: Production hardening pass ✅ DONE
+
+Post-Phase 3 review & hardening based on full codebase audit:
+- **Deleted `SecretSettings`**: Removed `src/rohan/config/secrets_settings.py` entirely (dead class, hardcoded Unix `/run/secrets` path, redundant with `LLMSettings`).
+- **Extended validator smoke test**: `smoke_test()` now exercises all 5 protocol methods — added `on_order_update()` with a mock `Order(FILLED)` and `on_simulation_end()` with a `MarketState`. Catches runtime crashes before expensive ABIDES simulation.
+- **All-failed-scenarios guard**: Aggregator now detects when every scenario errored. Forces `recommendation="continue"` with explicit logging, preventing misleading 1.0 scores from being treated as legitimate results.
+- **Graph-level timeout**: `run_refinement()` now accepts `max_wall_clock_seconds` (default 3600s) and logs a warning if the full loop exceeds the timeout.
+- **Seed collision fix**: `_deterministic_seed()` now includes scenario index in the hash to disambiguate same-name scenarios: `hash(f"{index}:{name}:{timestamp}")`.
+- **Error context on scenario failure**: Failed scenarios now set `interpreter_prompt` to a truncated error summary instead of `None`, so the explainer receives meaningful context.
+
 ---
 
 ## Phase 4 — Future Architecture (P3: post-PoC, product evolution)
@@ -510,6 +520,11 @@ Phase 3:
 - UI displays 6 axes correctly
 - Qualitative analysis model produces structured strengths/weaknesses/recommendations
 - Feedback routing preserves per-scenario structure
+- `SecretSettings` class deleted — no imports remain
+- Validator smoke test covers all 5 protocol methods
+- All-failed-scenarios guard prevents misleading scores
+- Graph timeout parameter available via `run_refinement()`
+- Same-name scenarios get distinct seeds
 
 ---
 

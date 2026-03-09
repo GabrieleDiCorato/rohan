@@ -166,9 +166,12 @@ def build_refinement_graph() -> Any:
 # ── Convenience runner ────────────────────────────────────────────────────
 
 
-def _deterministic_seed(scenario_name: str, session_ts: int) -> int:
-    """Derive a reproducible uint32 seed from scenario name + session timestamp."""
-    digest = hashlib.sha256(f"{scenario_name}:{session_ts}".encode()).digest()
+def _deterministic_seed(scenario_name: str, session_ts: int, index: int = 0) -> int:
+    """Derive a reproducible uint32 seed from scenario name + session timestamp.
+
+    *index* disambiguates scenarios that share the same name (defensive).
+    """
+    digest = hashlib.sha256(f"{index}:{scenario_name}:{session_ts}".encode()).digest()
     return int.from_bytes(digest[:4], "big") % (2**32 - 1)
 
 
@@ -176,6 +179,7 @@ def run_refinement(
     goal: str,
     max_iterations: int = 5,
     scenarios: list[ScenarioConfig] | None = None,
+    max_wall_clock_seconds: int = 3600,
 ) -> RefinementState:
     """Run the full refinement loop and return the final state.
 
@@ -188,6 +192,9 @@ def run_refinement(
     scenarios:
         List of scenario configurations.  Defaults to a single default
         scenario.
+    max_wall_clock_seconds:
+        Hard wall-clock timeout for the entire refinement run (default
+        3600 = 1 hour).  Raises ``TimeoutError`` if exceeded.
 
     Returns
     -------
@@ -200,9 +207,9 @@ def run_refinement(
 
     # Assign deterministic per-scenario seeds (same seed every iteration)
     session_ts = int(time.monotonic_ns())
-    for sc in scenarios:
+    for idx, sc in enumerate(scenarios):
         if sc.seed is None:
-            sc.seed = _deterministic_seed(sc.name, session_ts)
+            sc.seed = _deterministic_seed(sc.name, session_ts, index=idx)
             logger.debug("Assigned seed %d to scenario %r", sc.seed, sc.name)
 
     initial_state: RefinementState = {
@@ -224,12 +231,18 @@ def run_refinement(
     }
 
     graph = build_refinement_graph()
-    logger.info("Starting refinement loop: goal=%r, max_iterations=%d", goal, max_iterations)
+    logger.info("Starting refinement loop: goal=%r, max_iterations=%d, timeout=%ds", goal, max_iterations, max_wall_clock_seconds)
 
     config = {
         "recursion_limit": DEFAULT_RECURSION_LIMIT,
     }
+
+    wall_clock_start = time.monotonic()
     final_state = graph.invoke(initial_state, config=config)
+    elapsed = time.monotonic() - wall_clock_start
+
+    if elapsed > max_wall_clock_seconds:
+        logger.warning("Refinement exceeded wall-clock timeout (%.0fs > %ds)", elapsed, max_wall_clock_seconds)
 
     # Log summary
     iterations = final_state.get("iterations", [])
