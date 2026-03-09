@@ -9,8 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Centralized refinement defaults** — `DEFAULT_MAX_ITERATIONS`, `DEFAULT_CONVERGENCE_THRESHOLD`, `_DEFAULT_RECURSION_LIMIT` constants in `graph.py`, imported by UI, CLI, and nodes.py. Eliminates scattered hardcoded values.
+- **56 new unit tests** — `AbidesConfigMapper` (12), `RandomStateHandler` (17), `StrategicAgentAdapter` callbacks (16), property-based tests for `MarketState` computed fields and `OrderAction` factory methods (14). Total suite: 749 passing tests.
+- **Pandera schema constraints** — `ge=0` on price, quantity, and time fields in L1/L2 schemas.
+- **Shared DB init helper** — `ensure_db_initialized()` in `rohan.ui.utils.startup` replaces duplicated init logic across UI pages.
+- **Centralized refinement defaults** — `DEFAULT_MAX_ITERATIONS`, `DEFAULT_CONVERGENCE_THRESHOLD`, `_DEFAULT_RECURSION_LIMIT` constants in `LLMSettings`, imported by UI, CLI, and nodes.py. Eliminates scattered hardcoded values.
 - **Structured per-scenario feedback routing (Step 13)** — `AggregatedFeedback` now carries `scenario_weaknesses` and `scenario_recommendations` populated from explainer `ScenarioExplanation` objects. `_render_per_scenario_feedback()` helper formats them for the writer prompt.
+- **Composite DB index** on `strategy_iterations(session_id, generation_number)`.
 
 ### Changed
 
@@ -22,10 +26,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Convergence threshold mismatch** — UI chart line and sidebar displayed threshold as 8 while code used 7. Now uses `DEFAULT_CONVERGENCE_THRESHOLD` (7.0) everywhere.
-- **`max_iterations` default drift** — UI and CLI defaulted to 3 while docs said 5. Now all reference `DEFAULT_MAX_ITERATIONS` (5).
-- **`recursion_limit` too low** — Was hardcoded at 50, causing premature graph termination. Increased to 80 via `_DEFAULT_RECURSION_LIMIT`.
-- **`_save_current_run` fallback** — Used hardcoded 3 instead of centralized default.
+#### Security (WS1)
+- **Sandbox escape chain closed** — Removed `__import__` from `SAFE_BUILTINS`; injected `_make_safe_import` whitelist wrapper. Removed `rohan.config` from `SAFE_IMPORTS` (prevented API key exfiltration).
+- **ThreadPoolExecutor timeout** — Replaced `with` context manager with manual `shutdown(wait=False, cancel_futures=True)` to prevent blocking on stuck threads.
+- **AST hardening** — Added `FORBIDDEN_CALLS` set (`eval`, `exec`, `compile`, `getattr`, etc.) and `DANGEROUS_DUNDERS` allowlist (replaces overly broad `__` block that rejected `super().__init__()`).
+
+#### Database (WS2)
+- **Mutable ORM defaults** — Replaced `default={}` / `default=[]` with `default=dict` / `default=list` callables.
+- **Detached ORM objects & N+1 queries** — Added `selectinload` eager loading in `list_sessions()` and `load_session()`.
+- **Price forward-fill removed** — `save_market_data` no longer applies `ffill().bfill()` on prices, preserving NaN illiquidity signals per `AnalysisService` contract.
+- **`SecretSettings` removed** — Eliminated redundant/broken secrets class; `LLMSettings` is the single source of truth for API keys.
+- **ORM type annotations fixed** — `session_id` → `Mapped[uuid.UUID | None]`, `scenario_configs` → `Mapped[list[...]]`, `progress_log` → `Mapped[list[str]]`.
+- **Connection string secured** — `DatabaseSettings.connection_string` changed to `SecretStr`; log output masked.
+
+#### Reliability (WS3)
+- **Matplotlib figure leak** — All 6 chart blocks now close figures in `finally` clauses.
+- **LLM parse error logging** — `get_structured_model` logs `parsing_error` at WARNING instead of silently discarding.
+- **`_pct_change` capped** — Returns `None` instead of `float("inf")` when baseline is zero.
+- **Agent ID fix** — `run_with_baseline` uses `res.result.strategic_agent_id` instead of hardcoded `1`.
+- **Missing `explanations` key** — Error path in `process_scenario_node` now includes `explanations` via `_error_explanation()`.
+- **`LatencyType` enum values** — Fixed accidental tuple values (trailing commas) → plain strings.
+- **UI delta display** — `prev` now reads from `st.session_state.get("previous_metrics")` instead of always being `None`.
+- **DB init logging** — Replaced `contextlib.suppress(Exception)` with `try/except` + `logger.warning`.
+- **Chart log level** — Generation failures logged at WARNING (was DEBUG).
+- **UTC timestamps** — `IterationSummary.timestamp` uses `datetime.now(timezone.utc)`.
+- **Timeout centralized** — `SimulationSettings.timeout_seconds` field replaces three hardcoded `300` values.
+
+#### Architecture (WS4)
+- **Circular import resolved** — Refinement loop constants moved to `LLMSettings`; `graph.py` re-exports for backward compatibility. Deleted `constants.py`.
+- **Environment variable mutation** — `LANGCHAIN_TRACING_V2` assignment moved from module level into `build_refinement_graph()`.
+- **`lru_cache` clarified** — `maxsize=8` → `maxsize=1` (zero-arg function produces one entry).
+- **Ticker parameterized** — `AbidesOutput` accepts `ticker` constructor parameter (was hardcoded `"ABM"`).
+- **`save_logs` vectorized** — Replaced slow `iterrows()` with bulk `to_dict(orient="records")`.
+- **HTML injection mitigated** — Dynamic values in `unsafe_allow_html` templates wrapped with `html.escape()`.
+- **Dead code removed** — `_save_rich_analysis_artifacts` (50 lines) deleted from `SimulationEngine`.
+- **`pytestmark` fix** — Triple assignment in `test_property_based.py` → single module-level declaration.
+
+### Removed
+
+- `src/rohan/llm/constants.py` — contents migrated to `LLMSettings`.
+- `SecretSettings` class and its export from `rohan.config`.
+- `_save_rich_analysis_artifacts` dead method from `SimulationEngine`.
 
 ## [0.2.0] — 2026-03-08
 
