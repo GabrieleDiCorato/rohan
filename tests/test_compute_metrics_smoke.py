@@ -231,6 +231,7 @@ class TestComputeMetricsSmoke:
             "vpin",
             "resilience_mean_ns",
             "market_ott_ratio",
+            "pct_time_two_sided",
         ]
         for field in float_fields:
             val = getattr(metrics, field, None)
@@ -274,3 +275,63 @@ class TestComputeMetricsSmoke:
         assert metrics is not None
         assert metrics.volatility is not None, "Volatility should be computable with 50+ distinct timestamps even when most timestamps are duplicated"
         assert metrics.volatility > 0
+
+
+class TestPctTimeTwoSided:
+    """Tests for the pct_time_two_sided market availability metric."""
+
+    def test_all_two_sided(self) -> None:
+        """All rows have both bid and ask → pct_time_two_sided == 1.0."""
+        l1 = _build_realistic_l1(100, with_dupes=True, with_nans=False)
+        output = _MockOutput(l1)
+        metrics = AnalysisService.compute_metrics(output)
+        assert metrics.pct_time_two_sided == 1.0
+
+    def test_all_one_sided(self) -> None:
+        """Every row has NaN bid → pct_time_two_sided == 0.0."""
+        n = 20
+        l1 = pd.DataFrame(
+            {
+                "time": list(range(n)),
+                "bid_price": [np.nan] * n,
+                "ask_price": [10_000.0 + i for i in range(n)],
+                "bid_qty": [np.nan] * n,
+                "ask_qty": [10.0] * n,
+                "timestamp": pd.date_range("1970-01-01 09:30", periods=n, freq="1s"),
+            }
+        )
+        output = _MockOutput(l1)
+        metrics = AnalysisService.compute_metrics(output)
+        assert metrics.pct_time_two_sided == 0.0
+
+    def test_half_two_sided(self) -> None:
+        """Half NaN, half valid → pct_time_two_sided == 0.5."""
+        n = 10
+        bid_prices = [10_000.0] * 5 + [np.nan] * 5
+        bid_qtys = [10.0] * 5 + [np.nan] * 5
+        l1 = pd.DataFrame(
+            {
+                "time": list(range(n)),
+                "bid_price": bid_prices,
+                "ask_price": [10_050.0] * n,
+                "bid_qty": bid_qtys,
+                "ask_qty": [10.0] * n,
+                "timestamp": pd.date_range("1970-01-01 09:30", periods=n, freq="1s"),
+            }
+        )
+        output = _MockOutput(l1)
+        metrics = AnalysisService.compute_metrics(output)
+        assert metrics.pct_time_two_sided == 0.5
+
+    def test_empty_l1_returns_none(self) -> None:
+        """Empty L1 → pct_time_two_sided is None (no data)."""
+        output = _MockOutput(pd.DataFrame())
+        metrics = AnalysisService.compute_metrics(output)
+        assert metrics.pct_time_two_sided is None
+
+    def test_is_float(self) -> None:
+        """pct_time_two_sided must be a Python float (not numpy)."""
+        l1 = _build_realistic_l1(50, with_dupes=False, with_nans=True)
+        output = _MockOutput(l1)
+        metrics = AnalysisService.compute_metrics(output)
+        assert isinstance(metrics.pct_time_two_sided, float)

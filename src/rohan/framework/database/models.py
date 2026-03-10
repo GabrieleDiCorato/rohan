@@ -128,10 +128,10 @@ class MarketDataL1(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("simulation_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
     time: Mapped[int] = mapped_column(BigInteger, nullable=False)  # Nanoseconds from midnight
-    bid_price: Mapped[float] = mapped_column(Float, nullable=False)
-    bid_qty: Mapped[int] = mapped_column(Integer, nullable=False)
-    ask_price: Mapped[float] = mapped_column(Float, nullable=False)
-    ask_qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    bid_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bid_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ask_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ask_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     run: Mapped["SimulationRun"] = relationship(back_populates="market_data")

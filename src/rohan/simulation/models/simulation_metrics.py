@@ -28,6 +28,7 @@ class SimulationMetrics(BaseModel):
     vpin: float | None = Field(default=None, description="Volume-synchronised probability of informed trading")
     resilience_mean_ns: float | None = Field(default=None, description="Mean spread recovery time after shocks (ns)")
     market_ott_ratio: float | None = Field(default=None, description="Market-wide order-to-trade ratio (submissions/fills)")
+    pct_time_two_sided: float | None = Field(default=None, description="Fraction of L1 snapshots where both bid and ask are present (0–1); lower values indicate illiquidity")
 
 
 class AgentMetrics(BaseModel):
@@ -78,6 +79,7 @@ class MarketMetrics(BaseModel):
     vpin: float | None = Field(default=None, description="Volume-synchronised probability of informed trading")
     resilience_mean_ns: float | None = Field(default=None, description="Mean spread recovery time after shocks (ns)")
     market_ott_ratio: float | None = Field(default=None, description="Market-wide order-to-trade ratio")
+    pct_time_two_sided: float | None = Field(default=None, description="Fraction of L1 snapshots where both bid and ask are present (0–1)")
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +101,7 @@ class MarketImpact(BaseModel):
     vpin_delta_pct: float | None = Field(default=None, description="% change in VPIN")
     resilience_delta_pct: float | None = Field(default=None, description="% change in mean spread recovery time")
     ott_ratio_delta_pct: float | None = Field(default=None, description="% change in market OTT ratio")
+    two_sided_delta_pct: float | None = Field(default=None, description="% change in market availability (pct_time_two_sided)")
 
 
 class ComparisonResult(BaseModel):

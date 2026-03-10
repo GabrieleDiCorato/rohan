@@ -123,6 +123,17 @@ METRIC_CONFIG: dict[str, dict[str, str]] = {
             "instruments."
         ),
     },
+    "pct_time_two_sided": {
+        "delta_color": "normal",
+        "help": (
+            "Fraction of L1 snapshots where both bid and ask are present.\n\n"
+            "**Formula:** count(two-sided snapshots) / count(all snapshots).\n\n"
+            "**Reading it:** 1.0 = the book was always tradeable. "
+            "Values below 1.0 indicate periods where one side of the book "
+            "was completely empty — a sign of severe illiquidity. "
+            "Lower values mean higher execution risk."
+        ),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -269,6 +280,7 @@ _COMPARISON_FIELDS: list[tuple[str, str, str]] = [
     ("avg_ask_liquidity", "Avg Ask Liquidity", ".2f"),
     ("traded_volume", "Traded Volume", ",.0f"),
     ("vpin", "VPIN", ".4f"),
+    ("pct_time_two_sided", "Market Availability", ".2%"),
 ]
 
 

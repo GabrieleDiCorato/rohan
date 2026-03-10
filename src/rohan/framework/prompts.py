@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from rohan.utils.formatting import fmt_dollar_metric
+from rohan.utils.formatting import fmt_dollar_metric, fmt_float, fmt_ns, fmt_pct, fmt_rate
 
 if TYPE_CHECKING:
     from rohan.simulation import RunSummary
@@ -41,6 +41,7 @@ INTERPRETER_PROMPT_TEMPLATE = """You are analyzing the results of a trading stra
 - **VPIN Change**: {vpin_delta_pct}
 - **Resilience Change**: {resilience_delta_pct}
 - **OTT Ratio Change**: {ott_ratio_delta_pct}
+- **Availability Change**: {two_sided_delta_pct}
 
 ### Market Microstructure (Strategy Run)
 - **Volatility (ann.)**: {volatility}
@@ -52,6 +53,7 @@ INTERPRETER_PROMPT_TEMPLATE = """You are analyzing the results of a trading stra
 - **VPIN**: {vpin}
 - **Resilience (mean)**: {resilience_mean}
 - **Market OTT Ratio**: {market_ott_ratio}
+- **Market Availability**: {pct_time_two_sided}
 
 {charts_section}
 
@@ -59,28 +61,16 @@ INTERPRETER_PROMPT_TEMPLATE = """You are analyzing the results of a trading stra
 1. Summarize the strategy's overall performance
 2. Identify key strengths and weaknesses
 3. Assess the market impact (was the strategy stabilizing or destabilizing?)
-4. Comment on microstructure quality (VPIN, LOB imbalance, resilience, OTT)
+4. Comment on microstructure quality (VPIN, LOB imbalance, resilience, OTT, market availability)
 5. Suggest specific improvements for the next iteration
 """
 
 
-def _fmt_pct(v: float | None) -> str:
-    return f"{v:+.1%}" if v is not None else "N/A"
-
-
-def _fmt_rate(v: float | None) -> str:
-    return f"{v:.1%}" if v is not None else "N/A"
-
-
-def _fmt_float(v: float | None, fmt: str = ".4f") -> str:
-    return f"{v:{fmt}}" if v is not None else "N/A"
-
-
-def _fmt_ns(v: float | None) -> str:
-    """Format a nanosecond duration as milliseconds."""
-    if v is None:
-        return "N/A"
-    return f"{v / 1e6:.2f} ms"
+# Local aliases for backward compatibility
+_fmt_pct = lambda v: fmt_pct(v, signed=True)  # noqa: E731
+_fmt_rate = fmt_rate
+_fmt_float = fmt_float
+_fmt_ns = fmt_ns
 
 
 def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analysis_json: str | None = None) -> str:
@@ -154,6 +144,7 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analys
         vpin_delta_pct=_fmt_pct(impact.vpin_delta_pct),
         resilience_delta_pct=_fmt_pct(impact.resilience_delta_pct),
         ott_ratio_delta_pct=_fmt_pct(impact.ott_ratio_delta_pct),
+        two_sided_delta_pct=_fmt_pct(impact.two_sided_delta_pct),
         # Absolute microstructure values for the strategy run
         volatility=_fmt_float(strat_market.volatility, ".6f"),
         mean_spread=fmt_dollar_metric(strat_market.mean_spread),
@@ -164,5 +155,6 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analys
         vpin=_fmt_float(strat_market.vpin, ".4f"),
         resilience_mean=_fmt_ns(strat_market.resilience_mean_ns),
         market_ott_ratio=_fmt_float(strat_market.market_ott_ratio, ".2f"),
+        pct_time_two_sided=_fmt_rate(strat_market.pct_time_two_sided),
         charts_section=charts_section,
     )

@@ -1,4 +1,4 @@
-"""Canonical monetary formatting utilities.
+"""Canonical formatting utilities.
 
 All monetary values in ROHAN follow the ABIDES convention: integers in
 **cents** (e.g. ``18550`` = $185.50).  These helpers convert cents to
@@ -70,3 +70,34 @@ def fmt_dollar_delta(cents: int | float | None, precision: int = 2) -> str:
     dollars = cents / 100.0
     sign = "+" if dollars >= 0 else ""
     return f"{sign}{dollars:,.{precision}f}"
+
+
+# ─── General numeric formatting ──────────────────────────────────────────
+
+
+def fmt_pct(value: float | None, signed: bool = False) -> str:
+    """Format a fractional value as ``X.X%``, or ``N/A``."""
+    if value is None:
+        return "N/A"
+    return f"{value:+.1%}" if signed else f"{value:.1%}"
+
+
+def fmt_rate(value: float | None) -> str:
+    """Format a rate/ratio as an unsigned percentage, or ``N/A``."""
+    if value is None:
+        return "N/A"
+    return f"{value:.1%}"
+
+
+def fmt_float(value: float | None, fmt: str = ".2f") -> str:
+    """Format a float with a given format spec, or ``N/A``."""
+    if value is None:
+        return "N/A"
+    return f"{value:{fmt}}"
+
+
+def fmt_ns(value: float | None) -> str:
+    """Format a nanosecond duration as milliseconds, or ``N/A``."""
+    if value is None:
+        return "N/A"
+    return f"{value / 1e6:.2f} ms"

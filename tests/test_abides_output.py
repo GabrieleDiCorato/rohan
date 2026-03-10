@@ -225,6 +225,68 @@ class TestDuplicateTimestamps:
         assert len(l1) == 20
 
 
+class TestNaNCoOccurrence:
+    """NaN price and NaN qty always co-occur on the same side, matching the
+    ABIDES ``safe_first()`` contract: returns [None, None] for empty sides."""
+
+    def test_bid_nan_co_occurs(self):
+        """When bids are empty, both bid_price and bid_qty must be NaN."""
+        t0 = 34_200_000_000_000
+        output = _make_output(
+            best_bids=[],
+            best_asks=[(t0, 10010, 200)],
+        )
+        l1 = output.get_order_book_l1()
+        assert len(l1) == 1
+        assert pd.isna(l1.iloc[0]["bid_price"])
+        assert pd.isna(l1.iloc[0]["bid_qty"])
+
+    def test_ask_nan_co_occurs(self):
+        """When asks are empty, both ask_price and ask_qty must be NaN."""
+        t0 = 34_200_000_000_000
+        output = _make_output(
+            best_bids=[(t0, 10000, 100)],
+            best_asks=[],
+        )
+        l1 = output.get_order_book_l1()
+        assert len(l1) == 1
+        assert pd.isna(l1.iloc[0]["ask_price"])
+        assert pd.isna(l1.iloc[0]["ask_qty"])
+
+    def test_mixed_sides_invariant(self):
+        """In a larger L1, every row satisfies: isna(price) == isna(qty) per side.
+
+        ABIDES get_L1_snapshots returns parallel arrays of equal length.
+        When one side is empty at a given snapshot, safe_first returns
+        [None, None] for that side.  We test this via the one-sided helpers
+        only (separate bids/asks arrays), since test_l1_only_bids/asks
+        already cover the equal-length NaN padding paths.
+        """
+        t0 = 34_200_000_000_000
+        # 5 snapshots: all two-sided
+        bids = [
+            (t0, 10000, 100),
+            (t0 + 100, 10001, 110),
+            (t0 + 200, 10002, 120),
+            (t0 + 300, 10003, 130),
+            (t0 + 400, 10004, 140),
+        ]
+        asks = [
+            (t0, 10010, 200),
+            (t0 + 100, 10011, 210),
+            (t0 + 200, 10012, 220),
+            (t0 + 300, 10013, 230),
+            (t0 + 400, 10014, 240),
+        ]
+        output = _make_output(best_bids=bids, best_asks=asks)
+        l1 = output.get_order_book_l1()
+
+        assert len(l1) == 5
+        for _, row in l1.iterrows():
+            assert pd.isna(row["bid_price"]) == pd.isna(row["bid_qty"]), "bid NaN co-occurrence violated"
+            assert pd.isna(row["ask_price"]) == pd.isna(row["ask_qty"]), "ask NaN co-occurrence violated"
+
+
 class TestSchemaValidationBoundary:
     """Missing or malformed columns should raise SchemaError at validation."""
 

@@ -73,14 +73,15 @@ class ArtifactStore:
             return
 
         data = data.copy()
-        # Keep NaN prices as-is — they signal illiquidity events
-        # (AnalysisService invariant: "never forward-fill prices")
-        data["bid_qty"] = data["bid_qty"].ffill().bfill().fillna(0).astype(int)
-        data["ask_qty"] = data["ask_qty"].ffill().bfill().fillna(0).astype(int)
-        data = data.dropna(subset=["bid_price", "ask_price"])
+        # ABIDES data contract: NaN price and NaN qty always co-occur
+        # (ABIDES safe_first returns [None, None] for an empty book side).
+        # One-sided rows represent genuine illiquidity events and are
+        # preserved in the database so that raw and persisted data match.
+        # Downstream analysis (AnalysisService) filters to two-sided rows
+        # where needed — we never forward-fill prices.
 
-        if data.empty:
-            return
+        # Convert pandas NaN → Python None for nullable SQLAlchemy columns
+        data = data.where(data.notna(), None)
 
         records = data.to_dict(orient="records")
         for record in records:

@@ -295,7 +295,10 @@ def _score_negative_impact(delta_pct: float | None) -> float:
     return 9.0
 
 
-def _score_liquidity_impact(delta_pct: float | None) -> float:
+def _score_liquidity_impact(
+    delta_pct: float | None,
+    availability_delta_pct: float | None = None,
+) -> float:
     """Score liquidity change where *positive* change is good.
 
     Inverted vs volatility/spread: more liquidity = better.
@@ -306,19 +309,32 @@ def _score_liquidity_impact(delta_pct: float | None) -> float:
         −5% → +5%              → 4–7
         +5% → +15%             → 7–9
         > +15%                 → 9.0 (capped)
+
+    Availability penalty (when strategy reduces market availability):
+        > 10% drop  → −2
+        > 5% drop   → −1
     """
     if delta_pct is None:
-        return 5.5  # no data → neutral
+        base = 5.5  # no data → neutral
+    elif delta_pct < -0.15:
+        base = 1.0
+    elif delta_pct < -0.05:
+        base = _clamp(_lerp(delta_pct, -0.15, -0.05, 1.0, 4.0))
+    elif delta_pct < 0.05:
+        base = _clamp(_lerp(delta_pct, -0.05, 0.05, 4.0, 7.0))
+    elif delta_pct < 0.15:
+        base = _clamp(_lerp(delta_pct, 0.05, 0.15, 7.0, 9.0))
+    else:
+        base = 9.0
 
-    if delta_pct < -0.15:
-        return 1.0
-    if delta_pct < -0.05:
-        return _clamp(_lerp(delta_pct, -0.15, -0.05, 1.0, 4.0))
-    if delta_pct < 0.05:
-        return _clamp(_lerp(delta_pct, -0.05, 0.05, 4.0, 7.0))
-    if delta_pct < 0.15:
-        return _clamp(_lerp(delta_pct, 0.05, 0.15, 7.0, 9.0))
-    return 9.0
+    # Penalise strategies that reduce market availability
+    if availability_delta_pct is not None and availability_delta_pct < 0:
+        if availability_delta_pct < -0.10:
+            base -= 2.0
+        elif availability_delta_pct < -0.05:
+            base -= 1.0
+
+    return _clamp(base)
 
 
 def _score_execution(
@@ -378,6 +394,7 @@ def compute_axis_scores(
     starting_capital_cents: int,
     baseline_mean_spread: float | None,
     baseline_traded_volume: float | None,
+    pct_time_two_sided_delta: float | None = None,
 ) -> AxisScores:
     """Compute all 6 deterministic axis scores from simulation metrics.
 
@@ -399,7 +416,7 @@ def compute_axis_scores(
         risk_adjusted=_score_risk(sharpe_ratio, trade_count, max_drawdown, starting_capital_cents),
         volatility_impact=_score_negative_impact(volatility_delta_pct),
         spread_impact=_score_negative_impact(spread_delta_pct),
-        liquidity_impact=_score_liquidity_impact(liquidity_delta),
+        liquidity_impact=_score_liquidity_impact(liquidity_delta, pct_time_two_sided_delta),
         execution_quality=_score_execution(fill_rate, order_to_trade_ratio),
     )
 

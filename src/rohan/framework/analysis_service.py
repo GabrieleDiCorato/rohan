@@ -53,8 +53,10 @@ class AnalysisService:
     event, not a data artifact.  We therefore **never** forward-fill prices.
     Metrics that require a well-defined mid-price (volatility, returns,
     effective spread) are computed only from *two-sided* snapshots where
-    both bid and ask are present.  Metrics where one-sided states are
-    informative (LOB imbalance, resilience) use the full L1 timeline.
+    both bid and ask are present.  The ``pct_time_two_sided`` metric
+    measures the fraction of snapshots that are two-sided (i.e. market
+    availability).  Average bid/ask liquidity is computed from all rows
+    where each respective side is present.
     """
 
     # ==================================================================
@@ -124,8 +126,11 @@ class AnalysisService:
         # side is NaN represent genuinely empty book states (cannot trade).
         two_sided = AnalysisService._get_two_sided_l1(result)
 
+        # Market availability: fraction of snapshots that are tradeable
+        pct_two_sided = float(len(two_sided) / len(l1))
+
         if two_sided.empty:
-            return SimulationMetrics()
+            return SimulationMetrics(pct_time_two_sided=0.0)
 
         two_sided["mid_price"] = (two_sided["bid_price"] + two_sided["ask_price"]) / 2
         two_sided["spread"] = two_sided["ask_price"] - two_sided["bid_price"]
@@ -176,6 +181,7 @@ class AnalysisService:
             vpin=vpin,
             resilience_mean_ns=resilience_ns,
             market_ott_ratio=market_ott,
+            pct_time_two_sided=pct_two_sided,
         )
 
     # ==================================================================

@@ -206,6 +206,47 @@ class TestDatabaseAndRepository:
         assert updated_run.metrics_summary["sharpe"] == 1.5
         assert updated_run.metrics_summary["pnl"] == 5000.0
 
+    def test_one_sided_rows_round_trip(self, setup_db):
+        """One-sided book states (NaN bid OR ask) must survive save → retrieve."""
+        repo = ArtifactStore(setup_db)
+
+        session = repo.create_session("Test")
+        scenario = repo.create_scenario("Test Scenario", {})
+        iteration = repo.create_iteration(session.session_id, 1, "code")
+        run = repo.create_run(iteration.iteration_id, scenario.scenario_id, {})
+
+        now = datetime.now()
+        market_data = pd.DataFrame(
+            {
+                "time": [100, 200, 300, 400],
+                "bid_price": [100.0, float("nan"), 102.0, float("nan")],
+                "bid_qty": [10.0, float("nan"), 20.0, float("nan")],
+                "ask_price": [101.0, 101.5, float("nan"), float("nan")],
+                "ask_qty": [10.0, 15.0, float("nan"), float("nan")],
+                "timestamp": [now, now, now, now],
+            }
+        )
+
+        repo.save_market_data(run.run_id, market_data)
+        retrieved = repo.get_market_data(run.run_id)
+
+        # All 4 rows must survive (including one-sided and fully-NaN)
+        assert len(retrieved) == 4
+
+        # Row 0: fully two-sided
+        assert retrieved.iloc[0]["bid_price"] == 100.0
+        assert retrieved.iloc[0]["ask_price"] == 101.0
+
+        # Row 1: ask-only (bid NaN)
+        assert pd.isna(retrieved.iloc[1]["bid_price"])
+        assert pd.isna(retrieved.iloc[1]["bid_qty"])
+        assert retrieved.iloc[1]["ask_price"] == 101.5
+
+        # Row 2: bid-only (ask NaN)
+        assert retrieved.iloc[2]["bid_price"] == 102.0
+        assert pd.isna(retrieved.iloc[2]["ask_price"])
+        assert pd.isna(retrieved.iloc[2]["ask_qty"])
+
     def test_database_connection(self, setup_db):
         """Test that database connection works correctly."""
         db = setup_db

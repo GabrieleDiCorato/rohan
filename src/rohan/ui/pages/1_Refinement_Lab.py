@@ -1202,9 +1202,9 @@ if final_state is not None:
                             )
 
                         # Microstructure row
-                        _has_micro = any(getattr(sm, f, None) is not None for f in ("vpin", "lob_imbalance_mean", "market_ott_ratio"))
+                        _has_micro = any(getattr(sm, f, None) is not None for f in ("vpin", "lob_imbalance_mean", "market_ott_ratio", "pct_time_two_sided"))
                         if _has_micro:
-                            mm1, mm2, mm3, mm4 = st.columns(4)
+                            mm1, mm2, mm3, mm4, mm5 = st.columns(5)
 
                             def _fv(v: float | None, f: str = ".4f") -> str:
                                 return f"{v:{f}}" if v is not None else "N/A"
@@ -1218,6 +1218,9 @@ if final_state is not None:
                                 st.metric("Resilience", res_ms, help=get_help("resilience_mean_ns"))
                             with mm4:
                                 st.metric("OTT", _fv(sm.market_ott_ratio, ".2f"), help=get_help("market_ott_ratio"))
+                            with mm5:
+                                avail = f"{sm.pct_time_two_sided:.1%}" if sm.pct_time_two_sided is not None else "N/A"
+                                st.metric("Availability", avail, help=get_help("pct_time_two_sided"))
 
                         # Simulation charts
                         import base64

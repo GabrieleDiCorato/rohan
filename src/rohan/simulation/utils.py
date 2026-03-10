@@ -28,6 +28,7 @@ def _to_market_metrics(sim: "SimulationMetrics") -> MarketMetrics:
         vpin=sim.vpin,
         resilience_mean_ns=sim.resilience_mean_ns,
         market_ott_ratio=sim.market_ott_ratio,
+        pct_time_two_sided=sim.pct_time_two_sided,
     )
 
 
@@ -95,6 +96,7 @@ def run_with_baseline(
         vpin_delta_pct=_pct_change(strat_market.vpin, base_market.vpin),
         resilience_delta_pct=_pct_change(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
         ott_ratio_delta_pct=_pct_change(strat_market.market_ott_ratio, base_market.market_ott_ratio),
+        two_sided_delta_pct=_pct_change(strat_market.pct_time_two_sided, base_market.pct_time_two_sided),
     )
 
     return ComparisonResult(

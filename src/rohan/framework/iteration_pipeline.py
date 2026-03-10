@@ -275,6 +275,7 @@ class IterationPipeline:
             vpin_delta_pct=_pct_change(strat_market.vpin, base_market.vpin),
             resilience_delta_pct=_pct_change(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
             ott_ratio_delta_pct=_pct_change(strat_market.market_ott_ratio, base_market.market_ott_ratio),
+            two_sided_delta_pct=_pct_change(strat_market.pct_time_two_sided, base_market.pct_time_two_sided),
         )
 
         comparison = ComparisonResult(

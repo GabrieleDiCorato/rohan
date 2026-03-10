@@ -101,6 +101,7 @@ def get_logs_data(_result):
 def compute_price_data(_l1_df):
     """Cache price calculations."""
     df = _l1_df.copy()
+    df = df.dropna(subset=["bid_price", "ask_price"])
     df["mid_price"] = (df["bid_price"] + df["ask_price"]) / 2
     df["returns"] = df["mid_price"].pct_change().fillna(0)
     return df
@@ -110,6 +111,7 @@ def compute_price_data(_l1_df):
 def compute_volume_data(_l1_df):
     """Cache volume calculations."""
     df = _l1_df.copy()
+    df = df.dropna(subset=["bid_price", "ask_price"])
     df["volume_imbalance"] = (df["bid_qty"] - df["ask_qty"]) / (df["bid_qty"] + df["ask_qty"])
     return df
 
@@ -118,6 +120,7 @@ def compute_volume_data(_l1_df):
 def compute_spread_data(_l1_df):
     """Cache spread calculations."""
     df = _l1_df.copy()
+    df = df.dropna(subset=["bid_price", "ask_price"])
     df["spread"] = df["ask_price"] - df["bid_price"]
     df["mid_price"] = (df["bid_price"] + df["ask_price"]) / 2
     df["spread_bps"] = (df["spread"] / df["mid_price"]) * 10000
@@ -1060,7 +1063,7 @@ def render_execute_tab():
 
             # Microstructure quick row
             if any(v is not None for v in [metrics.vpin, metrics.lob_imbalance_mean, metrics.market_ott_ratio]):
-                qm1, qm2, qm3, qm4 = st.columns(4)
+                qm1, qm2, qm3, qm4, qm5 = st.columns(5)
                 with qm1:
                     d = metric_delta(metrics.vpin, prev.vpin if prev else None)
                     st.metric("VPIN", _m(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("vpin"), help=get_help("vpin"))
@@ -1085,6 +1088,16 @@ def render_execute_tab():
                         delta=f"{d:+.2f}" if d is not None else None,
                         delta_color=get_delta_color("market_ott_ratio"),
                         help=get_help("market_ott_ratio"),
+                    )
+                with qm5:
+                    avail_val = f"{metrics.pct_time_two_sided:.1%}" if metrics.pct_time_two_sided is not None else "N/A"
+                    d = metric_delta(metrics.pct_time_two_sided, prev.pct_time_two_sided if prev else None)
+                    st.metric(
+                        "Availability",
+                        avail_val,
+                        delta=f"{d:+.1%}" if d is not None else None,
+                        delta_color=get_delta_color("pct_time_two_sided"),
+                        help=get_help("pct_time_two_sided"),
                     )
 
         except Exception as e:
@@ -1233,7 +1246,7 @@ with tab2:
 
             # Microstructure metrics
             st.markdown("### 🔬 Microstructure")
-            mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+            mc1, mc2, mc3, mc4, mc5, mc6 = st.columns(6)
             with mc1:
                 d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
                 st.metric(
@@ -1268,6 +1281,10 @@ with tab2:
                 st.metric(
                     "Market OTT", _mv(metrics.market_ott_ratio, ".2f"), delta=f"{d:+.2f}" if d is not None else None, delta_color=get_delta_color("market_ott_ratio"), help=get_help("market_ott_ratio")
                 )
+            with mc6:
+                avail_val = f"{metrics.pct_time_two_sided:.1%}" if metrics.pct_time_two_sided is not None else "N/A"
+                d = metric_delta(metrics.pct_time_two_sided, prev.pct_time_two_sided if prev else None)
+                st.metric("Availability", avail_val, delta=f"{d:+.1%}" if d is not None else None, delta_color=get_delta_color("pct_time_two_sided"), help=get_help("pct_time_two_sided"))
 
             # ── Baseline Comparison (if available) ──────────────────
             bl_data = st.session_state.get("baseline_comparison")

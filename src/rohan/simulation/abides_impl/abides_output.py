@@ -151,6 +151,23 @@ class AbidesOutput(SimulationOutput):
         stored as ``float64`` in the DataFrame for NaN compatibility.
 
         Columns: time, bid_price, bid_qty, ask_price, ask_qty, timestamp
+
+        ABIDES data contract
+        ---------------------
+        Each row is a **complete snapshot** of the best-bid/best-ask after an
+        order-book event — NOT an incremental update.
+
+        When one side of the book is empty (e.g. no resting bids),
+        ``get_L1_snapshots()`` calls ``safe_first()`` which returns
+        ``np.array([None, None])`` for *both* price and quantity.  Therefore:
+
+        * NaN price and NaN qty **always co-occur** on the same side.
+        * A row with NaN bid_price / NaN bid_qty but valid ask represents a
+          one-sided (ask-only) book — a meaningful illiquidity state, not
+          missing data.
+
+        Downstream code MUST NOT drop these rows before computing metrics that
+        measure market availability (e.g. ``pct_time_two_sided``).
         """
         # `get_L1_snapshots()` returns lists of tuples like (time_ns, price,
         # qty). We convert to DataFrames and normalize column names so that

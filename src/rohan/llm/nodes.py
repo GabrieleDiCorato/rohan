@@ -55,34 +55,16 @@ from rohan.simulation.models.simulation_metrics import (
 from rohan.simulation.simulation_service import SimulationService
 from rohan.simulation.strategy_validator import StrategyValidator, execute_strategy_safely
 from rohan.simulation.utils import _pct_change, _to_market_metrics
+from rohan.utils.formatting import fmt_dollar, fmt_float, fmt_pct
 
 logger = logging.getLogger(__name__)
 
 
-# ─── Formatting helpers (consistent None→"N/A", proper negative signs) ────
+# ─── Formatting helpers (thin wrappers over rohan.utils.formatting) ───────
 
-
-def _fmt_dollar(cents: float | None) -> str:
-    """Format cents as ``$X.XX`` with proper negative sign, or ``N/A``."""
-    if cents is None:
-        return "N/A"
-    dollars = cents / 100.0
-    sign = "-" if dollars < 0 else ""
-    return f"{sign}${abs(dollars):,.2f}"
-
-
-def _fmt_pct(value: float | None, signed: bool = False) -> str:
-    """Format a fractional value as ``X.X%``, or ``N/A``."""
-    if value is None:
-        return "N/A"
-    return f"{value:+.1%}" if signed else f"{value:.1%}"
-
-
-def _fmt_float(value: float | None, fmt: str = ".2f") -> str:
-    """Format a float, or ``N/A``."""
-    if value is None:
-        return "N/A"
-    return f"{value:{fmt}}"
+_fmt_dollar = lambda cents: fmt_dollar(cents) if cents is not None else "N/A"  # noqa: E731
+_fmt_pct = fmt_pct
+_fmt_float = fmt_float
 
 
 def _render_per_scenario_feedback(
@@ -146,7 +128,8 @@ def writer_node(state: RefinementState) -> dict:
                     f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, "
                     f"Fill Rate={fill_str}, OTT={ott_str}, Sharpe={sharpe_str}, "
                     f"Max Drawdown={drawdown_str}, End Inventory={sr.end_inventory}, "
-                    f"Inventory Std={inv_std_str}, Vol Δ={vol_str}"
+                    f"Inventory Std={inv_std_str}, Vol Δ={vol_str}, "
+                    f"VPIN={_fmt_float(sr.vpin, '.4f')}, Availability={_fmt_pct(sr.pct_time_two_sided)}"
                 )
         metrics_summary = "\n".join(metrics_lines) if metrics_lines else "(no simulation results available)"
 
@@ -394,6 +377,7 @@ def process_scenario_node(state: RefinementState) -> dict:
             vpin_delta_pct=_pct_change(strat_market.vpin, base_market.vpin),
             resilience_delta_pct=_pct_change(strat_market.resilience_mean_ns, base_market.resilience_mean_ns),
             ott_ratio_delta_pct=_pct_change(strat_market.market_ott_ratio, base_market.market_ott_ratio),
+            two_sided_delta_pct=_pct_change(strat_market.pct_time_two_sided, base_market.pct_time_two_sided),
         )
 
         comparison = ComparisonResult(
@@ -507,6 +491,12 @@ def process_scenario_node(state: RefinementState) -> dict:
             baseline_traded_volume=base_market.traded_volume,
             bid_liquidity_delta_pct=impact.bid_liquidity_delta_pct,
             ask_liquidity_delta_pct=impact.ask_liquidity_delta_pct,
+            vpin=strat_market.vpin,
+            lob_imbalance_mean=strat_market.lob_imbalance_mean,
+            resilience_mean_ns=strat_market.resilience_mean_ns,
+            market_ott_ratio=strat_market.market_ott_ratio,
+            pct_time_two_sided=strat_market.pct_time_two_sided,
+            two_sided_delta_pct=impact.two_sided_delta_pct,
             price_chart_b64=price_chart_b64,
             spread_chart_b64=spread_chart_b64,
             volume_chart_b64=volume_chart_b64,
@@ -711,7 +701,9 @@ def _format_explanations(
                 f"PnL={pnl_str}, Trades={sr.trade_count}, Fill Rate={fill_str}, OTT={ott_str}, "
                 f"Sharpe={sharpe_str}, Max Drawdown={drawdown_str}, "
                 f"End Inventory={sr.end_inventory}, Inventory Std={inv_std_str}, "
-                f"Vol Δ={vol_str}, Spread Δ={spread_str}\n"
+                f"Vol Δ={vol_str}, Spread Δ={spread_str}, "
+                f"VPIN={_fmt_float(sr.vpin, '.4f')}, LOB Imb.={_fmt_float(sr.lob_imbalance_mean, '.4f')}, "
+                f"Availability={_fmt_pct(sr.pct_time_two_sided)}\n"
             )
         elif sr and sr.error:
             part += f"**Simulation Error:** {sr.error[:120]}\n"
@@ -770,6 +762,7 @@ def aggregator_node(state: RefinementState) -> dict:
             starting_capital_cents=sr.starting_capital_cents,
             baseline_mean_spread=sr.baseline_mean_spread,
             baseline_traded_volume=sr.baseline_traded_volume,
+            pct_time_two_sided_delta=sr.two_sided_delta_pct,
         )
         all_axis.append(axis)
 
@@ -842,7 +835,8 @@ def aggregator_node(state: RefinementState) -> dict:
                 f"- **{sr.scenario_name}:** PnL={pnl_str}, Trades={sr.trade_count}, "
                 f"Fill Rate={fill_str}, OTT={ott_str}, Sharpe={sharpe_str}, "
                 f"Max Drawdown={drawdown_str}, End Inventory={sr.end_inventory}, "
-                f"Inventory Std={inv_std_str}, Vol Δ={vol_str}, Spread Δ={spread_str}"
+                f"Inventory Std={inv_std_str}, Vol Δ={vol_str}, Spread Δ={spread_str}, "
+                f"VPIN={_fmt_float(sr.vpin, '.4f')}, Availability={_fmt_pct(sr.pct_time_two_sided)}"
             )
     current_metrics_block = "\n".join(current_metrics_lines) if current_metrics_lines else "(no results)"
 
@@ -927,6 +921,11 @@ def aggregator_node(state: RefinementState) -> dict:
             volatility_delta_pct=sr.volatility_delta_pct,
             spread_delta_pct=sr.spread_delta_pct,
             trade_count=sr.trade_count,
+            vpin=sr.vpin,
+            lob_imbalance_mean=sr.lob_imbalance_mean,
+            resilience_mean_ns=sr.resilience_mean_ns,
+            market_ott_ratio=sr.market_ott_ratio,
+            pct_time_two_sided=sr.pct_time_two_sided,
             price_chart_b64=sr.price_chart_b64,
             spread_chart_b64=sr.spread_chart_b64,
             volume_chart_b64=sr.volume_chart_b64,

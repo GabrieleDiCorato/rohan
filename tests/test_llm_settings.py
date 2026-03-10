@@ -64,7 +64,10 @@ class TestLLMSettings:
         with pytest.raises(ValidationError):
             LLMSettings(max_tokens=100, _env_file=None)  # type: ignore[call-arg]  # below 256
 
-    def test_no_api_keys_by_default(self):
+    def test_no_api_keys_by_default(self, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
         settings = LLMSettings(_env_file=None)  # type: ignore[call-arg]
         assert settings.openrouter_api_key is None
         assert settings.openai_api_key is None

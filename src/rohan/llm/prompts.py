@@ -248,6 +248,25 @@ adverse selection, counterparty data, and order lifecycle records.
 6. **Cross-reference code** — link observed patterns to specific methods
    or logic in the strategy source code.
 
+## Microstructure Interpretation Guide
+
+- **VPIN** (Volume-synchronised Probability of Informed Trading): 0–1.
+  Higher = more toxic flow.  Good strategies keep VPIN stable or lower it.
+- **LOB Imbalance**: ±1 range, 0 = balanced.  Persistent imbalance signals
+  adverse selection pressure.  Check if the strategy is the cause.
+- **Resilience** (mean spread recovery time): lower is better.  A strategy
+  that widens spread recovery harms market quality.
+- **OTT** (Order-to-Trade Ratio): lower is better.  High OTT means many
+  cancellations relative to fills — possible quote stuffing.
+- **Market Availability** (pct_time_two_sided): 0–1, fraction of time both
+  bid and ask are present.  Higher = healthier market.  If the strategy
+  reduces availability, it's removing liquidity.
+
+All Δ% metrics in the performance summary are relative to a **no-agent
+baseline** simulation.  Positive Δ means the strategy *increased* the metric;
+negative means it *decreased* it.  For VPIN and OTT, decreases are good.
+For Availability, increases are good.
+
 ## Output Requirements
 
 Produce a structured ``ScenarioExplanation`` with:
@@ -273,6 +292,9 @@ EXPLAINER_HUMAN_REACT = """\
 ## Strategy Performance Summary
 {interpreter_prompt}
 {regime_context}
+> Note: All Δ% metrics compare the strategy run against a **no-agent
+> baseline** simulation.  Positive means the strategy increased the metric.
+
 Investigate the simulation data using your tools.  Start with
 ``get_simulation_summary``, then drill into specific areas of concern.
 Your *recommendations* must reference specific methods or logic from the

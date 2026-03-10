@@ -105,6 +105,13 @@ class ScenarioMetrics(BaseModel):
     volatility_delta_pct: float | None = None
     spread_delta_pct: float | None = None
 
+    # Microstructure absolute values
+    vpin: float | None = None
+    lob_imbalance_mean: float | None = None
+    resilience_mean_ns: float | None = None
+    market_ott_ratio: float | None = None
+    pct_time_two_sided: float | None = None
+
     # Base64-encoded PNG charts (carried from ScenarioResult)
     price_chart_b64: str | None = None
     spread_chart_b64: str | None = None
