@@ -725,11 +725,18 @@ def _run_refinement(
                     progress.append(msg)
 
                 # ── Executor ──────────────────────────────────────
-                elif node_name == "executor":
+                elif node_name in ("executor", "process_scenario"):
                     results = node_output.get("scenario_results", [])
                     n_ok = sum(1 for r in results if not r.error)
-                    msg = f"✓ **Executor** — {n_ok}/{len(results)} scenario(s) succeeded ({elapsed:.1f}s)"
-                    st.write(msg)
+                    errors = [r for r in results if r.error]
+                    if errors:
+                        err_summary = "; ".join(f"{r.scenario_name}: {r.error[:120]}" for r in errors)
+                        msg = f"⚠️ **Executor** — {n_ok}/{len(results)} succeeded, {len(errors)} failed ({elapsed:.1f}s)"
+                        st.write(msg)
+                        st.error(f"Scenario errors: {err_summary}")
+                    else:
+                        msg = f"✓ **Executor** — {n_ok}/{len(results)} scenario(s) succeeded ({elapsed:.1f}s)"
+                        st.write(msg)
                     progress.append(msg)
 
                 # ── Explainer ─────────────────────────────────────

@@ -90,7 +90,10 @@ def validation_router(state: RefinementState):
     attempts = state.get("validation_attempts", 0)
 
     if not errors:
-        return [Send("process_scenario", {"active_scenario": sc}) for sc in state.get("scenarios", [])]
+        # Send must include the full parent state — LangGraph Send does NOT
+        # inherit the parent graph state, so without this, process_scenario_node
+        # would not see current_code, goal, etc.
+        return [Send("process_scenario", {**state, "active_scenario": sc}) for sc in state.get("scenarios", [])]
     if attempts >= MAX_VALIDATION_RETRIES:
         logger.warning("Max validation retries (%d) exceeded", MAX_VALIDATION_RETRIES)
         return "fail"
