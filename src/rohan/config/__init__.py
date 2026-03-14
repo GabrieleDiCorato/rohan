@@ -2,6 +2,11 @@ from .agent_settings import (
     AdaptiveMarketMakerSettings,
     AgentSettings,
     ExchangeAgentSettings,
+    HistoricalOracleSettings,
+    MomentumAgentSettings,
+    NoiseAgentSettings,
+    OracleSettings,
+    OracleType,
     ValueAgentSettings,
 )
 from .database_settings import DatabaseSettings
@@ -16,6 +21,11 @@ __all__ = [
     "LLMSettings",
     "SimulationSettings",
     "SimulationEngine",
+    "MomentumAgentSettings",
+    "NoiseAgentSettings",
+    "OracleSettings",
+    "OracleType",
+    "HistoricalOracleSettings",
     "AgentSettings",
     "AdaptiveMarketMakerSettings",
     "ExchangeAgentSettings",

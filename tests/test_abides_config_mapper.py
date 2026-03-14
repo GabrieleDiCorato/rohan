@@ -215,6 +215,38 @@ class TestOracle:
         oracle = AbidesConfigMapper._build_oracle(settings, mkt_open, noise_mkt_close, handler)
         assert isinstance(oracle, SparseMeanRevertingOracle)
 
+    def test_historical_oracle_returns_external_data_oracle(self, tmp_path):
+        import pandas as pd
+        from abides_markets.oracles import ExternalDataOracle
+
+        from rohan.config import HistoricalOracleSettings, OracleType
+
+        # Setup mock CSV
+        csv_path = tmp_path / "mock.csv"
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-30T09:00:00", "2026-01-30T16:00:00", freq="1min"),
+            }
+        )
+        df["price_cents"] = 100000
+        df.to_csv(csv_path, index=False)
+
+        settings = _default_settings()
+        settings.date = "20260130"
+        settings.ticker = "ABM"
+        settings.agents.oracle.oracle_type = OracleType.HISTORICAL
+        settings.agents.oracle.historical = HistoricalOracleSettings(provider_type="CSV", csv_path=str(csv_path), interpolation="ffill")
+
+        handler = RandomStateHandler(42)
+        from abides_core.utils import str_to_ns
+
+        date = int(pd.to_datetime(settings.date).value)
+        mkt_open = date + str_to_ns(settings.start_time)
+        noise_mkt_close = date + str_to_ns("16:00:00")
+
+        oracle = AbidesConfigMapper._build_oracle(settings, mkt_open, noise_mkt_close, handler)
+        assert isinstance(oracle, ExternalDataOracle)
+
 
 # ---------------------------------------------------------------------------
 # Reproducibility

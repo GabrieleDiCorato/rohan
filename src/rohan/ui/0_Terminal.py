@@ -11,6 +11,7 @@ import html
 import logging
 import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import TypedDict
 
 import plotly.graph_objects as go
@@ -22,9 +23,11 @@ from rohan.config.agent_settings import (
     AdaptiveMarketMakerSettings,
     AgentSettings,
     ExchangeAgentSettings,
+    HistoricalOracleSettings,
     MomentumAgentSettings,
     NoiseAgentSettings,
     OracleSettings,
+    OracleType,
     ValueAgentSettings,
 )
 from rohan.config.latency_settings import LatencyModelSettings, LatencyType
@@ -556,48 +559,106 @@ def render_sidebar_config():
 
     # Oracle Settings
     with st.expander("🔮 ORACLE"):
-        oracle_kappa = compact_input(
-            "Kappa",
-            "number",
-            "cfg_oracle_kappa",
-            value=config.agents.oracle.kappa,
-            format="%.2e",
+        oracle_type_str = st.radio(
+            "Oracle Type",
+            options=[OracleType.SYNTHETIC.value, OracleType.HISTORICAL.value],
+            index=0 if config.agents.oracle.oracle_type == OracleType.SYNTHETIC else 1,
+            horizontal=True,
+            key=f"cfg_oracle_type_{st.session_state.config_reset_counter}",
         )
-        oracle_sigma_s = compact_input(
-            "Sigma S",
-            "number",
-            "cfg_oracle_sigma_s",
-            value=config.agents.oracle.sigma_s,
-            format="%.2e",
-        )
-        oracle_fund_vol = compact_input(
-            "Fund Vol",
-            "number",
-            "cfg_oracle_fund_vol",
-            value=config.agents.oracle.fund_vol,
-            format="%.2e",
-        )
-        oracle_megashock_lambda = compact_input(
-            "Megashock Lambda",
-            "number",
-            "cfg_oracle_megashock_lambda",
-            value=config.agents.oracle.megashock_lambda_a,
-            format="%.2e",
-        )
-        oracle_megashock_mean = compact_input(
-            "Megashock Mean",
-            "number",
-            "cfg_oracle_megashock_mean",
-            value=config.agents.oracle.megashock_mean,
-            min_value=0,
-        )
-        oracle_megashock_var = compact_input(
-            "Megashock Var",
-            "number",
-            "cfg_oracle_megashock_var",
-            value=config.agents.oracle.megashock_var,
-            min_value=0,
-        )
+        oracle_type = OracleType(oracle_type_str)
+        historical_csv_path: str | None = None
+
+        if oracle_type == OracleType.SYNTHETIC:
+            oracle_kappa = compact_input(
+                "Kappa",
+                "number",
+                "cfg_oracle_kappa",
+                value=config.agents.oracle.kappa,
+                format="%.2e",
+            )
+            oracle_sigma_s = compact_input(
+                "Sigma S",
+                "number",
+                "cfg_oracle_sigma_s",
+                value=config.agents.oracle.sigma_s,
+                format="%.2e",
+            )
+            oracle_fund_vol = compact_input(
+                "Fund Vol",
+                "number",
+                "cfg_oracle_fund_vol",
+                value=config.agents.oracle.fund_vol,
+                format="%.2e",
+            )
+            oracle_megashock_lambda = compact_input(
+                "Megashock Lambda",
+                "number",
+                "cfg_oracle_megashock_lambda",
+                value=config.agents.oracle.megashock_lambda_a,
+                format="%.2e",
+            )
+            oracle_megashock_mean = compact_input(
+                "Megashock Mean",
+                "number",
+                "cfg_oracle_megashock_mean",
+                value=config.agents.oracle.megashock_mean,
+                min_value=0,
+            )
+            oracle_megashock_var = compact_input(
+                "Megashock Var",
+                "number",
+                "cfg_oracle_megashock_var",
+                value=config.agents.oracle.megashock_var,
+                min_value=0,
+            )
+        else:
+            import pandas as pd
+
+            from rohan.simulation.data.csv_provider import CsvDataProvider
+
+            datasets_dir = Path("src/rohan/simulation/data/datasets")
+            datasets_dir.mkdir(parents=True, exist_ok=True)
+            available_csvs = CsvDataProvider.list_available(datasets_dir)
+
+            if not available_csvs:
+                st.warning("No CSV datasets found in `src/rohan/simulation/data/datasets/`")
+                historical_csv = None
+            else:
+                historical_csv = st.selectbox(
+                    "Historical Dataset",
+                    options=available_csvs,
+                    help="Select a CSV dataset. Look inside `src/rohan/simulation/data/datasets/`",
+                    key=f"cfg_oracle_historical_csv_{st.session_state.config_reset_counter}",
+                )
+
+            historical_interpolation = compact_input(
+                "Interpolation",
+                "selectbox",
+                "cfg_oracle_historical_interp",
+                options=["ffill", "nearest", "linear"],
+                index=0,
+            )
+
+            historical_recenter = compact_input(
+                "Recenter to R_Bar",
+                "checkbox",
+                "cfg_oracle_historical_recenter",
+                value=config.agents.oracle.historical.recenter_r_bar,
+            )
+
+            if historical_csv:
+                csv_path = datasets_dir / f"{historical_csv}.csv"
+                historical_csv_path = str(csv_path)
+                try:
+                    df = pd.read_csv(csv_path)
+                    if "timestamp" in df.columns and "price_cents" in df.columns:
+                        df["timestamp"] = pd.to_datetime(df["timestamp"])
+                        df.set_index("timestamp", inplace=True)
+                        st.markdown("**Preview**")
+                        st.line_chart(df["price_cents"] / 100, height=200, y_label="Price ($)")
+                except Exception as e:
+                    st.error(f"Cannot preview {historical_csv}: {e}")
 
     # Latency Model
     with st.expander("⏱️ LATENCY"):
@@ -678,13 +739,26 @@ def render_sidebar_config():
                     wake_up_freq=str(momentum_wake_up_freq),
                     poisson_arrival=bool(momentum_poisson),
                 ),
-                oracle=OracleSettings(
-                    kappa=float(oracle_kappa),  # pyright: ignore[reportArgumentType]
-                    sigma_s=float(oracle_sigma_s),  # pyright: ignore[reportArgumentType]
-                    fund_vol=float(oracle_fund_vol),  # pyright: ignore[reportArgumentType]
-                    megashock_lambda_a=float(oracle_megashock_lambda),  # pyright: ignore[reportArgumentType]
-                    megashock_mean=int(oracle_megashock_mean),  # pyright: ignore[reportArgumentType]
-                    megashock_var=int(oracle_megashock_var),  # pyright: ignore[reportArgumentType]
+                oracle=(
+                    OracleSettings(
+                        oracle_type=OracleType.SYNTHETIC,
+                        kappa=float(oracle_kappa),  # pyright: ignore[reportArgumentType]
+                        sigma_s=float(oracle_sigma_s),  # pyright: ignore[reportArgumentType]
+                        fund_vol=float(oracle_fund_vol),  # pyright: ignore[reportArgumentType]
+                        megashock_lambda_a=float(oracle_megashock_lambda),  # pyright: ignore[reportArgumentType]
+                        megashock_mean=int(oracle_megashock_mean),  # pyright: ignore[reportArgumentType]
+                        megashock_var=int(oracle_megashock_var),  # pyright: ignore[reportArgumentType]
+                    )
+                    if oracle_type == OracleType.SYNTHETIC
+                    else OracleSettings(
+                        oracle_type=OracleType.HISTORICAL,
+                        historical=HistoricalOracleSettings(
+                            provider_type="CSV",
+                            csv_path=historical_csv_path,
+                            interpolation=str(historical_interpolation),
+                            recenter_r_bar=bool(historical_recenter),
+                        ),
+                    )
                 ),
             )
 
@@ -915,10 +989,18 @@ def render_execute_tab():
 
         with col2:
             st.markdown("**Oracle Settings**")
-            st.markdown(f"- **Kappa:** {config.agents.oracle.kappa:.2e}")
-            st.markdown(f"- **Sigma S:** {config.agents.oracle.sigma_s:.2e}")
-            st.markdown(f"- **Fund Vol:** {config.agents.oracle.fund_vol:.2e}")
-            st.markdown(f"- **Megashock Lambda:** {config.agents.oracle.megashock_lambda_a:.2e}")
+            st.markdown(f"- **Type:** {config.agents.oracle.oracle_type.value}")
+            if config.agents.oracle.oracle_type == OracleType.SYNTHETIC:
+                st.markdown(f"- **Kappa:** {config.agents.oracle.kappa:.2e}")
+                st.markdown(f"- **Sigma S:** {config.agents.oracle.sigma_s:.2e}")
+                st.markdown(f"- **Fund Vol:** {config.agents.oracle.fund_vol:.2e}")
+                st.markdown(f"- **Megashock Lambda:** {config.agents.oracle.megashock_lambda_a:.2e}")
+            else:
+                historical = config.agents.oracle.historical
+                path_str = Path(historical.csv_path).stem if historical.csv_path else "None"
+                st.markdown(f"- **Dataset:** {path_str}")
+                st.markdown(f"- **Interpolation:** {historical.interpolation}")
+                st.markdown(f"- **Recenter:** {historical.recenter_r_bar}")
             st.markdown("")
 
             st.markdown("**Value Agents**")

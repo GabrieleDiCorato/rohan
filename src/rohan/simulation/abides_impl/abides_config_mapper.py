@@ -11,7 +11,8 @@ from abides_markets.agents import (
 )
 from abides_markets.agents.financial_agent import FinancialAgent
 from abides_markets.models import OrderSizeModel
-from abides_markets.oracles import SparseMeanRevertingOracle
+from abides_markets.oracles import ExternalDataOracle, SparseMeanRevertingOracle
+from abides_markets.oracles.data_providers import InterpolationStrategy
 from abides_markets.utils import (
     generate_uniform_random_pairwise_dist_on_line,
     meters_to_light_ns,
@@ -21,11 +22,15 @@ from rohan.config import (
     AdaptiveMarketMakerSettings,
     AgentSettings,
     ExchangeAgentSettings,
+    HistoricalOracleSettings,
     LatencyModelSettings,
     LatencyType,
+    OracleSettings,
+    OracleType,
     SimulationSettings,
     ValueAgentSettings,
 )
+from rohan.simulation.data.csv_provider import CsvDataProvider
 from rohan.simulation.models.strategy_api import StrategicAgent
 
 from .random_state_handler import RandomStateHandler
@@ -263,22 +268,69 @@ class AbidesConfigMapper:
         mkt_open: int,
         noise_mkt_close: int,
         random_state_handler: RandomStateHandler,
+    ) -> SparseMeanRevertingOracle | ExternalDataOracle:
+        oracle_settings: OracleSettings = settings.agents.oracle
+
+        if oracle_settings.oracle_type == OracleType.HISTORICAL:
+            return AbidesConfigMapper._build_historical_oracle(settings, oracle_settings.historical, mkt_open, noise_mkt_close)
+
+        return AbidesConfigMapper._build_synthetic_oracle(settings, oracle_settings, mkt_open, noise_mkt_close, random_state_handler)
+
+    @staticmethod
+    def _build_synthetic_oracle(
+        settings: SimulationSettings,
+        oracle_settings: OracleSettings,
+        mkt_open: int,
+        noise_mkt_close: int,
+        random_state_handler: RandomStateHandler,
     ) -> SparseMeanRevertingOracle:
         agent_settings: AgentSettings = settings.agents
 
         symbols = {
             settings.ticker: {
                 "r_bar": agent_settings.value.r_bar,
-                "kappa": agent_settings.oracle.kappa,
-                "sigma_s": agent_settings.oracle.sigma_s,
-                "fund_vol": agent_settings.oracle.fund_vol,
-                "megashock_lambda_a": agent_settings.oracle.megashock_lambda_a,
-                "megashock_mean": agent_settings.oracle.megashock_mean,
-                "megashock_var": agent_settings.oracle.megashock_var,
+                "kappa": oracle_settings.kappa,
+                "sigma_s": oracle_settings.sigma_s,
+                "fund_vol": oracle_settings.fund_vol,
+                "megashock_lambda_a": oracle_settings.megashock_lambda_a,
+                "megashock_mean": oracle_settings.megashock_mean,
+                "megashock_var": oracle_settings.megashock_var,
                 "random_state": random_state_handler.oracle_state,
             }
         }
         return SparseMeanRevertingOracle(mkt_open, noise_mkt_close, symbols)
+
+    @staticmethod
+    def _build_historical_oracle(
+        settings: SimulationSettings,
+        historical_settings: HistoricalOracleSettings,
+        mkt_open: int,
+        noise_mkt_close: int,
+    ) -> ExternalDataOracle:
+        if not historical_settings.csv_path:
+            raise ValueError("csv_path must be provided for historical oracle")
+
+        r_bar = settings.agents.value.r_bar if historical_settings.recenter_r_bar else None
+
+        provider = CsvDataProvider(
+            path=historical_settings.csv_path,
+            symbol=settings.ticker,
+            r_bar=r_bar,
+        )
+
+        # Abides-rohan provides InterpolationStrategy enum matching our string
+        try:
+            interpolation = InterpolationStrategy(historical_settings.interpolation)
+        except ValueError:
+            interpolation = InterpolationStrategy.FORWARD_FILL
+
+        return ExternalDataOracle(
+            mkt_open=mkt_open,
+            mkt_close=noise_mkt_close,
+            symbols=[settings.ticker],
+            provider=provider,
+            interpolation=interpolation,
+        )
 
     @staticmethod
     def _build_latency_model(

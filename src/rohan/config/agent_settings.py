@@ -15,6 +15,13 @@ class AgentType(str, Enum):
     MOMENTUM = "MomentumAgent"
 
 
+class OracleType(str, Enum):
+    """Specifies the type of oracle in the simulation."""
+
+    SYNTHETIC = "SYNTHETIC"
+    HISTORICAL = "HISTORICAL"
+
+
 class BaseAgentSettings(BaseModel):
     """Base settings for all agent types."""
 
@@ -151,15 +158,30 @@ class MomentumAgentSettings(BaseAgentSettings):
             raise ValueError(f"min_size ({self.min_size}) must be ≤ max_size ({self.max_size})")
 
 
+class HistoricalOracleSettings(BaseModel):
+    """Configuration for historical data oracles."""
+
+    provider_type: str = Field(default="CSV", description="Data provider type (e.g. CSV)")
+    csv_path: str | None = Field(default=None, description="Path to the historical CSV data file")
+    interpolation: str = Field(default="ffill", description="Interpolation strategy for missing points")
+    recenter_r_bar: bool = Field(default=False, description="Whether to re-center the historical dataset to the value agent r_bar")
+
+
 class OracleSettings(BaseModel):
     """Configuration for the oracle."""
 
+    oracle_type: OracleType = Field(default=OracleType.SYNTHETIC, description="Type of oracle behavior")
+
+    # Synthetic oracle params
     kappa: float = Field(default=1.67e-16, description="Mean-reversion of fundamental time series")
     sigma_s: float = Field(default=0, description="Sigma s parameter")
     fund_vol: float = Field(default=5e-5, description="Volatility of fundamental time series (std)")
     megashock_lambda_a: float = Field(default=2.77778e-18, description="Megashock lambda a (arrival rate)")
     megashock_mean: int = Field(default=1000, description="Megashock mean in cents")
     megashock_var: int = Field(default=50_000, description="Megashock variance")
+
+    # Historical oracle params
+    historical: HistoricalOracleSettings = Field(default_factory=HistoricalOracleSettings, description="Settings for historical data")
 
     @field_validator("megashock_mean")
     @classmethod
