@@ -11,6 +11,7 @@ import html
 import logging
 import traceback
 from datetime import datetime
+from typing import TypedDict
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -27,10 +28,16 @@ from rohan.config.agent_settings import (
     ValueAgentSettings,
 )
 from rohan.config.latency_settings import LatencyModelSettings, LatencyType
+from rohan.exceptions import BaselineComparisonError
 from rohan.framework.analysis_service import AnalysisService
 from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.simulation.simulation_service import SimulationService
-from rohan.ui.utils.metric_display import build_comparison_table, get_delta_color, get_help, metric_delta
+from rohan.ui.utils.baseline_comparison import (
+    build_baseline_context_table,
+    ensure_baseline_comparable,
+    get_baseline_compatibility_issues,
+)
+from rohan.ui.utils.metric_display import DeltaColor, build_comparison_table, get_delta_color, get_help, metric_delta
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.startup import ensure_db_initialized
 from rohan.ui.utils.theme import COLORS, apply_theme
@@ -125,6 +132,60 @@ def compute_spread_data(_l1_df):
     df["mid_price"] = (df["bid_price"] + df["ask_price"]) / 2
     df["spread_bps"] = (df["spread"] / df["mid_price"]) * 10000
     return df
+
+
+class MetricItem(TypedDict):
+    label: str
+    value: str
+    delta: str | None
+    delta_color: DeltaColor
+    help: str | None
+
+
+def _metric_item(
+    label: str,
+    value: str,
+    *,
+    delta: str | None,
+    field: str,
+) -> MetricItem:
+    """Create a metric payload for compact column rendering."""
+    return {
+        "label": label,
+        "value": value,
+        "delta": delta,
+        "delta_color": get_delta_color(field),
+        "help": get_help(field),
+    }
+
+
+def _render_metric_columns(metric_items: list[MetricItem], *, column_count: int = 2) -> None:
+    """Render metrics in balanced vertical columns for easier scanning."""
+    if not metric_items:
+        return
+
+    columns = st.columns(column_count)
+    chunk_size = (len(metric_items) + column_count - 1) // column_count
+
+    for index, column in enumerate(columns):
+        start = index * chunk_size
+        end = start + chunk_size
+        with column:
+            for metric in metric_items[start:end]:
+                st.metric(
+                    metric["label"],
+                    metric["value"],
+                    delta=metric["delta"],
+                    delta_color=metric["delta_color"],
+                    help=metric["help"],
+                )
+
+
+def _render_comparison_context(current_config: SimulationSettings, baseline_config: SimulationSettings) -> None:
+    """Render fairness-critical comparison metadata."""
+    context_df = build_baseline_context_table(current_config, baseline_config)
+    st.caption("Fair comparison check: date, time window, duration, and seed should align before comparing market metrics.")
+    st.dataframe(context_df, width="stretch", hide_index=True)
 
 
 # ============================================================================
@@ -884,10 +945,12 @@ def render_execute_tab():
 
     _baseline_options: list[str] = ["None"]
     _baseline_id_map: dict[str, str] = {}  # display label → scenario_id
+    _baseline_scenario_map = {}
     for _sc in _saved_scenarios:
         _label = _sc.name
         _baseline_options.append(_label)
         _baseline_id_map[_label] = str(_sc.scenario_id)
+        _baseline_scenario_map[_label] = _sc
 
     _baseline_choice = st.selectbox(
         "Baseline scenario",
@@ -897,6 +960,34 @@ def render_execute_tab():
         key="baseline_selector",
     )
     st.session_state.baseline_scenario_id = _baseline_id_map.get(_baseline_choice)  # None when "None"
+
+    _selected_baseline = _baseline_scenario_map.get(_baseline_choice)
+    _baseline_preview_config: SimulationSettings | None = None
+    _baseline_preview_error: str | None = None
+    _baseline_issues: list[str] = []
+
+    if _selected_baseline is None:
+        st.caption("Optional: pick a saved scenario to run as a baseline against the current applied configuration.")
+    elif _selected_baseline.full_config is None:
+        _baseline_preview_error = "Selected baseline has no saved configuration snapshot."
+    else:
+        try:
+            _baseline_preview_config = SimulationSettings.model_validate(_selected_baseline.full_config)
+            _baseline_issues = get_baseline_compatibility_issues(config, _baseline_preview_config)
+        except Exception as _preview_err:
+            _baseline_preview_error = f"Could not load selected baseline: {_preview_err}"
+
+    if _selected_baseline is not None:
+        if _baseline_preview_error is not None:
+            st.error(_baseline_preview_error)
+        elif _baseline_preview_config is not None:
+            st.caption(f"Selected baseline: **{_selected_baseline.name}** · Created: {_selected_baseline.created_at:%Y-%m-%d %H:%M}")
+            _render_comparison_context(config, _baseline_preview_config)
+
+            if _baseline_issues:
+                st.warning("Comparison will be skipped until these fairness checks match:\n" + "\n".join(f"- {issue}" for issue in _baseline_issues))
+            else:
+                st.success("Baseline is eligible for comparison. The Terminal will run it after the current simulation completes.")
 
     st.markdown("---")
 
@@ -975,18 +1066,24 @@ def render_execute_tab():
             st.success(f"🎉 Simulation completed successfully in {duration:.2f} seconds!")
 
             # ── Baseline run (if a saved scenario was selected) ─────
-            _bl_scenario_id = st.session_state.baseline_scenario_id
-            if _bl_scenario_id is not None:
-                from uuid import UUID as _UUID
-
-                _bl_scenario = _scenario_repo.get_scenario(_UUID(_bl_scenario_id))
-                if _bl_scenario is not None and _bl_scenario.full_config is not None:
-                    bl_status = st.status(f"🔄 Running baseline: {_bl_scenario.name}…", expanded=True)
+            if _selected_baseline is not None:
+                if _baseline_preview_error is not None:
+                    st.warning(f"Baseline comparison skipped: {_baseline_preview_error}")
+                    st.session_state.baseline_comparison = None
+                elif _baseline_preview_config is None:
+                    st.warning("Baseline comparison skipped: baseline configuration is unavailable.")
+                    st.session_state.baseline_comparison = None
+                elif _baseline_issues:
+                    st.warning("Baseline comparison skipped because the selected scenario is not comparable with the current run:\n" + "\n".join(f"- {issue}" for issue in _baseline_issues))
+                    st.session_state.baseline_comparison = None
+                else:
+                    bl_status = st.status(f"🔄 Running baseline: {_selected_baseline.name}…", expanded=True)
                     try:
                         with bl_status:
-                            st.write(f"⏳ Running baseline scenario **{_bl_scenario.name}**…")
+                            st.write(f"⏳ Running baseline scenario **{_selected_baseline.name}**…")
 
-                            baseline_config = SimulationSettings.model_validate(_bl_scenario.full_config)
+                            baseline_config = _baseline_preview_config
+                            ensure_baseline_comparable(config, baseline_config)
                             bl_service = SimulationService()
                             bl_start = datetime.now()
                             bl_result = bl_service.run_simulation(baseline_config)
@@ -1004,20 +1101,25 @@ def render_execute_tab():
                             bl_metrics = AnalysisService.compute_metrics(bl_output)
 
                             st.session_state.baseline_comparison = {
-                                "name": _bl_scenario.name,
+                                "name": _selected_baseline.name,
                                 "metrics": bl_metrics,
                                 "timestamp": datetime.now(),
+                                "config_snapshot": {
+                                    "current": config.model_dump(),
+                                    "baseline": baseline_config.model_dump(),
+                                },
                             }
                             st.write("✓ Comparison ready.")
 
                         bl_status.update(label="✅ Baseline Complete!", state="complete", expanded=False)
 
+                    except BaselineComparisonError as bl_err:
+                        bl_status.update(label="⚠️ Baseline Comparison Skipped", state="error", expanded=True)
+                        st.warning(f"Baseline comparison skipped: {bl_err}")
+                        st.session_state.baseline_comparison = None
                     except Exception as bl_err:
                         bl_status.update(label="❌ Baseline Failed", state="error", expanded=True)
                         st.error(f"Baseline comparison failed: {bl_err}")
-                else:
-                    st.warning("⚠️ Selected baseline scenario not found — skipping comparison.")
-                    st.session_state.baseline_comparison = None
             else:
                 st.session_state.baseline_comparison = None
 
@@ -1026,79 +1128,45 @@ def render_execute_tab():
 
             prev = st.session_state.get("previous_metrics")
 
-            col1, col2, col3, col4 = st.columns(4)
-
             def _m(v: float | None, fmt: str = ".6f") -> str:
                 return f"{v:{fmt}}" if v is not None else "N/A"
 
-            with col1:
-                d = metric_delta(metrics.volatility, prev.volatility if prev else None)
-                st.metric("Volatility", _m(metrics.volatility, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("volatility"), help=get_help("volatility"))
+            quick_metrics: list[MetricItem] = []
 
-            with col2:
-                val = fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A"
-                d = metric_delta(metrics.mean_spread, prev.mean_spread if prev else None)
-                d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
-                st.metric("Mean Spread", val, delta=d_str, delta_color=get_delta_color("mean_spread"), help=get_help("mean_spread"))
+            d = metric_delta(metrics.volatility, prev.volatility if prev else None)
+            quick_metrics.append(_metric_item("Volatility", _m(metrics.volatility, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="volatility"))
 
-            with col3:
-                d = metric_delta(metrics.avg_bid_liquidity, prev.avg_bid_liquidity if prev else None)
-                st.metric(
-                    "Avg Bid Liquidity",
-                    _m(metrics.avg_bid_liquidity, ".2f"),
-                    delta=f"{d:+.2f}" if d is not None else None,
-                    delta_color=get_delta_color("avg_bid_liquidity"),
-                    help=get_help("avg_bid_liquidity"),
-                )
+            mean_spread_val = fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A"
+            d = metric_delta(metrics.mean_spread, prev.mean_spread if prev else None)
+            mean_spread_delta = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
+            quick_metrics.append(_metric_item("Mean Spread", mean_spread_val, delta=mean_spread_delta, field="mean_spread"))
 
-            with col4:
-                d = metric_delta(metrics.avg_ask_liquidity, prev.avg_ask_liquidity if prev else None)
-                st.metric(
-                    "Avg Ask Liquidity",
-                    _m(metrics.avg_ask_liquidity, ".2f"),
-                    delta=f"{d:+.2f}" if d is not None else None,
-                    delta_color=get_delta_color("avg_ask_liquidity"),
-                    help=get_help("avg_ask_liquidity"),
-                )
+            d = metric_delta(metrics.avg_bid_liquidity, prev.avg_bid_liquidity if prev else None)
+            quick_metrics.append(_metric_item("Avg Bid Liquidity", _m(metrics.avg_bid_liquidity, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="avg_bid_liquidity"))
 
-            # Microstructure quick row
+            d = metric_delta(metrics.avg_ask_liquidity, prev.avg_ask_liquidity if prev else None)
+            quick_metrics.append(_metric_item("Avg Ask Liquidity", _m(metrics.avg_ask_liquidity, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="avg_ask_liquidity"))
+
+            # Add microstructure metrics when available.
             if any(v is not None for v in [metrics.vpin, metrics.lob_imbalance_mean, metrics.market_ott_ratio]):
-                qm1, qm2, qm3, qm4, qm5 = st.columns(5)
-                with qm1:
-                    d = metric_delta(metrics.vpin, prev.vpin if prev else None)
-                    st.metric("VPIN", _m(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("vpin"), help=get_help("vpin"))
-                with qm2:
-                    d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
-                    st.metric(
-                        "LOB Imbalance",
-                        _m(metrics.lob_imbalance_mean, ".4f"),
-                        delta=f"{d:+.4f}" if d is not None else None,
-                        delta_color=get_delta_color("lob_imbalance_mean"),
-                        help=get_help("lob_imbalance_mean"),
-                    )
-                with qm3:
-                    vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
-                    d = metric_delta(metrics.traded_volume, prev.traded_volume if prev else None)
-                    st.metric("Traded Volume", vol_str, delta=f"{d:+,}" if d is not None else None, delta_color=get_delta_color("traded_volume"), help=get_help("traded_volume"))
-                with qm4:
-                    d = metric_delta(metrics.market_ott_ratio, prev.market_ott_ratio if prev else None)
-                    st.metric(
-                        "Market OTT",
-                        _m(metrics.market_ott_ratio, ".2f"),
-                        delta=f"{d:+.2f}" if d is not None else None,
-                        delta_color=get_delta_color("market_ott_ratio"),
-                        help=get_help("market_ott_ratio"),
-                    )
-                with qm5:
-                    avail_val = f"{metrics.pct_time_two_sided:.1%}" if metrics.pct_time_two_sided is not None else "N/A"
-                    d = metric_delta(metrics.pct_time_two_sided, prev.pct_time_two_sided if prev else None)
-                    st.metric(
-                        "Availability",
-                        avail_val,
-                        delta=f"{d:+.1%}" if d is not None else None,
-                        delta_color=get_delta_color("pct_time_two_sided"),
-                        help=get_help("pct_time_two_sided"),
-                    )
+                d = metric_delta(metrics.vpin, prev.vpin if prev else None)
+                quick_metrics.append(_metric_item("VPIN", _m(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="vpin"))
+
+                d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
+                quick_metrics.append(_metric_item("LOB Imbalance", _m(metrics.lob_imbalance_mean, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="lob_imbalance_mean"))
+
+                volume_val = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
+                d = metric_delta(metrics.traded_volume, prev.traded_volume if prev else None)
+                quick_metrics.append(_metric_item("Traded Volume", volume_val, delta=f"{d:+,}" if d is not None else None, field="traded_volume"))
+
+                d = metric_delta(metrics.market_ott_ratio, prev.market_ott_ratio if prev else None)
+                quick_metrics.append(_metric_item("Market OTT", _m(metrics.market_ott_ratio, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="market_ott_ratio"))
+
+                availability_val = f"{metrics.pct_time_two_sided:.1%}" if metrics.pct_time_two_sided is not None else "N/A"
+                d = metric_delta(metrics.pct_time_two_sided, prev.pct_time_two_sided if prev else None)
+                quick_metrics.append(_metric_item("Availability", availability_val, delta=f"{d:+.1%}" if d is not None else None, field="pct_time_two_sided"))
+
+            _render_metric_columns(quick_metrics, column_count=2)
 
         except Exception as e:
             status_container.update(label="❌ Simulation Failed", state="error", expanded=True)
@@ -1130,9 +1198,15 @@ def render_execute_tab():
 
         bm = bl_data["metrics"]
         cur = st.session_state.simulation_metrics
+        snapshots = bl_data.get("config_snapshot")
+
+        if snapshots is not None:
+            current_config = SimulationSettings.model_validate(snapshots["current"])
+            baseline_config = SimulationSettings.model_validate(snapshots["baseline"])
+            _render_comparison_context(current_config, baseline_config)
 
         cmp_df = build_comparison_table(cur, bm)
-        st.dataframe(cmp_df.set_index("Metric"), use_container_width=True)
+        st.dataframe(cmp_df.set_index("Metric"), width="stretch")
 
     # Execution History
     if "simulation_timestamp" in st.session_state:
@@ -1198,93 +1272,67 @@ with tab2:
             def _mv(v: float | None, fmt: str = ".6f") -> str:
                 return f"{v:{fmt}}" if v is not None else "N/A"
 
-            col1, col2, col3 = st.columns(3)
-
             if metrics is None:
                 st.warning("Metrics not available.")
                 return
 
-            with col1:
-                d = metric_delta(metrics.volatility, prev.volatility if prev else None)
-                st.metric("Volatility", _mv(metrics.volatility, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("volatility"), help=get_help("volatility"))
+            key_metrics: list[MetricItem] = []
 
-                val = fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A"
-                d = metric_delta(metrics.mean_spread, prev.mean_spread if prev else None)
-                d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
-                st.metric("Mean Spread", val, delta=d_str, delta_color=get_delta_color("mean_spread"), help=get_help("mean_spread"))
+            d = metric_delta(metrics.volatility, prev.volatility if prev else None)
+            key_metrics.append(_metric_item("Volatility", _mv(metrics.volatility, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="volatility"))
 
-            with col2:
-                val = fmt_dollar(metrics.effective_spread, precision=4) if metrics.effective_spread is not None else "N/A"
-                d = metric_delta(metrics.effective_spread, prev.effective_spread if prev else None)
-                d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
-                st.metric("Effective Spread", val, delta=d_str, delta_color=get_delta_color("effective_spread"), help=get_help("effective_spread"))
+            val = fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A"
+            d = metric_delta(metrics.mean_spread, prev.mean_spread if prev else None)
+            d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
+            key_metrics.append(_metric_item("Mean Spread", val, delta=d_str, field="mean_spread"))
 
-                d = metric_delta(metrics.avg_bid_liquidity, prev.avg_bid_liquidity if prev else None)
-                st.metric(
-                    "Avg Bid Liquidity",
-                    _mv(metrics.avg_bid_liquidity, ".2f"),
-                    delta=f"{d:+.2f}" if d is not None else None,
-                    delta_color=get_delta_color("avg_bid_liquidity"),
-                    help=get_help("avg_bid_liquidity"),
-                )
+            val = fmt_dollar(metrics.effective_spread, precision=4) if metrics.effective_spread is not None else "N/A"
+            d = metric_delta(metrics.effective_spread, prev.effective_spread if prev else None)
+            d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
+            key_metrics.append(_metric_item("Effective Spread", val, delta=d_str, field="effective_spread"))
 
-            with col3:
-                d = metric_delta(metrics.avg_ask_liquidity, prev.avg_ask_liquidity if prev else None)
-                st.metric(
-                    "Avg Ask Liquidity",
-                    _mv(metrics.avg_ask_liquidity, ".2f"),
-                    delta=f"{d:+.2f}" if d is not None else None,
-                    delta_color=get_delta_color("avg_ask_liquidity"),
-                    help=get_help("avg_ask_liquidity"),
-                )
+            d = metric_delta(metrics.avg_bid_liquidity, prev.avg_bid_liquidity if prev else None)
+            key_metrics.append(_metric_item("Avg Bid Liquidity", _mv(metrics.avg_bid_liquidity, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="avg_bid_liquidity"))
 
-                vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
-                d = metric_delta(metrics.traded_volume, prev.traded_volume if prev else None)
-                st.metric("Traded Volume", vol_str, delta=f"{d:+,}" if d is not None else None, delta_color=get_delta_color("traded_volume"), help=get_help("traded_volume"))
+            d = metric_delta(metrics.avg_ask_liquidity, prev.avg_ask_liquidity if prev else None)
+            key_metrics.append(_metric_item("Avg Ask Liquidity", _mv(metrics.avg_ask_liquidity, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="avg_ask_liquidity"))
+
+            vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
+            d = metric_delta(metrics.traded_volume, prev.traded_volume if prev else None)
+            key_metrics.append(_metric_item("Traded Volume", vol_str, delta=f"{d:+,}" if d is not None else None, field="traded_volume"))
+
+            _render_metric_columns(key_metrics, column_count=2)
 
             st.markdown("---")
 
             # Microstructure metrics
             st.markdown("### 🔬 Microstructure")
-            mc1, mc2, mc3, mc4, mc5, mc6 = st.columns(6)
-            with mc1:
-                d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
-                st.metric(
-                    "LOB Imbalance",
-                    _mv(metrics.lob_imbalance_mean, ".4f"),
-                    delta=f"{d:+.4f}" if d is not None else None,
-                    delta_color=get_delta_color("lob_imbalance_mean"),
-                    help=get_help("lob_imbalance_mean"),
-                )
-            with mc2:
-                d = metric_delta(metrics.lob_imbalance_std, prev.lob_imbalance_std if prev else None)
-                st.metric(
-                    "LOB Imb. σ",
-                    _mv(metrics.lob_imbalance_std, ".4f"),
-                    delta=f"{d:+.4f}" if d is not None else None,
-                    delta_color=get_delta_color("lob_imbalance_std"),
-                    help=get_help("lob_imbalance_std"),
-                )
-            with mc3:
-                d = metric_delta(metrics.vpin, prev.vpin if prev else None)
-                st.metric("VPIN", _mv(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, delta_color=get_delta_color("vpin"), help=get_help("vpin"))
-            with mc4:
-                if metrics.resilience_mean_ns is not None:
-                    res_ms = metrics.resilience_mean_ns / 1e6
-                    d_ns = metric_delta(metrics.resilience_mean_ns, prev.resilience_mean_ns if prev else None)
-                    d_str = f"{d_ns / 1e6:+.1f}ms" if d_ns is not None else None
-                    st.metric("Resilience", f"{res_ms:.1f}ms", delta=d_str, delta_color=get_delta_color("resilience_mean_ns"), help=get_help("resilience_mean_ns"))
-                else:
-                    st.metric("Resilience", "N/A", help=get_help("resilience_mean_ns"))
-            with mc5:
-                d = metric_delta(metrics.market_ott_ratio, prev.market_ott_ratio if prev else None)
-                st.metric(
-                    "Market OTT", _mv(metrics.market_ott_ratio, ".2f"), delta=f"{d:+.2f}" if d is not None else None, delta_color=get_delta_color("market_ott_ratio"), help=get_help("market_ott_ratio")
-                )
-            with mc6:
-                avail_val = f"{metrics.pct_time_two_sided:.1%}" if metrics.pct_time_two_sided is not None else "N/A"
-                d = metric_delta(metrics.pct_time_two_sided, prev.pct_time_two_sided if prev else None)
-                st.metric("Availability", avail_val, delta=f"{d:+.1%}" if d is not None else None, delta_color=get_delta_color("pct_time_two_sided"), help=get_help("pct_time_two_sided"))
+            microstructure_metrics: list[MetricItem] = []
+            d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
+            microstructure_metrics.append(_metric_item("LOB Imbalance", _mv(metrics.lob_imbalance_mean, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="lob_imbalance_mean"))
+
+            d = metric_delta(metrics.lob_imbalance_std, prev.lob_imbalance_std if prev else None)
+            microstructure_metrics.append(_metric_item("LOB Imb. σ", _mv(metrics.lob_imbalance_std, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="lob_imbalance_std"))
+
+            d = metric_delta(metrics.vpin, prev.vpin if prev else None)
+            microstructure_metrics.append(_metric_item("VPIN", _mv(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="vpin"))
+
+            if metrics.resilience_mean_ns is not None:
+                res_ms = metrics.resilience_mean_ns / 1e6
+                d_ns = metric_delta(metrics.resilience_mean_ns, prev.resilience_mean_ns if prev else None)
+                d_str = f"{d_ns / 1e6:+.1f}ms" if d_ns is not None else None
+                microstructure_metrics.append(_metric_item("Resilience", f"{res_ms:.1f}ms", delta=d_str, field="resilience_mean_ns"))
+            else:
+                microstructure_metrics.append(_metric_item("Resilience", "N/A", delta=None, field="resilience_mean_ns"))
+
+            d = metric_delta(metrics.market_ott_ratio, prev.market_ott_ratio if prev else None)
+            microstructure_metrics.append(_metric_item("Market OTT", _mv(metrics.market_ott_ratio, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="market_ott_ratio"))
+
+            avail_val = f"{metrics.pct_time_two_sided:.1%}" if metrics.pct_time_two_sided is not None else "N/A"
+            d = metric_delta(metrics.pct_time_two_sided, prev.pct_time_two_sided if prev else None)
+            microstructure_metrics.append(_metric_item("Availability", avail_val, delta=f"{d:+.1%}" if d is not None else None, field="pct_time_two_sided"))
+
+            _render_metric_columns(microstructure_metrics, column_count=2)
 
             # ── Baseline Comparison (if available) ──────────────────
             bl_data = st.session_state.get("baseline_comparison")
@@ -1295,8 +1343,13 @@ with tab2:
                 st.caption(f"Side-by-side comparison of your **current run** against the saved baseline scenario **{bl_name}**. A positive Δ% means the current value is higher.")
 
                 bm = bl_data["metrics"]
+                snapshots = bl_data.get("config_snapshot")
+                if snapshots is not None:
+                    current_config = SimulationSettings.model_validate(snapshots["current"])
+                    baseline_config = SimulationSettings.model_validate(snapshots["baseline"])
+                    _render_comparison_context(current_config, baseline_config)
                 cmp_df = build_comparison_table(metrics, bm)
-                st.dataframe(cmp_df.set_index("Metric"), use_container_width=True)
+                st.dataframe(cmp_df.set_index("Metric"), width="stretch")
 
             st.markdown("---")
 
