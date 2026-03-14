@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 from abides_core import NanosecondTime
 
+from rohan.config import PriceUnit
 from rohan.simulation.data.normalization import normalize_fundamental_series
 
 
@@ -23,13 +24,22 @@ class CsvDataProvider:
     The data is normalized upon load using standard ABIDES rules.
     """
 
-    def __init__(self, path: Path | str, symbol: str = "ABM", r_bar: int | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | str,
+        symbol: str = "ABM",
+        r_bar: int | None = None,
+        price_unit: PriceUnit = PriceUnit.CENTS,
+        source_timezone: str = "America/New_York",
+    ) -> None:
         """Initialize the CSV provider.
 
         Args:
             path: Path to the CSV file.
             symbol: Ticker symbol this data represents.
             r_bar: Optional target mean price to re-center the series around.
+            price_unit: Unit used by the CSV price column.
+            source_timezone: IANA timezone to preserve market clock semantics.
 
         Raises:
             FileNotFoundError: If the CSV file does not exist.
@@ -46,15 +56,25 @@ class CsvDataProvider:
         except Exception as e:
             raise ValueError(f"Failed to read CSV at {self._path}: {e}") from e
 
-        if "timestamp" not in raw_df.columns or "price_cents" not in raw_df.columns:
-            raise ValueError(f"CSV missing required columns ('timestamp', 'price_cents'): {raw_df.columns.tolist()}")
+        if "timestamp" not in raw_df.columns:
+            raise ValueError(f"CSV missing required column 'timestamp': {raw_df.columns.tolist()}")
+
+        value_column = "price_cents" if price_unit == PriceUnit.CENTS else "price"
+        if value_column not in raw_df.columns:
+            raise ValueError(f"CSV missing required price column '{value_column}' for unit={price_unit.value}: {raw_df.columns.tolist()}")
 
         from typing import cast
 
-        raw_series = cast("pd.Series", raw_df.set_index("timestamp")["price_cents"])
+        raw_series = cast("pd.Series", raw_df.set_index("timestamp")[value_column])
 
         # Normalize and validate the series
-        self._data = normalize_fundamental_series(raw_series, r_bar=r_bar, validate=True)
+        self._data = normalize_fundamental_series(
+            raw_series,
+            r_bar=r_bar,
+            price_unit=price_unit,
+            source_timezone=source_timezone,
+            validate=True,
+        )
 
     def get_fundamental_series(self, symbol: str, start: NanosecondTime, end: NanosecondTime) -> pd.Series:
         """Return the slice of data for *symbol* between *start* and *end*.
@@ -84,17 +104,20 @@ class CsvDataProvider:
         return self._data.loc[start_ts:end_ts]  # type: ignore
 
     @staticmethod
-    def list_available(directory: Path | str) -> list[str]:
+    def list_available(source: Path | str | None = None) -> list[str]:
         """List all available CSV dataset names in a directory.
 
         Args:
-            directory: The directory to search for .csv files.
+            source: The directory to search for .csv files.
 
         Returns:
             A list of filenames (with or without extension, depending on preference).
             Here we return the stem (filename without extension) for cleaner UI.
         """
-        dir_path = Path(directory)
+        if source is None:
+            return []
+
+        dir_path = Path(source)
         if not dir_path.exists() or not dir_path.is_dir():
             return []
 

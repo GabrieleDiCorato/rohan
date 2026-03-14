@@ -7,11 +7,15 @@ integer price values in cents.
 
 import pandas as pd
 
+from rohan.config import PriceUnit
+
 
 def normalize_fundamental_series(
     raw_series: pd.Series,
     *,
     r_bar: int | None = None,
+    price_unit: PriceUnit = PriceUnit.CENTS,
+    source_timezone: str = "America/New_York",
     validate: bool = True,
 ) -> pd.Series:
     """Normalize a raw price series to ABIDES conventions.
@@ -20,6 +24,8 @@ def normalize_fundamental_series(
         raw_series: A pandas Series to normalize.
         r_bar: Optional target mean price to re-center the series around.
                If provided, the series will be shifted so its mean matches r_bar.
+         price_unit: Unit used by incoming prices before normalization.
+         source_timezone: IANA timezone used for tz-aware timestamps.
         validate: Whether to run sanity checks after normalization.
 
     Returns:
@@ -41,9 +47,14 @@ def normalize_fundamental_series(
         except Exception as e:
             raise ValueError(f"Could not parse index as datetime: {e}") from e
 
-    # Force timezone-naive (ABIDES expects raw timestamps, usually assumed EST but naive)
+    # ABIDES expects naive timestamps. For tz-aware inputs we preserve market
+    # wall-clock semantics by converting to the configured exchange timezone,
+    # then dropping timezone info.
     if series.index.tz is not None:
-        series.index = series.index.tz_convert(None)
+        try:
+            series.index = series.index.tz_convert(source_timezone).tz_localize(None)
+        except Exception as e:
+            raise ValueError(f"Could not convert timezone-aware index using source_timezone={source_timezone}: {e}") from e
 
     # 2. Sort chronologically
     series.sort_index(inplace=True)
@@ -53,11 +64,13 @@ def normalize_fundamental_series(
         series.ffill(inplace=True)
         series.bfill(inplace=True)
 
-    # 4. Convert prices to integer cents
-    # If the input appears to be in dollars (e.g. mean < 10000 but it's a stock),
-    # warn or scale? For simplicity, we assume the input is ALREADY in cents OR
-    # the user handles it. Given ABIDES conventions, if data is float, round to int.
-    series = series.round().astype(int)
+    # 4. Convert prices to integer cents using explicit unit metadata.
+    if price_unit == PriceUnit.CENTS:
+        series = series.round().astype(int)
+    elif price_unit == PriceUnit.DOLLARS:
+        series = (series * 100).round().astype(int)
+    else:
+        raise ValueError(f"Unsupported price unit: {price_unit}")
 
     # 5. Optional re-centering
     if r_bar is not None:

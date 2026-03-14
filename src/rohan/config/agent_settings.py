@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class AgentType(str, Enum):
@@ -20,6 +20,29 @@ class OracleType(str, Enum):
 
     SYNTHETIC = "SYNTHETIC"
     HISTORICAL = "HISTORICAL"
+
+
+class ProviderType(str, Enum):
+    """Specifies the historical data backend."""
+
+    CSV = "CSV"
+    DATABASE = "DATABASE"
+    API = "API"
+
+
+class InterpolationMode(str, Enum):
+    """Interpolation strategy supported by ExternalDataOracle."""
+
+    FORWARD_FILL = "ffill"
+    NEAREST = "nearest"
+    LINEAR = "linear"
+
+
+class PriceUnit(str, Enum):
+    """Input price unit used by the data source before normalization."""
+
+    CENTS = "CENTS"
+    DOLLARS = "DOLLARS"
 
 
 class BaseAgentSettings(BaseModel):
@@ -158,13 +181,49 @@ class MomentumAgentSettings(BaseAgentSettings):
             raise ValueError(f"min_size ({self.min_size}) must be ≤ max_size ({self.max_size})")
 
 
+class CsvHistoricalProviderSettings(BaseModel):
+    """Provider-specific settings for filesystem CSV datasets."""
+
+    csv_path: str | None = Field(default=None, description="Path to canonical CSV file")
+    price_unit: PriceUnit = Field(default=PriceUnit.CENTS, description="Unit of CSV prices before normalization")
+    source_timezone: str = Field(default="America/New_York", description="IANA timezone for source timestamps")
+
+
+class DatabaseHistoricalProviderSettings(BaseModel):
+    """Provider-specific settings for curated DB datasets."""
+
+    dataset_id: str | None = Field(default=None, description="Dataset identifier in fundamental dataset storage")
+
+
+class ApiHistoricalProviderSettings(BaseModel):
+    """Provider-specific settings for HTTP-backed historical data."""
+
+    provider_name: str = Field(default="alpaca", description="Provider adapter name (e.g. alpaca, polygon)")
+    symbol: str | None = Field(default=None, description="Ticker symbol to request from API")
+    api_key: str | None = Field(default=None, description="API key/token used for provider authentication")
+    price_unit: PriceUnit = Field(default=PriceUnit.DOLLARS, description="Unit returned by the API payload")
+    source_timezone: str = Field(default="America/New_York", description="IANA timezone for source timestamps")
+
+
 class HistoricalOracleSettings(BaseModel):
     """Configuration for historical data oracles."""
 
-    provider_type: str = Field(default="CSV", description="Data provider type (e.g. CSV)")
-    csv_path: str | None = Field(default=None, description="Path to the historical CSV data file")
-    interpolation: str = Field(default="ffill", description="Interpolation strategy for missing points")
+    provider_type: ProviderType = Field(default=ProviderType.CSV, description="Historical provider backend")
+    interpolation: InterpolationMode = Field(default=InterpolationMode.FORWARD_FILL, description="Interpolation strategy for missing points")
     recenter_r_bar: bool = Field(default=False, description="Whether to re-center the historical dataset to the value agent r_bar")
+    csv: CsvHistoricalProviderSettings = Field(default_factory=CsvHistoricalProviderSettings, description="CSV provider settings")
+    database: DatabaseHistoricalProviderSettings = Field(default_factory=DatabaseHistoricalProviderSettings, description="Database provider settings")
+    api: ApiHistoricalProviderSettings = Field(default_factory=ApiHistoricalProviderSettings, description="API provider settings")
+
+    @model_validator(mode="after")
+    def validate_provider_requirements(self) -> "HistoricalOracleSettings":
+        """Ensure selected provider has required fields configured."""
+        if self.provider_type == ProviderType.API:
+            if not self.api.symbol:
+                raise ValueError("historical.api.symbol is required when provider_type=API")
+            if not self.api.api_key:
+                raise ValueError("historical.api.api_key is required when provider_type=API")
+        return self
 
 
 class OracleSettings(BaseModel):

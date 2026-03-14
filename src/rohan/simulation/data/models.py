@@ -32,7 +32,6 @@ class FundamentalDataset(BaseModel):
     row_count: int = Field(description="Total number of data points in the series")
     start_time: datetime = Field(description="The timestamp of the first data point")
     end_time: datetime = Field(description="The timestamp of the last data point")
-    sampling_freq: str | None = Field(default=None, description="Inferred sampling frequency, e.g., '1S' for 1 second")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -48,16 +47,6 @@ class FundamentalDataset(BaseModel):
         """
         if series.empty:
             raise ValueError("Series cannot be empty")
-
-        freq = None
-        if len(series) > 1:
-            try:
-                # Try to infer frequency from index (just the first few rows for speed)
-                inferred = pd.infer_freq(cast(Any, series.index[:100]))
-                if inferred:
-                    freq = str(inferred)
-            except Exception:
-                pass
 
         # Extract min and max values from the index in a way pyright understands
         timestamps = cast("list[Any]", list(series.index))
@@ -79,5 +68,4 @@ class FundamentalDataset(BaseModel):
             row_count=len(series),
             start_time=start_dt,
             end_time=end_dt,
-            sampling_freq=freq,
         )

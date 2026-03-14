@@ -22,12 +22,18 @@ from rohan.config import SimulationSettings
 from rohan.config.agent_settings import (
     AdaptiveMarketMakerSettings,
     AgentSettings,
+    ApiHistoricalProviderSettings,
+    CsvHistoricalProviderSettings,
+    DatabaseHistoricalProviderSettings,
     ExchangeAgentSettings,
     HistoricalOracleSettings,
+    InterpolationMode,
     MomentumAgentSettings,
     NoiseAgentSettings,
     OracleSettings,
     OracleType,
+    PriceUnit,
+    ProviderType,
     ValueAgentSettings,
 )
 from rohan.config.latency_settings import LatencyModelSettings, LatencyType
@@ -567,7 +573,14 @@ def render_sidebar_config():
             key=f"cfg_oracle_type_{st.session_state.config_reset_counter}",
         )
         oracle_type = OracleType(oracle_type_str)
-        historical_csv_path: str | None = None
+        historical_provider_type = config.agents.oracle.historical.provider_type
+        historical_csv_path: str | None = config.agents.oracle.historical.csv.csv_path
+        historical_db_dataset_id: str | None = config.agents.oracle.historical.database.dataset_id
+        historical_api_symbol: str | None = config.agents.oracle.historical.api.symbol
+        historical_api_key: str | None = config.agents.oracle.historical.api.api_key
+        historical_api_provider = config.agents.oracle.historical.api.provider_name
+        historical_price_unit = config.agents.oracle.historical.csv.price_unit
+        historical_source_timezone = config.agents.oracle.historical.csv.source_timezone
 
         if oracle_type == OracleType.SYNTHETIC:
             oracle_kappa = compact_input(
@@ -616,27 +629,109 @@ def render_sidebar_config():
             import pandas as pd
 
             from rohan.simulation.data.csv_provider import CsvDataProvider
+            from rohan.simulation.data.database_provider import DatabaseDataProvider
+
+            provider_type_str = compact_input(
+                "Provider",
+                "selectbox",
+                "cfg_oracle_historical_provider",
+                options=[pt.value for pt in ProviderType],
+                index=[pt.value for pt in ProviderType].index(config.agents.oracle.historical.provider_type.value),
+            )
+            historical_provider_type = ProviderType(provider_type_str)
 
             datasets_dir = Path("src/rohan/simulation/data/datasets")
             datasets_dir.mkdir(parents=True, exist_ok=True)
-            available_csvs = CsvDataProvider.list_available(datasets_dir)
 
-            if not available_csvs:
-                st.warning("No CSV datasets found in `src/rohan/simulation/data/datasets/`")
-                historical_csv = None
+            if historical_provider_type == ProviderType.CSV:
+                available_csvs = CsvDataProvider.list_available(datasets_dir)
+
+                if not available_csvs:
+                    st.warning("No CSV datasets found in src/rohan/simulation/data/datasets/")
+                    historical_csv = None
+                else:
+                    historical_csv = st.selectbox(
+                        "Historical Dataset",
+                        options=available_csvs,
+                        help="Select a CSV dataset. Look inside src/rohan/simulation/data/datasets/",
+                        key=f"cfg_oracle_historical_csv_{st.session_state.config_reset_counter}",
+                    )
+                    if historical_csv:
+                        historical_csv_path = str(datasets_dir / f"{historical_csv}.csv")
+
+                csv_unit_str = compact_input(
+                    "CSV Price Unit",
+                    "selectbox",
+                    "cfg_oracle_historical_csv_unit",
+                    options=[PriceUnit.CENTS.value, PriceUnit.DOLLARS.value],
+                    index=0 if historical_price_unit == PriceUnit.CENTS else 1,
+                )
+                historical_price_unit = PriceUnit(csv_unit_str)
+                historical_source_timezone = compact_input(
+                    "Source Timezone",
+                    "text",
+                    "cfg_oracle_historical_csv_timezone",
+                    value=historical_source_timezone,
+                )
+                historical_source_timezone = str(historical_source_timezone)
+
+            elif historical_provider_type == ProviderType.DATABASE:
+                available_datasets = DatabaseDataProvider.list_available()
+                if not available_datasets:
+                    st.warning("No historical datasets found in database table fundamental_datasets")
+                else:
+                    historical_db_dataset_id = st.selectbox(
+                        "Database Dataset ID",
+                        options=available_datasets,
+                        key=f"cfg_oracle_historical_db_dataset_{st.session_state.config_reset_counter}",
+                    )
+
             else:
-                historical_csv = st.selectbox(
-                    "Historical Dataset",
-                    options=available_csvs,
-                    help="Select a CSV dataset. Look inside `src/rohan/simulation/data/datasets/`",
-                    key=f"cfg_oracle_historical_csv_{st.session_state.config_reset_counter}",
+                historical_api_provider = str(
+                    compact_input(
+                        "API Provider",
+                        "selectbox",
+                        "cfg_oracle_historical_api_provider",
+                        options=["alpaca", "polygon"],
+                        index=0 if historical_api_provider == "alpaca" else 1,
+                    )
+                )
+                historical_api_symbol_value = compact_input(
+                    "API Symbol",
+                    "text",
+                    "cfg_oracle_historical_api_symbol",
+                    value=historical_api_symbol or config.ticker,
+                )
+                historical_api_symbol = str(historical_api_symbol_value) or None
+                historical_api_key_value = compact_input(
+                    "API Key",
+                    "text",
+                    "cfg_oracle_historical_api_key",
+                    value=historical_api_key or "",
+                )
+                historical_api_key = str(historical_api_key_value) or None
+                api_unit_str = compact_input(
+                    "API Price Unit",
+                    "selectbox",
+                    "cfg_oracle_historical_api_unit",
+                    options=[PriceUnit.CENTS.value, PriceUnit.DOLLARS.value],
+                    index=1,
+                )
+                historical_price_unit = PriceUnit(api_unit_str)
+                historical_source_timezone = str(
+                    compact_input(
+                        "API Source Timezone",
+                        "text",
+                        "cfg_oracle_historical_api_timezone",
+                        value=historical_source_timezone,
+                    )
                 )
 
             historical_interpolation = compact_input(
                 "Interpolation",
                 "selectbox",
                 "cfg_oracle_historical_interp",
-                options=["ffill", "nearest", "linear"],
+                options=[m.value for m in InterpolationMode],
                 index=0,
             )
 
@@ -647,18 +742,21 @@ def render_sidebar_config():
                 value=config.agents.oracle.historical.recenter_r_bar,
             )
 
-            if historical_csv:
-                csv_path = datasets_dir / f"{historical_csv}.csv"
-                historical_csv_path = str(csv_path)
+            if historical_provider_type == ProviderType.CSV and historical_csv_path:
+                csv_path = Path(historical_csv_path)
                 try:
                     df = pd.read_csv(csv_path)
-                    if "timestamp" in df.columns and "price_cents" in df.columns:
+                    if "timestamp" in df.columns and ("price_cents" in df.columns or "price" in df.columns):
                         df["timestamp"] = pd.to_datetime(df["timestamp"])
                         df.set_index("timestamp", inplace=True)
+                        price_col = "price_cents" if "price_cents" in df.columns else "price"
                         st.markdown("**Preview**")
-                        st.line_chart(df["price_cents"] / 100, height=200, y_label="Price ($)")
+                        if price_col == "price_cents":
+                            st.line_chart(df[price_col] / 100, height=200, y_label="Price ($)")
+                        else:
+                            st.line_chart(df[price_col], height=200, y_label="Price")
                 except Exception as e:
-                    st.error(f"Cannot preview {historical_csv}: {e}")
+                    st.error(f"Cannot preview dataset: {e}")
 
     # Latency Model
     with st.expander("⏱️ LATENCY"):
@@ -753,10 +851,24 @@ def render_sidebar_config():
                     else OracleSettings(
                         oracle_type=OracleType.HISTORICAL,
                         historical=HistoricalOracleSettings(
-                            provider_type="CSV",
-                            csv_path=historical_csv_path,
-                            interpolation=str(historical_interpolation),
+                            provider_type=historical_provider_type,
+                            interpolation=InterpolationMode(str(historical_interpolation)),
                             recenter_r_bar=bool(historical_recenter),
+                            csv=CsvHistoricalProviderSettings(
+                                csv_path=historical_csv_path,
+                                price_unit=historical_price_unit,
+                                source_timezone=historical_source_timezone,
+                            ),
+                            database=DatabaseHistoricalProviderSettings(
+                                dataset_id=historical_db_dataset_id,
+                            ),
+                            api=ApiHistoricalProviderSettings(
+                                provider_name=historical_api_provider,
+                                symbol=historical_api_symbol,
+                                api_key=historical_api_key,
+                                price_unit=historical_price_unit,
+                                source_timezone=historical_source_timezone,
+                            ),
                         ),
                     )
                 ),
@@ -997,9 +1109,16 @@ def render_execute_tab():
                 st.markdown(f"- **Megashock Lambda:** {config.agents.oracle.megashock_lambda_a:.2e}")
             else:
                 historical = config.agents.oracle.historical
-                path_str = Path(historical.csv_path).stem if historical.csv_path else "None"
-                st.markdown(f"- **Dataset:** {path_str}")
-                st.markdown(f"- **Interpolation:** {historical.interpolation}")
+                st.markdown(f"- **Provider:** {historical.provider_type.value}")
+                if historical.provider_type == ProviderType.CSV:
+                    path_str = Path(historical.csv.csv_path).stem if historical.csv.csv_path else "None"
+                    st.markdown(f"- **Dataset:** {path_str}")
+                elif historical.provider_type == ProviderType.DATABASE:
+                    st.markdown(f"- **Dataset ID:** {historical.database.dataset_id}")
+                else:
+                    st.markdown(f"- **API Provider:** {historical.api.provider_name}")
+                    st.markdown(f"- **API Symbol:** {historical.api.symbol}")
+                st.markdown(f"- **Interpolation:** {historical.interpolation.value}")
                 st.markdown(f"- **Recenter:** {historical.recenter_r_bar}")
             st.markdown("")
 

@@ -3,6 +3,7 @@
 import pandas as pd
 import pytest
 
+from rohan.config import PriceUnit
 from rohan.simulation.data.csv_provider import CsvDataProvider
 from rohan.simulation.data.models import FundamentalDataset
 from rohan.simulation.data.normalization import normalize_fundamental_series
@@ -19,10 +20,23 @@ class TestNormalization:
     def test_cents_conversion(self):
         # Floats should round to ints
         raw = pd.Series([100000.1, 100050.6], index=pd.date_range("2026-01-30", periods=2, freq="S"))
-        norm = normalize_fundamental_series(raw)
+        norm = normalize_fundamental_series(raw, price_unit=PriceUnit.CENTS)
         assert norm.iloc[0] == 100000
         assert norm.iloc[1] == 100051
         assert norm.dtype == int
+
+    def test_dollars_conversion(self):
+        raw = pd.Series([1000.10, 1000.56], index=pd.date_range("2026-01-30", periods=2, freq="S"))
+        norm = normalize_fundamental_series(raw, price_unit=PriceUnit.DOLLARS)
+        assert norm.iloc[0] == 100010
+        assert norm.iloc[1] == 100056
+
+    def test_timezone_preserves_market_clock(self):
+        idx = pd.DatetimeIndex(["2026-01-30 14:30:00+00:00", "2026-01-30 14:30:01+00:00"])
+        raw = pd.Series([100000, 100050], index=idx)
+        norm = normalize_fundamental_series(raw, source_timezone="America/New_York")
+        assert norm.index[0] == pd.Timestamp("2026-01-30 09:30:00")
+        assert norm.index[1] == pd.Timestamp("2026-01-30 09:30:01")
 
     def test_monotonicity_check(self):
         # Should sort chronologically
@@ -86,4 +100,3 @@ class TestDataModels:
         assert dataset.row_count == 3
         assert dataset.start_time == pd.Timestamp("2026-01-01")
         assert dataset.end_time == pd.Timestamp("2026-01-01 00:00:02")
-        assert dataset.sampling_freq in ["S", "s", "np.timedelta64(1,'s')"]

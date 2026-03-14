@@ -23,14 +23,19 @@ from rohan.config import (
     AgentSettings,
     ExchangeAgentSettings,
     HistoricalOracleSettings,
+    InterpolationMode,
     LatencyModelSettings,
     LatencyType,
     OracleSettings,
     OracleType,
+    ProviderType,
     SimulationSettings,
     ValueAgentSettings,
 )
+from rohan.simulation.data.api_provider import ApiDataProvider
 from rohan.simulation.data.csv_provider import CsvDataProvider
+from rohan.simulation.data.database_provider import DatabaseDataProvider
+from rohan.simulation.data.provider_protocol import FundamentalDataProvider
 from rohan.simulation.models.strategy_api import StrategicAgent
 
 from .random_state_handler import RandomStateHandler
@@ -307,22 +312,15 @@ class AbidesConfigMapper:
         mkt_open: int,
         noise_mkt_close: int,
     ) -> ExternalDataOracle:
-        if not historical_settings.csv_path:
-            raise ValueError("csv_path must be provided for historical oracle")
-
         r_bar = settings.agents.value.r_bar if historical_settings.recenter_r_bar else None
+        provider = AbidesConfigMapper._resolve_historical_provider(settings, historical_settings, r_bar)
 
-        provider = CsvDataProvider(
-            path=historical_settings.csv_path,
-            symbol=settings.ticker,
-            r_bar=r_bar,
-        )
-
-        # Abides-rohan provides InterpolationStrategy enum matching our string
-        try:
-            interpolation = InterpolationStrategy(historical_settings.interpolation)
-        except ValueError:
-            interpolation = InterpolationStrategy.FORWARD_FILL
+        interpolation_map = {
+            InterpolationMode.FORWARD_FILL: InterpolationStrategy.FORWARD_FILL,
+            InterpolationMode.NEAREST: InterpolationStrategy.NEAREST,
+            InterpolationMode.LINEAR: InterpolationStrategy.LINEAR,
+        }
+        interpolation = interpolation_map[historical_settings.interpolation]
 
         return ExternalDataOracle(
             mkt_open=mkt_open,
@@ -331,6 +329,47 @@ class AbidesConfigMapper:
             provider=provider,
             interpolation=interpolation,
         )
+
+    @staticmethod
+    def _resolve_historical_provider(
+        settings: SimulationSettings,
+        historical_settings: HistoricalOracleSettings,
+        r_bar: int | None,
+    ) -> FundamentalDataProvider:
+        if historical_settings.provider_type == ProviderType.CSV:
+            csv_cfg = historical_settings.csv
+            if not csv_cfg.csv_path:
+                raise ValueError("historical.csv.csv_path is required when provider_type=CSV")
+            return CsvDataProvider(
+                path=csv_cfg.csv_path,
+                symbol=settings.ticker,
+                r_bar=r_bar,
+                price_unit=csv_cfg.price_unit,
+                source_timezone=csv_cfg.source_timezone,
+            )
+
+        if historical_settings.provider_type == ProviderType.DATABASE:
+            db_cfg = historical_settings.database
+            if not db_cfg.dataset_id:
+                raise ValueError("historical.database.dataset_id is required when provider_type=DATABASE")
+            return DatabaseDataProvider(
+                dataset_id=db_cfg.dataset_id,
+                symbol=settings.ticker,
+                r_bar=r_bar,
+            )
+
+        if historical_settings.provider_type == ProviderType.API:
+            api_cfg = historical_settings.api
+            return ApiDataProvider(
+                provider_name=api_cfg.provider_name,
+                symbol=api_cfg.symbol or settings.ticker,
+                api_key=api_cfg.api_key or "",
+                price_unit=api_cfg.price_unit,
+                source_timezone=api_cfg.source_timezone,
+                r_bar=r_bar,
+            )
+
+        raise ValueError(f"Unsupported historical provider type: {historical_settings.provider_type}")
 
     @staticmethod
     def _build_latency_model(

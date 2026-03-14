@@ -7,6 +7,7 @@ type switching, and configuration structure.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from abides_core import LatencyModel
 from abides_markets.agents import AdaptiveMarketMakerAgent, ExchangeAgent, MomentumAgent, NoiseAgent, ValueAgent
 from abides_markets.oracles import SparseMeanRevertingOracle
@@ -219,7 +220,7 @@ class TestOracle:
         import pandas as pd
         from abides_markets.oracles import ExternalDataOracle
 
-        from rohan.config import HistoricalOracleSettings, OracleType
+        from rohan.config import CsvHistoricalProviderSettings, HistoricalOracleSettings, InterpolationMode, OracleType, ProviderType
 
         # Setup mock CSV
         csv_path = tmp_path / "mock.csv"
@@ -235,7 +236,11 @@ class TestOracle:
         settings.date = "20260130"
         settings.ticker = "ABM"
         settings.agents.oracle.oracle_type = OracleType.HISTORICAL
-        settings.agents.oracle.historical = HistoricalOracleSettings(provider_type="CSV", csv_path=str(csv_path), interpolation="ffill")
+        settings.agents.oracle.historical = HistoricalOracleSettings(
+            provider_type=ProviderType.CSV,
+            interpolation=InterpolationMode.FORWARD_FILL,
+            csv=CsvHistoricalProviderSettings(csv_path=str(csv_path)),
+        )
 
         handler = RandomStateHandler(42)
         from abides_core.utils import str_to_ns
@@ -246,6 +251,27 @@ class TestOracle:
 
         oracle = AbidesConfigMapper._build_oracle(settings, mkt_open, noise_mkt_close, handler)
         assert isinstance(oracle, ExternalDataOracle)
+
+    def test_historical_oracle_requires_csv_path(self):
+        import pandas as pd
+
+        from rohan.config import HistoricalOracleSettings, OracleType, ProviderType
+
+        settings = _default_settings()
+        settings.date = "20260130"
+        settings.ticker = "ABM"
+        settings.agents.oracle.oracle_type = OracleType.HISTORICAL
+        settings.agents.oracle.historical = HistoricalOracleSettings(provider_type=ProviderType.CSV)
+
+        handler = RandomStateHandler(42)
+        from abides_core.utils import str_to_ns
+
+        date = int(pd.to_datetime(settings.date).value)
+        mkt_open = date + str_to_ns(settings.start_time)
+        noise_mkt_close = date + str_to_ns("16:00:00")
+
+        with pytest.raises(ValueError, match="historical.csv.csv_path"):
+            AbidesConfigMapper._build_oracle(settings, mkt_open, noise_mkt_close, handler)
 
 
 # ---------------------------------------------------------------------------

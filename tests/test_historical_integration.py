@@ -5,12 +5,15 @@ import pytest
 from rohan.config import (
     AdaptiveMarketMakerSettings,
     AgentSettings,
+    CsvHistoricalProviderSettings,
     ExchangeAgentSettings,
     HistoricalOracleSettings,
+    InterpolationMode,
     MomentumAgentSettings,
     NoiseAgentSettings,
     OracleSettings,
     OracleType,
+    ProviderType,
     SimulationSettings,
     ValueAgentSettings,
 )
@@ -46,9 +49,9 @@ def test_historical_simulation_runs_successfully(historical_csv_path):
             oracle=OracleSettings(
                 oracle_type=OracleType.HISTORICAL,
                 historical=HistoricalOracleSettings(
-                    provider_type="CSV",
-                    csv_path=str(historical_csv_path),
-                    interpolation="ffill",
+                    provider_type=ProviderType.CSV,
+                    interpolation=InterpolationMode.FORWARD_FILL,
+                    csv=CsvHistoricalProviderSettings(csv_path=str(historical_csv_path)),
                     recenter_r_bar=False,
                 ),
             ),
