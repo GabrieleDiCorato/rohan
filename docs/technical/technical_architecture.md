@@ -265,11 +265,11 @@ ScenarioExplanation (structured output)
 | `query_order_lifecycle` | `status`, `limit` | Filtered order records |
 | `get_simulation_summary` | — | High-level statistics |
 
-Tools return human-readable strings, capped at ~4 KB per response. Parameterized filters (time-range, side, status) enable targeted investigation.
+Tools return human-readable strings. Parameterized filters (time-range, side, status) enable targeted investigation.
 
 **Fallback:** On ReAct agent failure, the node falls back to a single structured-output LLM call (pre-Step 9 behavior), ensuring the pipeline never breaks.
 
-**Architecture decision:** `SimulationOutput` is NOT stored in `RefinementState`. It depends on live ABIDES objects, is not JSON-serializable, and would break checkpointing, replay, and container scaling. The enriched bundle approach (Option A) was chosen over co-located explainer (Option B) and full `SimulationOutput` proxy (Option C) — see `implementation_plan.md` Decisions Log for rationale.
+**Architecture decision:** `SimulationOutput` is NOT stored in `RefinementState`. It depends on live ABIDES objects, is not JSON-serializable, and would break checkpointing, replay, and container scaling. The enriched bundle approach (Option A) was chosen over co-located explainer (Option B) and full `SimulationOutput` proxy (Option C) to ensure container independence and deterministic analysis.
 
 #### 5.3.4.1 Chart & Analysis Persistence Pipeline
 
@@ -300,7 +300,7 @@ ScenarioMetrics (round-trip: 6 chart fields restored)
 
 The UI displays charts in a 2×3 grid: Market row (Price, Spread, Volume) + Strategy Performance row (PnL, Inventory, Fills).
 
-`rich_analysis_json` is stored inline in the scenario results table (50–200 KB per scenario, acceptable for dev/PoC with SQLite). Production deployments should migrate this to the `artifacts` table to avoid row bloat.
+`rich_analysis_json` is stored inline in the scenario results table. Production deployments should migrate this to the `artifacts` table to avoid row bloat.
 
 #### 5.3.5 UI & Notebook for Local Testing
 *   **`notebooks/quickstart.ipynb`** — Interactive demo.

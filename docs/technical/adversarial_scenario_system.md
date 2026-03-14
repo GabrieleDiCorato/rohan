@@ -1,30 +1,12 @@
-# ROHAN — Adversarial Scenario Generation Plan
+# ROHAN — Adversarial Scenario Generation System
 
-## Product Context
-
-ROHAN's product direction (documented in `implementation_plan_abides_capabilities.md`) defines three priorities: **scenario control quality**, **interpretation depth**, and **deterministic scoring**. The refinement loop is PoC scaffolding — the lasting product is a system where a user submits a strategy and the system finds the market conditions that break it, then explains *why* with code-level precision.
-
-This plan extends ROHAN with the ability to **automatically generate adversarial market scenarios** targeting a specific strategy's weaknesses. It builds directly on the foundation laid by the implementation plan's Phases 1–3 (deterministic scoring, tool-equipped explainer, structured feedback).
+This document details the architecture of ROHAN's adversarial scenario generation system. The system automatically generates adversarial market scenarios targeting a specific strategy's weaknesses. It relies on the core deterministic scoring, tool-equipped explanation, and structured feedback foundations.
 
 ---
 
-## Prerequisites
+## Configuration Surface
 
-This work begins **after** the implementation plan's Phases 1–3 are complete. The adversarial system depends on:
-
-| Dependency | Source | Why required |
-|---|---|---|
-| Deterministic 6-axis scoring | Phase 1, Steps 1–3 | The adversary needs quantitative targets: "find scenarios that minimize profitability score." LLM-scored numbers are too noisy for targeted adversarial search. |
-| Per-scenario fixed seeds | Phase 1, Step 5 | Adversarial scenarios must be reproducible across iterations — same market conditions each time so score changes reflect strategy changes, not seed variance. |
-| Tool-equipped ReAct explainer | Phase 2, Steps 8–9 | Adversarial results are worthless without deep investigation. The explainer must trace *why* the strategy failed — fills, inventory trajectory, adverse selection, counterparty mix. **Note:** Step 9 adds a `regime_context: str` field on `ScenarioResult` and a `{regime_context}` slot in the explainer prompt, providing the integration point for adversarial metadata (attack narrative, predicted weak axes). |
-| Rich `ScenarioResult` (PnL/inventory curves) | Phase 2, Step 10 | The adversary's rationale must be verifiable against simulation evidence. |
-| 6-axis UI and structured feedback | Phase 3, Steps 11–14 | Adversarial results surface through the same UI and feedback channels. |
-
----
-
-## Phase A — Configuration Surface
-
-**Goal:** Make the ABIDES parameter space reachable through clean overrides. Scoped tightly — only what the regime layer and adversary need.
+**Purpose:** Make the ABIDES parameter space reachable through clean overrides. Scoped tightly — only what the regime layer and adversary need.
 
 ### A.1: Fix deep merge in `scenario_executor_node`
 
@@ -141,9 +123,9 @@ Enumerate every ABIDES parameter with its financial effect and adversarial relev
 
 ---
 
-## Phase B — Market Regime Abstraction Layer
+## Market Regime Abstraction Layer
 
-**Goal:** Create a financially meaningful interface that maps market conditions in natural language to ABIDES configurations. This is the core product investment for scenario control quality.
+**Purpose:** Create a financially meaningful interface that maps market conditions in natural language to ABIDES configurations. This is the core product investment for scenario control quality.
 
 ### B.1: `MarketRegime` model
 
@@ -302,9 +284,9 @@ When `regime` is present and `config_override` is empty, the executor calls `Reg
 
 ---
 
-## Phase C — Adversary Agent
+## Adversary Agent
 
-**Goal:** An LLM agent that reads a strategy's code and goal, identifies its assumptions and fragilities, and generates targeted adversarial scenarios as `MarketRegime` objects. Runs once per session. Fixed for all iterations.
+**Purpose:** An LLM agent that reads a strategy's code and goal, identifies its assumptions and fragilities, and generates targeted adversarial scenarios as `MarketRegime` objects. Runs once per session. Fixed for all iterations.
 
 ### C.1: Graph integration
 
@@ -459,144 +441,3 @@ def adversary_node(state: RefinementState) -> dict:
 ```
 
 Standalone callers invoke `generate_adversarial_scenarios()` directly — no `RefinementState` construction needed. The separation ensures the adversary logic has zero coupling to graph infrastructure.
-
----
-
-## Phase D — Historical Data Integration
-
-**Goal:** Extend the adversarial repertoire to include real market events — replay actual intraday price dynamics through the oracle.
-
-### D.1: `ExternalFileOracle` implementation
-
-**Status (verified):** `ExternalFileOracle` does **not** exist in the `abides-rohan` fork. In `abides_markets/oracles/__init__.py`, both `DataOracle` and `ExternalFileOracle` imports are commented out, and **no source file** (`external_file_oracle.py`) exists on disk. Only `SparseMeanRevertingOracle`, `MeanRevertingOracle`, and the base `Oracle` are available.
-
-This means Phase D requires **writing an oracle from scratch** in the `abides-rohan` fork, not merely uncommenting an import. The oracle must conform to the `Oracle` base class interface (primarily `observe_price(symbol, current_time, random_state) -> int` and provide fundamental value lookups for agents).
-
-**Scope of fork contribution:**
-1. Implement `ExternalFileOracle(Oracle)` — loads a time-series CSV, provides `observe_price()` via interpolation/nearest-lookup on the loaded data.
-2. Add unit tests for the new oracle in the `abides-rohan` test suite.
-3. Release a new tag (e.g., `v1.3.0-rohan`) and update `pyproject.toml` dependency.
-
-This is a non-trivial fork contribution. The API surface is small (one class, one primary method) but correctness is critical — the oracle is the global source of truth for agent beliefs.
-
-**`OracleSettings` extension:**
-
-```python
-class OracleType(str, Enum):
-    SYNTHETIC = "synthetic"         # SparseMeanRevertingOracle (current)
-    HISTORICAL = "historical"       # ExternalFileOracle (new)
-
-class OracleSettings(BaseModel):
-    oracle_type: OracleType = OracleType.SYNTHETIC
-    # Synthetic oracle params (existing):
-    kappa: float = 1.67e-16
-    sigma_s: float = 0
-    fund_vol: float = 5e-5
-    megashock_lambda_a: float = 2.77778e-18
-    megashock_mean: int = 1000
-    megashock_var: int = 50_000
-    # Historical oracle params (new):
-    data_source: str | None = None   # path or event name
-```
-
-**`AbidesConfigMapper._build_oracle()` dispatch:**
-
-```python
-def _build_oracle(self, ...):
-    if oracle_settings.oracle_type == OracleType.HISTORICAL:
-        return ExternalFileOracle(...)
-    else:
-        return SparseMeanRevertingOracle(...)
-```
-
-### D.2: Curated stress event library
-
-Bundle 5–10 notable intraday events as CSV files in a `data/events/` directory:
-
-| Event | Date | Character | Why adversarial |
-|---|---|---|---|
-| Flash Crash | 2010-05-06, 14:30-15:00 ET | Rapid 6% decline + V-shaped recovery | Tests crash resilience + recovery behavior |
-| GME Squeeze | 2021-01-28, 09:30-10:30 ET | Extreme upward momentum + reversal | Tests momentum sensitivity + reversal handling |
-| ETF Dislocation | 2015-08-24, 09:30-10:00 ET | Circuit breakers, price gaps, illiquidity | Tests gap risk + halt behavior |
-| COVID Open | 2020-03-16, 09:30-10:00 ET | Extreme volatility from open | Tests high-vol survival |
-| Calm Day (baseline) | 2021-02-05 | Normal trading | Baseline for comparison |
-
-**Data format:** CSV with columns `timestamp_ns, fundamental_value` (cents). Preprocessed to match ABIDES's `SparseMeanRevertingOracle` interface.
-
-**Price level normalization:** Historical data is centered around `r_bar` (default 100,000 cents = $1,000) so that agent population calibration remains valid. The *shape* of the price path is preserved; the *level* is normalized.
-
-### D.3: `MarketRegime` extension for historical events
-
-```python
-class MarketRegime(BaseModel):
-    regime_type: RegimeType
-    severity: float = Field(ge=0.0, le=1.0)
-    description: str = ""
-    rationale: str = ""
-    source: ScenarioSource = ScenarioSource.USER
-    oracle_source: OracleType = OracleType.SYNTHETIC     # new
-    historical_event: str | None = None                   # new — event name or path
-```
-
-Historical regimes still compose with agent population overrides. "Flash Crash with reduced MM presence" = historical flash crash price path + `adaptive_market_maker.num_agents=1`.
-
-The `RegimeTranslator` gains a `_historical_events` registry mapping event names to `(data_path, default_agent_config)` pairs.
-
-### D.4: Historical data validation
-
-`HistoricalDataLoader` class:
-- Validates CSV format (required columns, monotonic timestamps, positive prices)
-- Checks coverage: data must cover the simulation window (`start_time` to `end_time`)
-- Normalizes price levels to `r_bar` scale (preserving returns, not absolute levels)
-- Caches validated data for reuse across simulations
-
-### D.5: User upload support (sub-phase, deferred)
-
-Terminal sidebar gains a file upload widget for custom CSVs. Uploaded data is validated, previewed (price chart), and stored. Deferred until the curated library proves the concept.
-
----
-
-## Verification
-
-### Phase A
-- Existing test suite (417+) passes without modification.
-- Integration test: override `{"agents": {"momentum": {"num_agents": 50}}}` via deep-merged `config_override` — verify momentum agents increase to 50 while all other agent settings remain at defaults.
-- Verify `wake_up_freq="2S"` and `order_book_depth=5` overrides propagate to the `StrategicAgentAdapter` construction.
-
-### Phase B
-- Each `RegimeType` at severity 0.0, 0.5, 1.0 produces valid `SimulationSettings` and completes a 30-minute simulation without crash.
-- `NORMAL(severity=0.0)` produces `config_override == {}`. Non-NORMAL regimes at `severity=0.1` produce measurably different settings from defaults.
-- Composed regimes (`LOW_LIQUIDITY + MOMENTUM_CASCADE`) merge without key conflicts. Composed regimes with conflicting `value.num_agents` direction resolve correctly per stress-direction rules.
-- Migrated presets produce identical `SimulationSettings` to the original hardcoded dicts.
-
-### Phase C
-- End-to-end: submit a simple mean-reversion strategy → adversary generates 3 scenarios → executor runs them → adversarial scenario profitability scores are lower than the default scenario's scores on at least 2 of 3 adversarial scenarios.
-- Adversary rationale references specific code patterns from the strategy (e.g., "the strategy buys when price < moving average, assuming mean reversion").
-- Generated scenarios target at least 2 different primary scoring axes across the 3 scenarios.
-- Adversary output validates against `AdversaryOutput` Pydantic model (structured output, not free text).
-
-### Phase D
-- Simulation using `ExternalFileOracle` with a curated CSV runs to completion and produces metrics within expected ranges.
-- Price chart from the historical simulation visually matches the shape of the input CSV data.
-- All 5+ curated events simulate successfully with default agent populations.
-- Normalized price levels compare correctly (returns match, absolute levels centered on `r_bar`).
-
----
-
-## Decisions Log
-
-| Decision | Chosen | Over | Rationale |
-|----------|--------|------|-----------|
-| **Phase ordering** | A → B → C → D | Parallel or different ordering | Each phase builds on the previous. The regime layer (B) must exist before the adversary (C) can output structured scenarios. Historical data (D) extends the adversary's toolkit but isn't needed for the core mechanism. |
-| **Dependency on impl plan Phases 1–3** | Hard prerequisite | Parallel development | Deterministic scoring and rich observation are load-bearing infrastructure. Building the adversary without them produces superficial, ungrounded results. |
-| **Config surface scope** | Minimal targeted fixes | Full exposure of every ABIDES dial | The `RegimeTranslator` abstracts over raw parameters. Over-exposing individual knobs adds UX complexity without proportional value. The regime layer is the user-facing interface; raw params are the power-user escape hatch. |
-| **MarketRegime as structured type** | Pydantic model with enum regime types | Freeform dicts or plain-text descriptions | Structured output constrains the LLM, enables deterministic translation and composition, and makes the adversary's reasoning auditable. |
-| **Adversary output format** | `list[MarketRegime]` → deterministic `RegimeTranslator` | Raw `config_override` dicts generated by LLM | Separation of concerns: the LLM reasons in financial concepts (momentum cascade, liquidity drought), the translator does parameter engineering. LLMs are unreliable with precise numeric parameterisation — let them choose *what* to stress, not *how many* noise agents to use. |
-| **Adversary timing** | Once per session, iteration 1 | Per-iteration or post-hoc only | Per user direction. Fixed scenarios ensure score comparability across iterations. Post-hoc becomes the product path when the refinement loop is removed. |
-| **Regime composition model** | Per-agent-type stress-direction merge | Blanket min/max or sequential override | Blanket min() for agent counts breaks when composing regimes that *increase* agents adversarially (e.g., `INFORMED_TRADING_SURGE` increases value agents; composing with `LOW_LIQUIDITY` via min() would nullify the surge). Per-agent-type rules with stress-direction tags handle all composition cases correctly. |
-| **Historical data priority** | Phase D (last) | Earlier or integrated from start | Synthetic regime templates cover the most valuable adversarial use cases. Historical adds realism but requires data pipeline infrastructure. The adversarial *mechanism* works without it. |
-| **Product architecture** | Adversary node designed for standalone invocation | Tightly coupled to refinement graph | The refinement loop is PoC scaffolding. The adversary + explainer + scoring pipeline becomes the standalone stress-test product. Decoupled design avoids rework. |
-| **New agent types** | Not in scope | Custom adversarial agents (predatory HFT, whale) | Adding agent types requires forking `abides-rohan`. The existing 5 agent types, fully parameterized via regimes, can simulate whale-like behavior (extreme momentum size), informed trading surges (value agent λ_a), and liquidity withdrawal (MM count/POV). New agent types are a separate, larger workstream. |
-| **Deterministic timed events** | Via oracle megashock parameters | Custom event injection agent | ABIDES `SparseMeanRevertingOracle` mega-shocks are Poisson-distributed — not precisely timed. For the synthetic oracle, we control the *statistical character* of shocks (frequency, magnitude) but not their exact timing. Precise timing comes via historical data in Phase D. This is an acceptable trade-off: the adversary cares about regime character, not exact timestamps. |
-| **`ExternalFileOracle` scope** | Build from scratch in `abides-rohan` fork | Assume it exists and uncomment | Verified: no source file exists, only commented-out imports. Phase D requires a fork contribution — small API surface but high correctness bar. |
-| **`sigma_n` exposure** | Expose as explicit field (default: `r_bar / 100`) | Keep hidden coupling | Agent observation precision is a powerful adversarial lever. Hidden coupling with `r_bar` creates unintended side effects when adversarial scenarios change price levels. Explicit field enables independent control. |

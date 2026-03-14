@@ -32,6 +32,14 @@ The core refinement loop operates as follows:
 - **Strategy sandbox** — AST-based validation rejects unsafe imports/constructs. Execution runs in a timeout-bounded thread pool.
 - **Seed consistency** — Deterministic per-scenario seeds (SHA-256) ensure identical random state across iterations for fair comparisons.
 
+## Documentation
+
+ROHAN organizes its documentation into three distinct categories to serve different audiences:
+
+- **[Functional Docs (`docs/functional/`)](docs/functional/)**: User-facing documentation explaining the "why" and "how" of the system. Includes functional definitions of all quantitative market metrics.
+- **[Technical Docs (`docs/technical/`)](docs/technical/)**: Developer-facing documentation containing the core system architecture, adversarial scenario generation design, and parallel simulation execution guides.
+- **[LLM Knowledge Base (`docs/llm/`)](docs/llm/)**: Explicitly designed references, API contracts, and gotchas built for AI coding assistants integrating with the `abides-rohan` simulator.
+
 ## Getting Started
 
 ### Prerequisites
