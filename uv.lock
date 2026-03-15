@@ -18,8 +18,8 @@ resolution-markers = [
 
 [[package]]
 name = "abides-rohan"
-version = "1.2.7"
-source = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git?rev=v1.2.7-rohan#51aaac1c425ea1df857fb9b8d3d766fd4ed878e7" }
+version = "1.2.8"
+source = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git?rev=v1.2.8-rohan#5c486f773a8c07aa4a6c1984c27df299abf6802b" }
 dependencies = [
     { name = "coloredlogs" },
     { name = "gymnasium" },
@@ -2872,7 +2872,7 @@ wheels = [
 
 [[package]]
 name = "rohan"
-version = "0.2.1"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "abides-rohan" },
@@ -2915,7 +2915,7 @@ ui = [
 
 [package.metadata]
 requires-dist = [
-    { name = "abides-rohan", git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git?rev=v1.2.7-rohan" },
+    { name = "abides-rohan", git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git?rev=v1.2.8-rohan" },
     { name = "langchain", specifier = ">=0.3" },
     { name = "langchain-google-genai", marker = "extra == 'llm'", specifier = ">=2.0" },
     { name = "langchain-openai", specifier = ">=0.2" },

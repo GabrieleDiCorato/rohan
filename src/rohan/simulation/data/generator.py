@@ -28,6 +28,7 @@ def generate_fundamental_csv(
     date: str = "20260130",
     start_time: str = "09:30:00",
     end_time: str = "16:00:00",
+    step_size_ns: int = int(1e9),
     seed: int = 42,
 ) -> Path:
     """Generate a fundamental value CSV using SparseMeanRevertingOracle.
@@ -47,6 +48,7 @@ def generate_fundamental_csv(
         date: YYYYMMDD date string.
         start_time: Market open time (HH:MM:SS).
         end_time: Market close time (HH:MM:SS).
+        step_size_ns: Nanoseconds between samples (default: 1 second).
         seed: Random seed for determinism.
 
     Returns:
@@ -78,12 +80,11 @@ def generate_fundamental_csv(
         },
     )
 
-    # We step through the day and sample the oracle at 1-second intervals
+    # We step through the day and sample the oracle at the requested interval
     timestamps = []
     prices = []
 
     current_time = mkt_open
-    step_ns = int(1e9)  # 1 second step
 
     # Use a dummy random state for observation, though sigma_n=0 ignores it
     obs_random_state = np.random.RandomState(seed)
@@ -98,7 +99,7 @@ def generate_fundamental_csv(
         )
         timestamps.append(current_time)
         prices.append(price)
-        current_time += step_ns
+        current_time += step_size_ns
 
     df = pd.DataFrame(
         {

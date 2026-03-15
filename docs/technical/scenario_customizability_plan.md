@@ -18,7 +18,7 @@ This document is the authoritative plan for improving ABIDES scenario customizab
 Before any implementation, design the full data model covering all layers of the pipeline:
 
 - **Data Transport Objects (DTOs):** Pydantic models for how fundamental value data flows through the system — from ingestion (raw CSV rows, DB query results, API responses) through normalization to the oracle interface. Must include rich metadata (symbol, source provenance, date range, sampling frequency).
-- **Normalization Pipeline:** All data flows through a normalization step regardless of source: timestamps → nanosecond-precision DatetimeIndex, prices → integer cents, optional re-centering around `r_bar`, validation (no large gaps, monotonic timestamps, positive prices).
+- **Normalization Pipeline:** All data flows through a normalization step regardless of source: timestamps → nanosecond-precision DatetimeIndex, prices → integer cents, optional re-centering around `r_bar`, validation (no large gaps, monotonic timestamps, positive prices). **Must explicitly handle Corporate Actions (split/dividend adjustments) strictly prior to injection, and define an interpolation strategy (e.g., Last Observation Carried Forward (LOCF) to avoid look-ahead bias common in linear interpolation). Also needs Market Hours Filtering to either exclude or explicitly map out-of-hours data.**
 - **Database Schema:** SQLAlchemy models for storing curated historical datasets with metadata. This is the primary production storage path.
 - **Canonical CSV Format:** A simple, well-defined CSV schema that `CsvDataProvider` expects and that the DB can export. Two columns: `timestamp` (ISO-8601 nanosecond precision), `price_cents` (integer).
 - **API Response Mapping:** Define how raw API responses (e.g., Alpaca bar data, Polygon tick data) map to the internal DTOs. Thin adapters handle provider-specific quirks.
@@ -73,8 +73,8 @@ Dedicated research step — **no shortcuts with fake data**:
 ### 2.1 Agent Plugin Protocol & Registry
 
 - Define an `AgentPlugin` protocol. Each plugin provides:
-  1. **Typed Settings Schema** — a Pydantic `BaseModel` with all agent-specific parameters, defaults, validators, and Field metadata (descriptions, bounds, units). Single source of truth for what the agent accepts.
-  2. **Builder Function** — constructs ABIDES agent instances from the typed settings and a shared build context (market times, ticker, random state, etc.).
+  1. **Typed Settings Schema** — a Pydantic `BaseModel` with all agent-specific parameters, defaults, validators, and Field metadata (descriptions, bounds, units). Single source of truth for what the agent accepts. **Must include strict quantitative boundary validation (e.g., `0 < pov <= 1`, `lambda_a > 0`, `kappa >= 0`).**
+  2. **Builder Function** — constructs ABIDES agent instances from the typed settings and a shared build context (market times, ticker, random state, etc.). **Must ensure deterministic random seed injection so agent behavior is perfectly reproducible across identical scenarios.**
   3. **UI Metadata** — display name, description, category. The UI introspects the Pydantic schema to auto-generate widgets. No manual UI code per agent.
 - **Key design decision:** The `ExchangeAgent` is infrastructure (always exactly one, always required). It should not be toggleable. All other agents are participant plugins with an `enabled` toggle.
 - Built-in agents (Noise, Value, Momentum, AdaptiveMarketMaker) are refactored from inline blocks in `_build_agents()` into standalone plugin files.
@@ -124,11 +124,12 @@ Refactor `0_Terminal.py` (~1,882 lines) into a component architecture under `src
 ### 3.2 `MarketRegime` Data Models
 
 Implement `MarketRegime`, `RegimeType`, and `ScenarioSource` as specified in `adversarial_scenario_system.md` §B.1. Ten regime types mapping financial conditions (e.g., Flash Crash, Momentum Cascade, Informed Trading Surge) to their ABIDES mechanisms.
+**Addition:** Incorporate a `STRUCTURAL_BREAK` regime type. While `MEAN_REVERSION_BREAKDOWN` drops the OU parameter `kappa`, a structural break explicitly shifts the baseline fundamental value (`r_bar`) mid-simulation, accurately modeling macroeconomic shocks or earnings surprises.
 
 ### 3.3 `RegimeTranslator` Implementation
 
 As specified in `adversarial_scenario_system.md` §B.2–B.4:
-- Severity-parameterized interpolation between mild and extreme parameter sets.
+- Severity-parameterized interpolation between mild and extreme parameter sets. **Crucial Quant Requirement:** Acknowledge nonlinear market microstructure impacts. E.g., moving from 100 to 50 noise agents degrades liquidity much faster than moving from 1000 to 950. The translator must allow for **nonlinear scalar mapping** (e.g., exponential or logarithmic decay) rather than strict linear interpolation.
 - Composable regimes with directional conflict resolution.
 - Replace existing presets with `MarketRegime` equivalents.
 
@@ -167,6 +168,7 @@ As specified in `adversarial_scenario_system.md` §B.2–B.4:
 - Overlaid Plotly charts (price, PnL, inventory, spread, volume) with scenario-colored traces.
 - Delta Summary table: 6 scoring axes × (Scenario A, Scenario B, Δ absolute, Δ %).
 - Highlight significant deltas.
+- **Statistical Rigor (Quant Extension):** Visuals are insufficient for rigorous algorithmic trading analysis. Include baseline statistical tests comparing the two scenarios (e.g., compute the **Kolmogorov-Smirnov (KS) statistic** to compare fill slippage distributions, and run **Welch's t-test** on terminal PnL paths across multiple seeds if stochasticity is present).
 
 ### 4.4 Verification
 
@@ -187,6 +189,7 @@ Cross-field validation rules:
 - Agent count ceiling (memory/performance guard).
 - `enabled=True` with `num_agents=0` → auto-disable or warn.
 - Regime severity bounds validated for simulation stability.
+- **Quantitative Consistency Guards:** E.g., ensure `max_size` of momentum agents isn't excessively larger than the natural L1 depth generated by the configured number of market makers, which could artificially break the exchange matching engine.
 
 ### 5.2 Adversary Node Integration
 
