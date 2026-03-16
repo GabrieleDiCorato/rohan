@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, override
 
 import pandas as pd
 from abides_core import NanosecondTime
@@ -12,9 +12,10 @@ from sqlalchemy import text
 from rohan.config import PriceUnit
 from rohan.framework.database.database_connector import DatabaseConnector, get_database_connector
 from rohan.simulation.data.normalization import normalize_fundamental_series
+from rohan.simulation.data.provider_protocol import FundamentalDataProvider
 
 
-class DatabaseDataProvider:
+class DatabaseDataProvider(FundamentalDataProvider):
     """Provider that loads curated historical data from SQL storage."""
 
     def __init__(
@@ -66,6 +67,7 @@ class DatabaseDataProvider:
             validate=True,
         )
 
+    @override
     def get_fundamental_series(self, symbol: str, start: NanosecondTime, end: NanosecondTime) -> pd.Series:
         if symbol != self._symbol:
             raise KeyError(f"DatabaseDataProvider configured for {self._symbol}, but {symbol} was requested")
@@ -75,8 +77,9 @@ class DatabaseDataProvider:
         return self._data.loc[start_ts:end_ts]  # type: ignore
 
     @staticmethod
-    def list_available(source: Path | str | None = None) -> list[str]:
-        _ = source
+    @override
+    def list_available(_source: Path | str | None = None) -> list[str]:
+        _ = _source
         db = get_database_connector()
         session = db.get_session()
         try:

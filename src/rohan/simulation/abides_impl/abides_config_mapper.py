@@ -35,7 +35,7 @@ from rohan.config import (
 from rohan.simulation.data.api_provider import ApiDataProvider
 from rohan.simulation.data.csv_provider import CsvDataProvider
 from rohan.simulation.data.database_provider import DatabaseDataProvider
-from rohan.simulation.data.provider_protocol import FundamentalDataProvider
+from rohan.simulation.data.provider_protocol import FundamentalDataProvider, LazyLinearPointAdapter, PointDataProvider
 from rohan.simulation.models.strategy_api import StrategicAgent
 
 from .random_state_handler import RandomStateHandler
@@ -313,7 +313,7 @@ class AbidesConfigMapper:
         noise_mkt_close: int,
     ) -> ExternalDataOracle:
         r_bar = settings.agents.value.r_bar if historical_settings.recenter_r_bar else None
-        provider = AbidesConfigMapper._resolve_historical_provider(settings, historical_settings, r_bar)
+        provider: FundamentalDataProvider | PointDataProvider = AbidesConfigMapper._resolve_historical_provider(settings, historical_settings, r_bar)
 
         interpolation_map = {
             InterpolationMode.FORWARD_FILL: InterpolationStrategy.FORWARD_FILL,
@@ -321,6 +321,19 @@ class AbidesConfigMapper:
             InterpolationMode.LINEAR: InterpolationStrategy.LINEAR,
         }
         interpolation = interpolation_map[historical_settings.interpolation]
+
+        # LINEAR in batch mode pre-allocates a full ns-resolution grid (~170 TiB
+        # for a 7-hour session).  Wrap the provider as a PointDataProvider so the
+        # oracle uses its lazy per-query LRU path instead; numpy.interp delivers
+        # the same linear result without the upfront expansion.
+        if historical_settings.interpolation == InterpolationMode.LINEAR:
+            provider = LazyLinearPointAdapter(
+                provider,
+                settings.ticker,
+                mkt_open,
+                noise_mkt_close,
+            )
+            interpolation = InterpolationStrategy.FORWARD_FILL  # unused in point mode
 
         return ExternalDataOracle(
             mkt_open=mkt_open,

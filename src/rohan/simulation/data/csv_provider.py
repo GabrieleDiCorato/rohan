@@ -5,15 +5,17 @@ historical or generated CSV data into the ExternalDataOracle.
 """
 
 from pathlib import Path
+from typing import cast, override
 
 import pandas as pd
 from abides_core import NanosecondTime
 
 from rohan.config import PriceUnit
 from rohan.simulation.data.normalization import normalize_fundamental_series
+from rohan.simulation.data.provider_protocol import FundamentalDataProvider
 
 
-class CsvDataProvider:
+class CsvDataProvider(FundamentalDataProvider):
     """BatchDataProvider that loads a canonical CSV file.
 
     Expected CSV format:
@@ -63,8 +65,6 @@ class CsvDataProvider:
         if value_column not in raw_df.columns:
             raise ValueError(f"CSV missing required price column '{value_column}' for unit={price_unit.value}: {raw_df.columns.tolist()}")
 
-        from typing import cast
-
         raw_series = cast("pd.Series", raw_df.set_index("timestamp")[value_column])
 
         # Normalize and validate the series
@@ -76,6 +76,7 @@ class CsvDataProvider:
             validate=True,
         )
 
+    @override
     def get_fundamental_series(self, symbol: str, start: NanosecondTime, end: NanosecondTime) -> pd.Series:
         """Return the slice of data for *symbol* between *start* and *end*.
 
@@ -98,13 +99,30 @@ class CsvDataProvider:
         start_ts = pd.to_datetime(start, unit="ns")
         end_ts = pd.to_datetime(end, unit="ns")
 
-        # If the requested range falls outside our dataset, return empty or what we have.
-        # The ExternalDataOracle handles empty/partial slices via its interpolation proxy.
+        data = self._data
+
+        # If the CSV was generated for a different calendar date than the
+        # simulation date, shift the entire index so that the intraday time
+        # pattern is preserved but the date matches the simulation.  This lets
+        # a single CSV be reused across any simulation date without manual
+        # regeneration.
+        if not data.empty:
+            data_index = cast(pd.DatetimeIndex, data.index)
+            first_csv_timestamp = data_index.min()
+            if not isinstance(first_csv_timestamp, pd.Timestamp):
+                raise ValueError("Historical CSV index must contain valid timestamps")
+            csv_date = first_csv_timestamp.normalize()
+            req_date = start_ts.normalize()
+            if csv_date != req_date:
+                data = data.copy()
+                data.index = data.index + (req_date - csv_date)
+
         # Note: loc slicing is inclusive.
-        return self._data.loc[start_ts:end_ts]  # type: ignore
+        return data.loc[start_ts:end_ts]  # type: ignore
 
     @staticmethod
-    def list_available(source: Path | str | None = None) -> list[str]:
+    @override
+    def list_available(_source: Path | str | None = None) -> list[str]:
         """List all available CSV dataset names in a directory.
 
         Args:
@@ -114,10 +132,10 @@ class CsvDataProvider:
             A list of filenames (with or without extension, depending on preference).
             Here we return the stem (filename without extension) for cleaner UI.
         """
-        if source is None:
+        if _source is None:
             return []
 
-        dir_path = Path(source)
+        dir_path = Path(_source)
         if not dir_path.exists() or not dir_path.is_dir():
             return []
 

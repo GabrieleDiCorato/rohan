@@ -4,18 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pandas as pd
 from abides_core import NanosecondTime
 
 from rohan.config import PriceUnit
 from rohan.simulation.data.normalization import normalize_fundamental_series
+from rohan.simulation.data.provider_protocol import FundamentalDataProvider
 
 ApiFetcher = Callable[[str, str, NanosecondTime, NanosecondTime, str], pd.DataFrame | pd.Series]
 
 
-class ApiDataProvider:
+class ApiDataProvider(FundamentalDataProvider):
     """Provider that fetches historical fundamentals from external HTTP APIs."""
 
     def __init__(
@@ -37,6 +38,7 @@ class ApiDataProvider:
         self._r_bar = r_bar
         self._fetcher = fetcher
 
+    @override
     def get_fundamental_series(self, symbol: str, start: NanosecondTime, end: NanosecondTime) -> pd.Series:
         if symbol != self._symbol:
             raise KeyError(f"ApiDataProvider configured for {self._symbol}, but {symbol} was requested")
@@ -61,6 +63,7 @@ class ApiDataProvider:
         )
 
     @staticmethod
-    def list_available(source: Path | str | None = None) -> list[str]:
-        _ = source
+    @override
+    def list_available(_source: Path | str | None = None) -> list[str]:
+        _ = _source
         return ["alpaca", "polygon"]

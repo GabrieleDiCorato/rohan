@@ -10,10 +10,12 @@ Performance optimizations:
 import html
 import logging
 import traceback
+from collections.abc import Hashable
 from datetime import datetime
 from pathlib import Path
 from typing import TypedDict
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
@@ -141,6 +143,83 @@ def compute_spread_data(_l1_df):
     df["mid_price"] = (df["bid_price"] + df["ask_price"]) / 2
     df["spread_bps"] = (df["spread"] / df["mid_price"]) * 10000
     return df
+
+
+@st.cache_data
+def load_historical_csv_preview(csv_path: str, file_mtime: float, file_size: int) -> tuple[pd.DataFrame, str, int]:
+    """Load historical CSV and downsample for responsive sidebar preview.
+
+    The mtime and size are part of the cache key so edits invalidate stale data.
+    """
+    _ = (file_mtime, file_size)  # Included for cache invalidation only.
+
+    header = pd.read_csv(csv_path, nrows=0)
+    columns = set(header.columns)
+    price_col = "price_cents" if "price_cents" in columns else "price" if "price" in columns else ""
+
+    if "timestamp" not in columns or not price_col:
+        raise ValueError("CSV must contain 'timestamp' and either 'price_cents' or 'price' columns")
+
+    def should_load_column(column_name: Hashable) -> bool:
+        return column_name in {"timestamp", price_col}
+
+    df = pd.read_csv(csv_path, usecols=should_load_column)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp", price_col]).sort_values("timestamp")
+
+    total_rows = len(df)
+    max_points = 2000
+    if total_rows > max_points:
+        step = max(1, total_rows // max_points)
+        sampled = df.iloc[::step].copy()
+        if sampled.index[-1] != df.index[-1]:
+            sampled = pd.concat([sampled, df.iloc[[-1]]], ignore_index=False)
+        df = sampled
+
+    return df.reset_index(drop=True), price_col, total_rows
+
+
+@st.cache_data
+def load_historical_series_for_analysis(
+    csv_path: str,
+    file_mtime: float,
+    file_size: int,
+    symbol: str,
+    sim_date: str,
+    start_time: str,
+    end_time: str,
+    price_unit: str,
+    source_timezone: str,
+) -> pd.DataFrame:
+    """Load and downsample historical series for the analysis price chart."""
+    _ = (file_mtime, file_size)  # Included for cache invalidation only.
+
+    from rohan.simulation.data.csv_provider import CsvDataProvider
+
+    provider = CsvDataProvider(
+        path=csv_path,
+        symbol=symbol,
+        price_unit=PriceUnit(price_unit),
+        source_timezone=source_timezone,
+    )
+
+    day_ns = int(pd.to_datetime(sim_date).value)
+    start_ns = day_ns + int(pd.to_timedelta(start_time).value)
+    end_ns = day_ns + int(pd.to_timedelta(end_time).value)
+
+    series = provider.get_fundamental_series(symbol, start_ns, end_ns)
+    if series.empty:
+        return pd.DataFrame(columns=pd.Index(["timestamp", "historical_price_cents"]))
+
+    historical_df = series.rename("historical_price_cents").reset_index()
+    historical_df.columns = ["timestamp", "historical_price_cents"]
+
+    max_points = 4000
+    if len(historical_df) > max_points:
+        step = max(1, len(historical_df) // max_points)
+        historical_df = historical_df.iloc[::step].copy()
+
+    return historical_df.reset_index(drop=True)
 
 
 class MetricItem(TypedDict):
@@ -626,8 +705,6 @@ def render_sidebar_config():
                 min_value=0,
             )
         else:
-            import pandas as pd
-
             from rohan.simulation.data.csv_provider import CsvDataProvider
             from rohan.simulation.data.database_provider import DatabaseDataProvider
 
@@ -640,20 +717,20 @@ def render_sidebar_config():
             )
             historical_provider_type = ProviderType(provider_type_str)
 
-            datasets_dir = Path("src/rohan/simulation/data/datasets")
+            datasets_dir = Path("hist_data")
             datasets_dir.mkdir(parents=True, exist_ok=True)
 
             if historical_provider_type == ProviderType.CSV:
                 available_csvs = CsvDataProvider.list_available(datasets_dir)
 
                 if not available_csvs:
-                    st.warning("No CSV datasets found in src/rohan/simulation/data/datasets/")
+                    st.warning("No CSV datasets found in hist_data/")
                     historical_csv = None
                 else:
                     historical_csv = st.selectbox(
                         "Historical Dataset",
                         options=available_csvs,
-                        help="Select a CSV dataset. Look inside src/rohan/simulation/data/datasets/",
+                        help="Select a CSV dataset. Look inside hist_data/",
                         key=f"cfg_oracle_historical_csv_{st.session_state.config_reset_counter}",
                     )
                     if historical_csv:
@@ -732,7 +809,7 @@ def render_sidebar_config():
                 "selectbox",
                 "cfg_oracle_historical_interp",
                 options=[m.value for m in InterpolationMode],
-                index=0,
+                index=([m.value for m in InterpolationMode].index(config.agents.oracle.historical.interpolation.value)),
             )
 
             historical_recenter = compact_input(
@@ -745,16 +822,61 @@ def render_sidebar_config():
             if historical_provider_type == ProviderType.CSV and historical_csv_path:
                 csv_path = Path(historical_csv_path)
                 try:
-                    df = pd.read_csv(csv_path)
-                    if "timestamp" in df.columns and ("price_cents" in df.columns or "price" in df.columns):
-                        df["timestamp"] = pd.to_datetime(df["timestamp"])
-                        df.set_index("timestamp", inplace=True)
-                        price_col = "price_cents" if "price_cents" in df.columns else "price"
-                        st.markdown("**Preview**")
-                        if price_col == "price_cents":
-                            st.line_chart(df[price_col] / 100, height=200, y_label="Price ($)")
-                        else:
-                            st.line_chart(df[price_col], height=200, y_label="Price")
+                    preview_df, price_col, total_rows = load_historical_csv_preview(
+                        str(csv_path),
+                        csv_path.stat().st_mtime,
+                        csv_path.stat().st_size,
+                    )
+                    preview_df = preview_df.set_index("timestamp")
+
+                    st.markdown("**Preview**")
+                    preview_series = preview_df[price_col] / 100 if price_col == "price_cents" else preview_df[price_col]
+                    preview_label = "Price ($)" if price_col == "price_cents" else "Price"
+
+                    preview_fig = go.Figure(
+                        data=[
+                            go.Scatter(
+                                x=preview_df.index,
+                                y=preview_series,
+                                mode="lines",
+                                name="Historical",
+                                line={"color": COLORS["primary"], "width": 1.4},
+                            )
+                        ]
+                    )
+                    preview_fig.update_layout(
+                        height=220,
+                        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+                        plot_bgcolor=COLORS["background"],
+                        paper_bgcolor=COLORS["background"],
+                        font={"color": COLORS["text"], "family": "Courier New", "size": 11},
+                        showlegend=False,
+                    )
+                    preview_fig.update_xaxes(showgrid=False, showticklabels=False)
+                    preview_fig.update_yaxes(
+                        title_text=preview_label,
+                        gridcolor=COLORS["border"],
+                        showgrid=True,
+                        autorange=True,
+                        rangemode="normal",
+                        fixedrange=False,
+                    )
+                    st.plotly_chart(preview_fig, width="stretch", config={"displayModeBar": False})
+
+                    if total_rows > len(preview_df):
+                        st.caption(f"Previewing {len(preview_df):,} sampled points from {total_rows:,} rows for UI responsiveness.")
+
+                    # Inform the user if the CSV date differs from the simulation
+                    # date. The provider rebases the series automatically, so the
+                    # simulation will still run correctly.
+                    csv_first_ts = preview_df["timestamp"].iloc[0]
+                    if not pd.isna(csv_first_ts):
+                        csv_first_timestamp = pd.to_datetime(csv_first_ts, errors="coerce")
+                        if isinstance(csv_first_timestamp, pd.Timestamp):
+                            csv_date_str = csv_first_timestamp.strftime("%Y%m%d")
+                            sim_date_str = str(config.date)
+                            if csv_date_str != sim_date_str:
+                                st.info(f"ℹ️ CSV date ({csv_date_str}) differs from simulation date ({sim_date_str}). The intraday price pattern will be rebased to the simulation date automatically.")
                 except Exception as e:
                     st.error(f"Cannot preview dataset: {e}")
 
@@ -1585,9 +1707,33 @@ with tab2:
 
             try:
                 l1_df = get_l1_data(result)
+                config = st.session_state.simulation_config
 
                 if not l1_df.empty:
                     price_df = compute_price_data(l1_df)
+                    historical_df: pd.DataFrame | None = None
+
+                    if (
+                        config is not None
+                        and config.agents.oracle.oracle_type == OracleType.HISTORICAL
+                        and config.agents.oracle.historical.provider_type == ProviderType.CSV
+                        and config.agents.oracle.historical.csv.csv_path
+                    ):
+                        try:
+                            csv_path = Path(config.agents.oracle.historical.csv.csv_path)
+                            historical_df = load_historical_series_for_analysis(
+                                csv_path=str(csv_path),
+                                file_mtime=csv_path.stat().st_mtime,
+                                file_size=csv_path.stat().st_size,
+                                symbol=config.ticker,
+                                sim_date=str(config.date),
+                                start_time=str(config.start_time),
+                                end_time=str(config.end_time),
+                                price_unit=config.agents.oracle.historical.csv.price_unit.value,
+                                source_timezone=config.agents.oracle.historical.csv.source_timezone,
+                            )
+                        except Exception as hist_err:
+                            st.warning(f"Could not load historical series for overlay: {hist_err}")
 
                     fig = make_subplots(
                         rows=2,
@@ -1609,6 +1755,18 @@ with tab2:
                         row=1,
                         col=1,
                     )
+
+                    if historical_df is not None and not historical_df.empty:
+                        fig.add_trace(
+                            go.Scatter(
+                                x=historical_df["timestamp"],
+                                y=historical_df["historical_price_cents"],
+                                name="Historical",
+                                line={"color": "#F59E0B", "width": 2, "dash": "dot"},
+                            ),
+                            row=1,
+                            col=1,
+                        )
 
                     fig.add_trace(
                         go.Scatter(
@@ -1684,7 +1842,22 @@ with tab2:
                         col=1,
                     )
 
-                    st.plotly_chart(fig, width="stretch")
+                    chart_col, data_col = st.columns([3, 2])
+
+                    with chart_col:
+                        st.plotly_chart(fig, width="stretch")
+
+                    with data_col:
+                        st.markdown("#### Historical Series")
+                        if historical_df is not None and not historical_df.empty:
+                            st.dataframe(
+                                historical_df.rename(columns={"historical_price_cents": "historical_price"}).head(120),
+                                width="stretch",
+                                hide_index=True,
+                            )
+                            st.caption("Showing sampled historical points used for chart overlay.")
+                        else:
+                            st.caption("Historical series overlay is available when Oracle Type is Historical + CSV provider.")
 
                     # Price statistics
                     st.markdown("### 📊 Price Statistics")

@@ -10,7 +10,7 @@ from .database_provider import DatabaseDataProvider
 from .generator import generate_fundamental_csv
 from .models import DataProviderType, FundamentalDataset
 from .normalization import normalize_fundamental_series
-from .provider_protocol import FundamentalDataProvider
+from .provider_protocol import FundamentalDataProvider, LazyLinearPointAdapter, PointDataProvider
 
 __all__ = [
     "ApiDataProvider",
@@ -20,5 +20,7 @@ __all__ = [
     "DataProviderType",
     "FundamentalDataset",
     "FundamentalDataProvider",
+    "LazyLinearPointAdapter",
     "normalize_fundamental_series",
+    "PointDataProvider",
 ]
