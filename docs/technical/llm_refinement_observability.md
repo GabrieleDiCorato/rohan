@@ -28,6 +28,45 @@ Structured telemetry events now include a consistent envelope:
 - `ts`: UTC timestamp.
 - `run_id`: refinement run correlation id when the event originates from graph state.
 
+## How To Use Telemetry
+
+### 1) Toggle telemetry on or off
+
+Telemetry emission is controlled by the deploy-time feature flag:
+
+```env
+FEATURE_LLM_TELEMETRY_V1=true
+```
+
+### 2) Emit events from refinement nodes
+
+Use the refinement context helper to avoid repeating `component`, `run_id`, and `iteration` boilerplate:
+
+```python
+from rohan.llm.telemetry import refinement_telemetry_context
+
+ctx = refinement_telemetry_context(run_id="abc123", iteration=4)
+ctx.emit("writer_success", attempt=1, max_retries=3)
+```
+
+### 3) Emit events from non-graph services
+
+Use `emit_metric` directly and provide a stable component name:
+
+```python
+from rohan.llm.telemetry import emit_metric
+
+emit_metric(
+	"baseline_cache_hit",
+	component="rohan.simulation",
+	cache_key="3ad1f7b8d2a1",
+)
+```
+
+### 4) Parse telemetry downstream
+
+Events are emitted as single-line JSON messages prefixed by `telemetry ` in logger output. Filter by `schema_version`, `component`, and `event` in your log pipeline.
+
 ## Current Rollout Behavior
 
 - `FEATURE_LLM_EXPLAINER_TIERS_V1` controls whether the deterministic template explainer tier is enabled after ReAct and structured fallback failures.

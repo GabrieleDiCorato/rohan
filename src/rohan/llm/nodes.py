@@ -50,7 +50,7 @@ from rohan.llm.prompts import (
 )
 from rohan.llm.scoring import WEIGHT_PROFILES, classify_goal_weights, compute_axis_scores, compute_final_score
 from rohan.llm.state import RefinementState, ScenarioResult, is_feature_enabled, terminal_metadata
-from rohan.llm.telemetry import emit_metric
+from rohan.llm.telemetry import refinement_telemetry_context
 from rohan.llm.tools import make_investigation_tools
 from rohan.simulation.models.simulation_metrics import (
     ComparisonResult,
@@ -70,14 +70,11 @@ def _feature_enabled(state: RefinementState, flag: str, default: bool = True) ->
 
 def _emit(state: RefinementState, event: str, **fields) -> None:
     if _feature_enabled(state, "llm_telemetry_v1", default=True):
-        payload = dict(fields)
-        payload.setdefault("iteration", state.get("iteration_number", 1))
-        emit_metric(
-            event,
-            component="rohan.llm.refinement",
-            run_id=state.get("run_id"),
-            **payload,
+        context = refinement_telemetry_context(
+            state.get("run_id"),
+            iteration=state.get("iteration_number", 1),
         )
+        context.emit(event, **fields)
 
 
 # ─── Formatting helpers (thin wrappers over rohan.utils.formatting) ───────
