@@ -11,6 +11,7 @@ from rohan.llm.graph import (
     MAX_VALIDATION_RETRIES,
     _deterministic_seed,
     build_refinement_graph,
+    run_refinement,
     should_continue,
     terminalize_validation_failure_node,
     validation_router,
@@ -178,3 +179,26 @@ class TestScenarioConfigSeed:
     def test_seed_explicit(self):
         sc = ScenarioConfig(name="test", seed=42)
         assert sc.seed == 42
+
+
+class TestFeatureFlagPropagation:
+    def test_run_refinement_injects_feature_flags(self, monkeypatch):
+        class _FakeGraph:
+            def invoke(self, initial_state, config):
+                _ = config
+                return initial_state
+
+        monkeypatch.setattr("rohan.llm.graph.build_refinement_graph", lambda: _FakeGraph())
+        monkeypatch.setattr(
+            "rohan.llm.graph.feature_flags_dict",
+            lambda: {
+                "llm_explainer_tiers_v1": True,
+                "explicit_terminal_reasons_v1": False,
+                "baseline_cache_v1": True,
+                "llm_telemetry_v1": False,
+            },
+        )
+
+        final_state = run_refinement(goal="test", max_iterations=1, scenarios=[ScenarioConfig(name="s")])
+        assert final_state["feature_flags"]["llm_explainer_tiers_v1"] is True
+        assert final_state["feature_flags"]["llm_telemetry_v1"] is False

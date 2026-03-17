@@ -111,3 +111,24 @@ def test_baseline_cache_respects_max_entries():
     service.run_simulation(settings=settings_b, strategy=None)
 
     assert len(service._baseline_cache) == 1
+
+
+def test_baseline_cache_feature_flag_can_disable_cache(monkeypatch):
+    service = SimulationService()
+    service.clear_baseline_cache()
+
+    output = _FakeOutput()
+    runner = _FakeRunner(output)
+    service._create_runner = MagicMock(return_value=runner)  # type: ignore[method-assign]
+
+    class _Flags:
+        baseline_cache_v1 = False
+        llm_telemetry_v1 = True
+
+    monkeypatch.setattr("rohan.simulation.simulation_service.get_feature_flags", lambda: _Flags())
+
+    settings = _settings()
+    service.run_simulation(settings=settings, strategy=None)
+    service.run_simulation(settings=settings, strategy=None)
+
+    assert runner.run_calls == 2

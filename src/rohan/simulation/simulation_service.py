@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from typing import cast
 
-from rohan.config import SimulationEngine, SimulationSettings
+from rohan.config import SimulationEngine, SimulationSettings, get_feature_flags
 from rohan.llm.telemetry import emit_metric
 from rohan.simulation.models import (
     SimulationContext,
@@ -69,14 +69,16 @@ class SimulationService:
         if context is None:
             context = SimulationContext(settings=settings)
 
+        feature_flags = get_feature_flags()
         cache_key: str | None = None
-        if strategy is None and settings.baseline_cache_enabled:
+        if strategy is None and settings.baseline_cache_enabled and feature_flags.baseline_cache_v1:
             cache_key = self._build_baseline_cache_key(settings)
             cached_output = self._baseline_cache.get(cache_key)
             if cached_output is not None:
                 self._baseline_cache.move_to_end(cache_key)
                 logger.info("Baseline cache hit: %s", cache_key[:12])
-                emit_metric("baseline_cache_hit", cache_key=cache_key[:12])
+                if feature_flags.llm_telemetry_v1:
+                    emit_metric("baseline_cache_hit", cache_key=cache_key[:12])
                 return SimulationResult(
                     context=context,
                     duration_seconds=0.0,
@@ -103,7 +105,8 @@ class SimulationService:
                     while len(self._baseline_cache) > settings.baseline_cache_max_entries:
                         self._baseline_cache.popitem(last=False)
                     logger.info("Baseline cache stored: %s (size=%d)", cache_key[:12], len(self._baseline_cache))
-                    emit_metric("baseline_cache_store", cache_key=cache_key[:12], cache_size=len(self._baseline_cache))
+                    if feature_flags.llm_telemetry_v1:
+                        emit_metric("baseline_cache_store", cache_key=cache_key[:12], cache_size=len(self._baseline_cache))
 
                 return SimulationResult(
                     context=context,

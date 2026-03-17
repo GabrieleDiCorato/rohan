@@ -119,6 +119,7 @@ class RefinementState(TypedDict, total=False):
     max_iterations: int
     scenarios: list[ScenarioConfig]
     active_scenario: ScenarioConfig  # Used during mapped execution
+    feature_flags: dict[str, bool]
 
     # --- Current iteration ---
     current_code: str | None

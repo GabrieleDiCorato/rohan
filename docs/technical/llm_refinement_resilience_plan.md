@@ -150,6 +150,21 @@ Execution notes:
 
 Feature flags, integration benchmarks, and staged enablement.
 
+Validation checklist:
+
+- [x] Feature flag settings module added with cached access.
+- [x] Graph state now carries feature flags for node-level behavior control.
+- [x] Node/service behavior gated by rollout flags where relevant.
+- [x] Feature flag and propagation tests added.
+- [x] `pre-commit run --all-files` passes after Phase 6 changes.
+
+Execution notes:
+
+- Added `FeatureFlags` with four rollout toggles and helper accessors.
+- Propagated feature flags into `run_refinement` initial graph state.
+- Gated explainer tier fallback and telemetry emission in nodes.
+- Gated baseline cache behavior and cache telemetry in simulation service.
+
 ## Execution Log
 
 - 2026-03-17: Phase 1 started.

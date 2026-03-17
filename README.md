@@ -86,6 +86,14 @@ SIM_BASELINE_CACHE_MAX_ENTRIES=64
 
 Refinement telemetry is emitted as structured JSON log lines under the `rohan.telemetry` logger.
 
+Rollout feature flags (for staged enablement):
+```env
+FEATURE_LLM_EXPLAINER_TIERS_V1=true
+FEATURE_EXPLICIT_TERMINAL_REASONS_V1=true
+FEATURE_BASELINE_CACHE_V1=true
+FEATURE_LLM_TELEMETRY_V1=true
+```
+
 ### Usage
 
 Launch the Streamlit UI (Terminal and Refinement Lab):

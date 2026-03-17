@@ -64,6 +64,16 @@ from rohan.utils.formatting import fmt_dollar, fmt_float, fmt_pct
 logger = logging.getLogger(__name__)
 
 
+def _feature_enabled(state: RefinementState, flag: str, default: bool = True) -> bool:
+    flags = state.get("feature_flags", {})
+    return bool(flags.get(flag, default))
+
+
+def _emit(state: RefinementState, event: str, **fields) -> None:
+    if _feature_enabled(state, "llm_telemetry_v1", default=True):
+        emit_metric(event, **fields)
+
+
 # ─── Formatting helpers (thin wrappers over rohan.utils.formatting) ───────
 
 _fmt_dollar = lambda cents: fmt_dollar(cents) if cents is not None else "N/A"  # noqa: E731
@@ -187,7 +197,8 @@ def writer_node(state: RefinementState) -> dict:
             result = None
 
         if result is not None:
-            emit_metric(
+            _emit(
+                state,
                 "writer_success",
                 iteration=state.get("iteration_number", 1),
                 attempt=attempt,
@@ -228,7 +239,8 @@ def writer_node(state: RefinementState) -> dict:
                 "Writer node: all %d LLM attempts returned None — preserving prior known-good code",
                 max_llm_retries,
             )
-            emit_metric(
+            _emit(
+                state,
                 "writer_exhausted_preserved_code",
                 iteration=state.get("iteration_number", 1),
                 max_retries=max_llm_retries,
@@ -246,7 +258,8 @@ def writer_node(state: RefinementState) -> dict:
             "Writer node: all %d LLM attempts returned None — clearing code to force fresh generation",
             max_llm_retries,
         )
-        emit_metric(
+        _emit(
+            state,
             "writer_exhausted_no_code",
             iteration=state.get("iteration_number", 1),
             max_retries=max_llm_retries,
@@ -551,7 +564,8 @@ def process_scenario_node(state: RefinementState) -> dict:
             rich_analysis_json=rich_analysis_json,
         )
         explanation = _run_explainer(result, state)
-        emit_metric(
+        _emit(
+            state,
             "process_scenario_complete",
             iteration=state.get("iteration_number", 1),
             scenario=scenario.name,
@@ -618,7 +632,6 @@ def _fallback_structured_explanation(
 def _template_explanation(sr: ScenarioResult) -> ScenarioExplanation:
     """Deterministic fallback explanation based on factual metrics."""
     if sr.error:
-        emit_metric("explainer_skipped_error_scenario", scenario=sr.scenario_name)
         return _error_explanation(sr.scenario_name, sr.error)
 
     strengths: list[str] = []
@@ -720,7 +733,8 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
         )
         result: ScenarioExplanation = agent_output["structured_response"]
         result.scenario_name = sr.scenario_name
-        emit_metric(
+        _emit(
+            state,
             "explainer_success_react",
             scenario=sr.scenario_name,
             recursion_limit=react_recursion_limit,
@@ -735,7 +749,7 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
         # ── Fallback: single structured-output call ──────────────
         try:
             result = _fallback_structured_explanation(model, sr, state)
-            emit_metric("explainer_success_structured_fallback", scenario=sr.scenario_name)
+            _emit(state, "explainer_success_structured_fallback", scenario=sr.scenario_name)
             return result
         except Exception as fallback_exc:
             logger.warning(
@@ -743,8 +757,14 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
                 sr.scenario_name,
                 fallback_exc,
             )
-            emit_metric("explainer_success_template_fallback", scenario=sr.scenario_name)
-            return _template_explanation(sr)
+            if _feature_enabled(state, "llm_explainer_tiers_v1", default=True):
+                _emit(state, "explainer_success_template_fallback", scenario=sr.scenario_name)
+                return _template_explanation(sr)
+            return ScenarioExplanation(
+                scenario_name=sr.scenario_name,
+                weaknesses=[f"Analysis failed: {fallback_exc}"],
+                raw_analysis=str(fallback_exc),
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1149,7 +1169,8 @@ def aggregator_node(state: RefinementState) -> dict:
         " [REGRESSION→ROLLBACK]" if is_regression else "",
     )
 
-    emit_metric(
+    _emit(
+        state,
         "aggregator_verdict",
         iteration=iteration_number,
         score=round(final_score, 3),

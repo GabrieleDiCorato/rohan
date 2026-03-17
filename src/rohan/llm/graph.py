@@ -30,7 +30,7 @@ from typing import Any, Literal
 from langgraph.graph import END, StateGraph
 from langgraph.types import Send
 
-from rohan.config import LLMSettings
+from rohan.config import LLMSettings, feature_flags_dict
 from rohan.llm.nodes import (
     aggregator_node,
     process_scenario_node,
@@ -236,6 +236,7 @@ def run_refinement(
         "goal": goal,
         "max_iterations": max_iterations,
         "scenarios": scenarios,
+        "feature_flags": feature_flags_dict(),
         "current_code": None,
         "current_class_name": None,
         "current_reasoning": None,
