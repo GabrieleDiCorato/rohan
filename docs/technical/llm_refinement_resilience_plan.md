@@ -132,6 +132,20 @@ Execution notes:
 
 Emit structured node-level metrics for quality/cost/time decisions.
 
+Validation checklist:
+
+- [x] Structured telemetry helper added for consistent JSON metric events.
+- [x] Writer/explainer/process/aggregator metric emission implemented.
+- [x] Baseline cache hit/store events instrumented.
+- [x] Telemetry unit test added.
+- [x] `pre-commit run --all-files` passes after Phase 5 changes.
+
+Execution notes:
+
+- Added `rohan.llm.telemetry.emit_metric` for structured metric logs.
+- Instrumented key LLM graph nodes with event-level metrics.
+- Emitted baseline cache metrics from simulation service for reuse KPIs.
+
 ### Phase 6: Rollout Hardening
 
 Feature flags, integration benchmarks, and staged enablement.

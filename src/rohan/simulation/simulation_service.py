@@ -8,6 +8,7 @@ from collections import OrderedDict
 from typing import cast
 
 from rohan.config import SimulationEngine, SimulationSettings
+from rohan.llm.telemetry import emit_metric
 from rohan.simulation.models import (
     SimulationContext,
     SimulationResult,
@@ -75,6 +76,7 @@ class SimulationService:
             if cached_output is not None:
                 self._baseline_cache.move_to_end(cache_key)
                 logger.info("Baseline cache hit: %s", cache_key[:12])
+                emit_metric("baseline_cache_hit", cache_key=cache_key[:12])
                 return SimulationResult(
                     context=context,
                     duration_seconds=0.0,
@@ -101,6 +103,7 @@ class SimulationService:
                     while len(self._baseline_cache) > settings.baseline_cache_max_entries:
                         self._baseline_cache.popitem(last=False)
                     logger.info("Baseline cache stored: %s (size=%d)", cache_key[:12], len(self._baseline_cache))
+                    emit_metric("baseline_cache_store", cache_key=cache_key[:12], cache_size=len(self._baseline_cache))
 
                 return SimulationResult(
                     context=context,

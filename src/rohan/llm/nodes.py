@@ -8,6 +8,7 @@ Each public function is a LangGraph node with signature::
 from __future__ import annotations
 
 import logging
+import time
 import traceback
 from typing import cast
 
@@ -49,6 +50,7 @@ from rohan.llm.prompts import (
 )
 from rohan.llm.scoring import WEIGHT_PROFILES, classify_goal_weights, compute_axis_scores, compute_final_score
 from rohan.llm.state import RefinementState, ScenarioResult
+from rohan.llm.telemetry import emit_metric
 from rohan.llm.tools import make_investigation_tools
 from rohan.simulation.models.simulation_metrics import (
     ComparisonResult,
@@ -185,6 +187,13 @@ def writer_node(state: RefinementState) -> dict:
             result = None
 
         if result is not None:
+            emit_metric(
+                "writer_success",
+                iteration=state.get("iteration_number", 1),
+                attempt=attempt,
+                max_retries=max_llm_retries,
+                used_fallback_model=bool(fallback_model and attempt == max_llm_retries),
+            )
             break
 
         logger.warning(
@@ -219,6 +228,11 @@ def writer_node(state: RefinementState) -> dict:
                 "Writer node: all %d LLM attempts returned None — preserving prior known-good code",
                 max_llm_retries,
             )
+            emit_metric(
+                "writer_exhausted_preserved_code",
+                iteration=state.get("iteration_number", 1),
+                max_retries=max_llm_retries,
+            )
             return {
                 "current_code": preserved_code,
                 "current_class_name": preserved_class_name,
@@ -231,6 +245,11 @@ def writer_node(state: RefinementState) -> dict:
         logger.error(
             "Writer node: all %d LLM attempts returned None — clearing code to force fresh generation",
             max_llm_retries,
+        )
+        emit_metric(
+            "writer_exhausted_no_code",
+            iteration=state.get("iteration_number", 1),
+            max_retries=max_llm_retries,
         )
         return {
             "current_code": None,
@@ -357,7 +376,9 @@ def process_scenario_node(state: RefinementState) -> dict:
         # Run strategy
         if not code:
             raise ValueError("No strategy code to execute")
+        strategy_t0 = time.monotonic()
         sim_result = execute_strategy_safely(code, settings, timeout_seconds=settings.timeout_seconds)
+        strategy_duration = time.monotonic() - strategy_t0
         if sim_result.error or not sim_result.result:
             result = ScenarioResult(
                 scenario_name=scenario.name,
@@ -377,7 +398,9 @@ def process_scenario_node(state: RefinementState) -> dict:
         )
 
         # Run baseline
+        baseline_t0 = time.monotonic()
         baseline_result = service.run_simulation(settings, strategy=None)
+        baseline_duration = time.monotonic() - baseline_t0
         if baseline_result.error or not baseline_result.result:
             result = ScenarioResult(
                 scenario_name=scenario.name,
@@ -528,6 +551,15 @@ def process_scenario_node(state: RefinementState) -> dict:
             rich_analysis_json=rich_analysis_json,
         )
         explanation = _run_explainer(result, state)
+        emit_metric(
+            "process_scenario_complete",
+            iteration=state.get("iteration_number", 1),
+            scenario=scenario.name,
+            strategy_duration_s=round(strategy_duration, 3),
+            baseline_duration_s=round(baseline_duration, 3),
+            trade_count=result.trade_count,
+            pnl=result.strategy_pnl,
+        )
         return {"scenario_results": [result], "explanations": [explanation]}
 
     except Exception as exc:
@@ -586,6 +618,7 @@ def _fallback_structured_explanation(
 def _template_explanation(sr: ScenarioResult) -> ScenarioExplanation:
     """Deterministic fallback explanation based on factual metrics."""
     if sr.error:
+        emit_metric("explainer_skipped_error_scenario", scenario=sr.scenario_name)
         return _error_explanation(sr.scenario_name, sr.error)
 
     strengths: list[str] = []
@@ -687,6 +720,11 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
         )
         result: ScenarioExplanation = agent_output["structured_response"]
         result.scenario_name = sr.scenario_name
+        emit_metric(
+            "explainer_success_react",
+            scenario=sr.scenario_name,
+            recursion_limit=react_recursion_limit,
+        )
         return result
     except Exception as exc:
         logger.warning(
@@ -696,13 +734,16 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
         )
         # ── Fallback: single structured-output call ──────────────
         try:
-            return _fallback_structured_explanation(model, sr, state)
+            result = _fallback_structured_explanation(model, sr, state)
+            emit_metric("explainer_success_structured_fallback", scenario=sr.scenario_name)
+            return result
         except Exception as fallback_exc:
             logger.warning(
                 "Structured fallback failed for %r: %s. Using deterministic template fallback.",
                 sr.scenario_name,
                 fallback_exc,
             )
+            emit_metric("explainer_success_template_fallback", scenario=sr.scenario_name)
             return _template_explanation(sr)
 
 
@@ -1106,6 +1147,17 @@ def aggregator_node(state: RefinementState) -> dict:
         recommendation,
         next_status,
         " [REGRESSION→ROLLBACK]" if is_regression else "",
+    )
+
+    emit_metric(
+        "aggregator_verdict",
+        iteration=iteration_number,
+        score=round(final_score, 3),
+        best_score=round(new_best_score, 3),
+        comparison=comparison,
+        recommendation=recommendation,
+        status=next_status,
+        terminal_reason=terminal_reason,
     )
 
     return {

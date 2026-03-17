@@ -84,6 +84,8 @@ SIM_BASELINE_CACHE_ENABLED=true
 SIM_BASELINE_CACHE_MAX_ENTRIES=64
 ```
 
+Refinement telemetry is emitted as structured JSON log lines under the `rohan.telemetry` logger.
+
 ### Usage
 
 Launch the Streamlit UI (Terminal and Refinement Lab):
