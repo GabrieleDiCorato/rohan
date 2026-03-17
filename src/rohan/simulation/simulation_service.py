@@ -1,14 +1,22 @@
 """Service module for simulation-related operations. Injects dependencies and manages simulation execution."""
 
+import hashlib
+import json
+import logging
 import time
+from collections import OrderedDict
+from typing import cast
 
 from rohan.config import SimulationEngine, SimulationSettings
 from rohan.simulation.models import (
     SimulationContext,
     SimulationResult,
 )
+from rohan.simulation.models.simulation_output import SimulationOutput
 from rohan.simulation.models.strategy_api import StrategicAgent
 from rohan.simulation.simulation_runner import SimulationRunner
+
+logger = logging.getLogger(__name__)
 
 
 class SimulationService:
@@ -35,6 +43,8 @@ class SimulationService:
         >>> failed = [r for r in results if r.error is not None]
     """
 
+    _baseline_cache: OrderedDict[str, SimulationOutput] = OrderedDict()
+
     def run_simulation(
         self,
         settings: SimulationSettings,
@@ -58,6 +68,19 @@ class SimulationService:
         if context is None:
             context = SimulationContext(settings=settings)
 
+        cache_key: str | None = None
+        if strategy is None and settings.baseline_cache_enabled:
+            cache_key = self._build_baseline_cache_key(settings)
+            cached_output = self._baseline_cache.get(cache_key)
+            if cached_output is not None:
+                self._baseline_cache.move_to_end(cache_key)
+                logger.info("Baseline cache hit: %s", cache_key[:12])
+                return SimulationResult(
+                    context=context,
+                    duration_seconds=0.0,
+                    result=cast(SimulationOutput, cached_output),
+                )
+
         start_time = time.time()
 
         try:
@@ -71,6 +94,13 @@ class SimulationService:
             try:
                 output = runner.run()
                 duration = time.time() - start_time
+
+                if cache_key is not None:
+                    self._baseline_cache[cache_key] = output
+                    self._baseline_cache.move_to_end(cache_key)
+                    while len(self._baseline_cache) > settings.baseline_cache_max_entries:
+                        self._baseline_cache.popitem(last=False)
+                    logger.info("Baseline cache stored: %s (size=%d)", cache_key[:12], len(self._baseline_cache))
 
                 return SimulationResult(
                     context=context,
@@ -138,3 +168,17 @@ class SimulationService:
             return SimulationRunnerAbides(settings, strategy=strategy)
 
         raise ValueError(f"Unsupported simulation engine: {settings.engine}")
+
+    @classmethod
+    def clear_baseline_cache(cls) -> None:
+        """Clear all baseline cache entries."""
+        cls._baseline_cache.clear()
+
+    @staticmethod
+    def _build_baseline_cache_key(settings: SimulationSettings) -> str:
+        """Build deterministic cache key for baseline runs."""
+        payload = settings.model_dump(mode="json")
+        payload.pop("baseline_cache_enabled", None)
+        payload.pop("baseline_cache_max_entries", None)
+        payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()

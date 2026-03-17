@@ -78,6 +78,10 @@ LLM_WRITER_FALLBACK_MODEL=
 # Explainer resilience controls
 LLM_EXPLAINER_REACT_RECURSION_LIMIT=25
 LLM_EXPLAINER_MAX_TOOL_CALLS=12
+
+# Baseline simulation caching (SimulationSettings via env)
+SIM_BASELINE_CACHE_ENABLED=true
+SIM_BASELINE_CACHE_MAX_ENTRIES=64
 ```
 
 ### Usage

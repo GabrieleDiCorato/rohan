@@ -114,6 +114,20 @@ Execution notes:
 
 Cache deterministic baseline runs to cut iteration latency.
 
+Validation checklist:
+
+- [x] Baseline cache controls added to simulation settings.
+- [x] Deterministic key-based baseline cache implemented in simulation service.
+- [x] Cache behavior tests added (hit, bypass, bounded size).
+- [x] `pre-commit run --all-files` passes after Phase 4 changes.
+
+Execution notes:
+
+- Added `baseline_cache_enabled` and `baseline_cache_max_entries` to `SimulationSettings`.
+- Implemented bounded in-memory baseline cache in `SimulationService` for `strategy=None` runs.
+- Added deterministic cache key generation from normalized simulation settings payload.
+- Added `clear_baseline_cache` utility for deterministic test setup and runtime control.
+
 ### Phase 5: Observability & Product KPIs
 
 Emit structured node-level metrics for quality/cost/time decisions.

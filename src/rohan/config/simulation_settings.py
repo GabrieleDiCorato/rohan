@@ -37,6 +37,8 @@ class SimulationSettings(BaseSettings):
     starting_cash: int = Field(default=10_000_000, description="Starting cash for agents in CENTS.")
     log_orders: bool = Field(default=True, description="Whether to log all orders.")
     timeout_seconds: int = Field(default=300, ge=10, le=3600, description="Maximum duration in seconds for a single strategy simulation run.")
+    baseline_cache_enabled: bool = Field(default=True, description="Enable cache reuse for baseline runs (strategy=None).")
+    baseline_cache_max_entries: int = Field(default=64, ge=1, le=10000, description="Maximum number of baseline cache entries to keep in memory.")
 
     computation_delay_ns: int = Field(default=50, description="Computation delay in nanoseconds.")
     latency: LatencyModelSettings = Field(
