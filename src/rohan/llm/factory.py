@@ -180,10 +180,23 @@ def get_structured_model[T](
     def _extract_or_log(x: dict) -> T | None:
         if x.get("parsed") is not None:
             return x["parsed"]
+        parsing_error = x.get("parsing_error")
+        parsing_error_name = type(parsing_error).__name__ if parsing_error is not None else "None"
+        parsing_error_msg = str(parsing_error) if parsing_error is not None else "unknown error"
+        raw_obj = x.get("raw")
+        tool_calls = getattr(raw_obj, "tool_calls", None)
+        tool_call_count = len(tool_calls) if isinstance(tool_calls, list) else 0
+        raw_content = getattr(raw_obj, "content", "")
+        raw_preview = ""
+        if isinstance(raw_content, str):
+            raw_preview = raw_content[:180].replace("\n", " ")
         logger.warning(
-            "Structured output parse failure for %s: %s",
+            "Structured output parse failure for %s: error_type=%s error=%s tool_calls=%d raw_preview=%r",
             schema.__name__,
-            x.get("parsing_error", "unknown error"),
+            parsing_error_name,
+            parsing_error_msg,
+            tool_call_count,
+            raw_preview,
         )
         return None
 

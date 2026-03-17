@@ -9,16 +9,18 @@ from __future__ import annotations
 
 import logging
 import traceback
+from typing import cast
 
 import matplotlib.pyplot as plt
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
-from rohan.config import SimulationSettings
+from rohan.config import LLMSettings, SimulationSettings
 from rohan.framework.analysis_service import AnalysisService
 from rohan.framework.prompts import format_interpreter_prompt
 from rohan.llm.factory import (
+    create_chat_model,
     get_analysis_model,
     get_codegen_model,
     get_judge_model,
@@ -165,14 +167,17 @@ def writer_node(state: RefinementState) -> dict:
         HumanMessage(content=human_msg),
     ]
 
-    # Retry the LLM call up to 3 times before giving up — some models
-    # occasionally fail to invoke the function-calling tool on the first
-    # attempt, especially with long prompts.
-    _max_llm_retries = 3
+    llm_settings = LLMSettings()
+    max_llm_retries = llm_settings.writer_max_retries
+    fallback_model = llm_settings.writer_fallback_model
+    trim_retry_prompt = llm_settings.writer_retry_prompt_trim
+
+    # Retry the LLM call on structured-output misses. Optionally route the
+    # final attempt to a dedicated fallback model tuned for schema adherence.
     result = None
-    for attempt in range(1, _max_llm_retries + 1):
+    for attempt in range(1, max_llm_retries + 1):
         try:
-            model = get_codegen_model()
+            model = create_chat_model(cast("str", fallback_model), llm_settings) if fallback_model is not None and attempt == max_llm_retries else get_codegen_model(llm_settings)
             structured = get_structured_model(model, GeneratedStrategy)
             result = structured.invoke(messages)
         except Exception as exc:
@@ -185,9 +190,9 @@ def writer_node(state: RefinementState) -> dict:
         logger.warning(
             "Writer LLM returned None (attempt %d/%d) — model did not invoke tool schema",
             attempt,
-            _max_llm_retries,
+            max_llm_retries,
         )
-        if attempt < _max_llm_retries:
+        if attempt < max_llm_retries and trim_retry_prompt:
             # On retry, strip rollback/history bulk from the prompt to reduce
             # token pressure. Keep only the goal + compact error note.
             retry_note = (
@@ -206,9 +211,26 @@ def writer_node(state: RefinementState) -> dict:
             ]
 
     if result is None:
+        preserved_code = state.get("best_code") or current_code
+        preserved_class_name = state.get("current_class_name")
+        preserved_reasoning = state.get("current_reasoning")
+        if preserved_code:
+            logger.error(
+                "Writer node: all %d LLM attempts returned None — preserving prior known-good code",
+                max_llm_retries,
+            )
+            return {
+                "current_code": preserved_code,
+                "current_class_name": preserved_class_name,
+                "current_reasoning": preserved_reasoning,
+                "validation_errors": ["Writer LLM failed to produce structured output; reusing prior valid strategy code"],
+                "rolled_back_from": None,
+                "status": "validating",
+            }
+
         logger.error(
             "Writer node: all %d LLM attempts returned None — clearing code to force fresh generation",
-            _max_llm_retries,
+            max_llm_retries,
         )
         return {
             "current_code": None,

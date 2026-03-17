@@ -68,6 +68,14 @@ OPENROUTER_API_KEY=your_api_key_here
 ```
 Your API key is not required to run and explore market simulations in the Terminal page of the UI.
 
+Optional writer reliability tuning for the Refinement Lab:
+```env
+LLM_WRITER_MAX_RETRIES=3
+LLM_WRITER_RETRY_PROMPT_TRIM=true
+# Optional: use a dedicated model for the final retry attempt
+LLM_WRITER_FALLBACK_MODEL=
+```
+
 ### Usage
 
 Launch the Streamlit UI (Terminal and Refinement Lab):
