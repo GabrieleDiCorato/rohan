@@ -28,6 +28,8 @@ class TestLLMSettings:
         assert settings.temperature == 0.2
         assert settings.judge_temperature == 0.0
         assert settings.max_tokens == 4096
+        assert settings.explainer_react_recursion_limit == 25
+        assert settings.explainer_max_tool_calls == 12
 
     def test_env_override(self, monkeypatch):
         """Environment variables should override defaults."""

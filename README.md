@@ -74,6 +74,10 @@ LLM_WRITER_MAX_RETRIES=3
 LLM_WRITER_RETRY_PROMPT_TRIM=true
 # Optional: use a dedicated model for the final retry attempt
 LLM_WRITER_FALLBACK_MODEL=
+
+# Explainer resilience controls
+LLM_EXPLAINER_REACT_RECURSION_LIMIT=25
+LLM_EXPLAINER_MAX_TOOL_CALLS=12
 ```
 
 ### Usage

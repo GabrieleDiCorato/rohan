@@ -583,7 +583,57 @@ def _fallback_structured_explanation(
     return result
 
 
-_REACT_RECURSION_LIMIT = 25
+def _template_explanation(sr: ScenarioResult) -> ScenarioExplanation:
+    """Deterministic fallback explanation based on factual metrics."""
+    if sr.error:
+        return _error_explanation(sr.scenario_name, sr.error)
+
+    strengths: list[str] = []
+    weaknesses: list[str] = []
+    recommendations: list[str] = []
+
+    if sr.strategy_pnl is not None and sr.strategy_pnl > 0:
+        strengths.append(f"Positive PnL: {_fmt_dollar(sr.strategy_pnl)}")
+    elif sr.strategy_pnl is not None:
+        weaknesses.append(f"Negative PnL: {_fmt_dollar(sr.strategy_pnl)}")
+        recommendations.append("Tighten entries and reduce adverse fills to stabilize profitability")
+
+    if sr.fill_rate is not None and sr.fill_rate >= 0.5:
+        strengths.append(f"Healthy fill rate: {_fmt_pct(sr.fill_rate)}")
+    elif sr.fill_rate is not None:
+        weaknesses.append(f"Low fill rate: {_fmt_pct(sr.fill_rate)}")
+        recommendations.append("Adjust quoting aggressiveness and order placement logic")
+
+    if sr.spread_delta_pct is not None and sr.spread_delta_pct > 0:
+        weaknesses.append(f"Spread widening: {_fmt_pct(sr.spread_delta_pct, signed=True)}")
+        recommendations.append("Reduce market impact by lowering trade size during thin liquidity")
+
+    if sr.volatility_delta_pct is not None and sr.volatility_delta_pct > 0:
+        weaknesses.append(f"Volatility increase: {_fmt_pct(sr.volatility_delta_pct, signed=True)}")
+        recommendations.append("Introduce volatility-aware throttling or cooldown logic")
+
+    if not strengths:
+        strengths.append("Simulation completed with valid output")
+    if not weaknesses:
+        weaknesses.append("No severe anomalies detected from deterministic metrics")
+    if not recommendations:
+        recommendations.append("Iterate with focused adjustments to improve risk-adjusted returns")
+
+    raw_analysis = (
+        f"Template fallback used for scenario {sr.scenario_name}. "
+        f"PnL={_fmt_dollar(sr.strategy_pnl)}, Fill Rate={_fmt_pct(sr.fill_rate)}, "
+        f"Volatility Delta={_fmt_pct(sr.volatility_delta_pct, signed=True)}, "
+        f"Spread Delta={_fmt_pct(sr.spread_delta_pct, signed=True)}"
+    )
+
+    return ScenarioExplanation(
+        scenario_name=sr.scenario_name,
+        strengths=strengths,
+        weaknesses=weaknesses,
+        recommendations=recommendations,
+        market_impact_assessment="Deterministic fallback assessment based on observed metrics",
+        raw_analysis=raw_analysis,
+    )
 
 
 def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplanation:
@@ -603,6 +653,7 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
     logger.info("Explainer node — processing scenario %r", sr.scenario_name)
 
     model = get_analysis_model()
+    llm_settings = LLMSettings()
 
     # ── Error scenarios ──────────────────────────────────────────
     if sr.error:
@@ -625,9 +676,14 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
             prompt=EXPLAINER_SYSTEM,
             response_format=ScenarioExplanation,
         )
+
+        react_recursion_limit = min(
+            llm_settings.explainer_react_recursion_limit,
+            max(10, llm_settings.explainer_max_tool_calls * 2 + 5),
+        )
         agent_output = agent.invoke(
             {"messages": [HumanMessage(content=human_msg)]},
-            config={"recursion_limit": _REACT_RECURSION_LIMIT},
+            config={"recursion_limit": react_recursion_limit},
         )
         result: ScenarioExplanation = agent_output["structured_response"]
         result.scenario_name = sr.scenario_name
@@ -642,16 +698,12 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
         try:
             return _fallback_structured_explanation(model, sr, state)
         except Exception as fallback_exc:
-            logger.error(
-                "Fallback also failed for %r: %s",
+            logger.warning(
+                "Structured fallback failed for %r: %s. Using deterministic template fallback.",
                 sr.scenario_name,
                 fallback_exc,
             )
-            return ScenarioExplanation(
-                scenario_name=sr.scenario_name,
-                weaknesses=[f"Analysis failed: {fallback_exc}"],
-                raw_analysis=str(fallback_exc),
-            )
+            return _template_explanation(sr)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -14,6 +14,8 @@ Environment variables:
     LLM_WRITER_MAX_RETRIES  – writer retries on schema miss        (default: 3)
     LLM_WRITER_RETRY_PROMPT_TRIM – trim prompt on writer retries   (default: true)
     LLM_WRITER_FALLBACK_MODEL – optional model for last writer try (default: none)
+    LLM_EXPLAINER_REACT_RECURSION_LIMIT – ReAct recursion cap       (default: 25)
+    LLM_EXPLAINER_MAX_TOOL_CALLS – soft budget for tool loops       (default: 12)
     OPENROUTER_API_KEY       – API key when provider=openrouter
     OPENAI_API_KEY           – API key when provider=openai
     GOOGLE_API_KEY           – API key when provider=google
@@ -111,6 +113,18 @@ class LLMSettings(BaseSettings):
     writer_fallback_model: str | None = Field(
         default=None,
         description="Optional model name used only on the final writer retry attempt",
+    )
+    explainer_react_recursion_limit: int = Field(
+        default=25,
+        ge=10,
+        le=200,
+        description="Recursion limit used by the explainer ReAct agent",
+    )
+    explainer_max_tool_calls: int = Field(
+        default=12,
+        ge=1,
+        le=100,
+        description="Soft tool-call budget used to derive a tighter explainer recursion cap",
     )
 
     # --- API keys (loaded from env / .env) ---

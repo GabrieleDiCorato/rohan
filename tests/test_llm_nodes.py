@@ -250,9 +250,11 @@ class TestExplainerNode:
         assert "Scenario failed" in result.weaknesses[0]
 
     @patch("rohan.llm.nodes.create_react_agent")
+    @patch("rohan.llm.nodes.LLMSettings")
     @patch("rohan.llm.nodes.get_analysis_model")
-    def test_successful_react_agent(self, mock_get_model, mock_create_agent):
+    def test_successful_react_agent(self, mock_get_model, mock_settings, mock_create_agent):
         """ReAct agent succeeds → structured response extracted."""
+        mock_settings.return_value = MagicMock(explainer_react_recursion_limit=25, explainer_max_tool_calls=12)
         expected = ScenarioExplanation(
             scenario_name="default",
             strengths=["Good PnL"],
@@ -278,6 +280,8 @@ class TestExplainerNode:
         assert result.strengths == ["Good PnL"]
         assert result.scenario_name == "default"
         mock_create_agent.assert_called_once()
+        invoke_kwargs = mock_agent.invoke.call_args.kwargs
+        assert invoke_kwargs["config"]["recursion_limit"] == 25
 
     @patch(_PATCH_STRUCTURED)
     @patch("rohan.llm.nodes.create_react_agent")
@@ -312,7 +316,7 @@ class TestExplainerNode:
     @patch("rohan.llm.nodes.create_react_agent")
     @patch("rohan.llm.nodes.get_analysis_model")
     def test_both_react_and_fallback_fail(self, mock_get_model, mock_create_agent, mock_get_structured):
-        """Both ReAct and fallback fail → error explanation produced."""
+        """Both ReAct and structured fallback fail → deterministic template explanation."""
         mock_agent = MagicMock()
         mock_agent.invoke.side_effect = RuntimeError("ReAct down")
         mock_create_agent.return_value = mock_agent
@@ -324,12 +328,20 @@ class TestExplainerNode:
 
         state = _base_state(
             scenario_results=[
-                ScenarioResult(scenario_name="default", interpreter_prompt="P"),
+                ScenarioResult(
+                    scenario_name="default",
+                    interpreter_prompt="P",
+                    strategy_pnl=-1234.0,
+                    fill_rate=0.2,
+                    spread_delta_pct=0.1,
+                    volatility_delta_pct=0.05,
+                ),
             ],
         )
         sr = state["scenario_results"][0]
         result = _run_explainer(sr, state)
-        assert "Analysis failed" in result.weaknesses[0]
+        assert "Negative PnL" in " ".join(result.weaknesses)
+        assert "Template fallback used" in result.raw_analysis
 
     def test_error_explanation_helper(self):
         exp = _error_explanation("test_scenario", "boom")

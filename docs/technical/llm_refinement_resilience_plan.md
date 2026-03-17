@@ -79,6 +79,19 @@ Executed changes:
 
 Move ReAct recursion/tool budget to config and add a tiered fallback ladder.
 
+Validation checklist:
+
+- [x] Settings added for recursion and tool-budget controls.
+- [x] Tiered fallback implemented (ReAct -> structured -> deterministic template).
+- [x] Tests added/updated for recursion config usage and fallback behavior.
+- [x] `pre-commit run --all-files` passes after Phase 2 changes.
+
+Execution notes:
+
+- Added `explainer_react_recursion_limit` and `explainer_max_tool_calls` to `LLMSettings`.
+- Replaced hardcoded explainer recursion constant with settings-driven derived limit.
+- Added deterministic template fallback to guarantee a usable `ScenarioExplanation`.
+
 ### Phase 3: Retry/Termination Semantics
 
 Make retry counters and terminal status reasons explicit and consistent.
