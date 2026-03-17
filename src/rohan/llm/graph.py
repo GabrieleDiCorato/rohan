@@ -24,20 +24,21 @@ import hashlib
 import logging
 import os
 import time
+import uuid
 from collections.abc import Callable
 from typing import Any, Literal
 
 from langgraph.graph import END, StateGraph
 from langgraph.types import Send
 
-from rohan.config import LLMSettings, feature_flags_dict
+from rohan.config import LLMSettings, feature_flags_snapshot
 from rohan.llm.nodes import (
     aggregator_node,
     process_scenario_node,
     validator_node,
     writer_node,
 )
-from rohan.llm.state import RefinementState, ScenarioConfig
+from rohan.llm.state import RefinementState, ScenarioConfig, terminal_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -110,15 +111,19 @@ def should_continue(state: RefinementState) -> Literal["continue", "done"]:
 
 def terminalize_validation_failure_node(state: RefinementState) -> dict:
     """Set explicit terminal metadata when validation retry budget is exhausted."""
-    return {
-        "status": "failed",
-        "terminal_reason": "validation_budget_exhausted",
-        "terminal_iteration": state.get("iteration_number", 1),
-        "terminal_context": {
+    terminal_fields = terminal_metadata(
+        state.get("feature_flags"),
+        reason="validation_budget_exhausted",
+        iteration=state.get("iteration_number", 1),
+        context={
             "validation_attempts": state.get("validation_attempts", 0),
             "max_validation_retries": MAX_VALIDATION_RETRIES,
             "validation_errors": state.get("validation_errors", []),
         },
+    )
+    return {
+        "status": "failed",
+        **terminal_fields,
     }
 
 
@@ -234,9 +239,10 @@ def run_refinement(
 
     initial_state: RefinementState = {
         "goal": goal,
+        "run_id": uuid.uuid4().hex,
         "max_iterations": max_iterations,
         "scenarios": scenarios,
-        "feature_flags": feature_flags_dict(),
+        "feature_flags": feature_flags_snapshot(),
         "current_code": None,
         "current_class_name": None,
         "current_reasoning": None,

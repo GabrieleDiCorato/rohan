@@ -12,11 +12,21 @@ from langgraph.graph import add_messages
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+from rohan.config.feature_flags import FeatureFlagSnapshot
 from rohan.llm.models import (
     AggregatedFeedback,
     IterationSummary,
     ScenarioExplanation,
 )
+
+TerminalReason = Literal[
+    "converged",
+    "plateau_detected",
+    "max_iterations_reached",
+    "validation_budget_exhausted",
+    "failed_execution",
+]
+FeatureFlagState = FeatureFlagSnapshot | dict[str, bool]
 
 # ---------------------------------------------------------------------------
 # Reducers
@@ -116,10 +126,11 @@ class RefinementState(TypedDict, total=False):
 
     # --- Goal & config ---
     goal: str
+    run_id: str
     max_iterations: int
     scenarios: list[ScenarioConfig]
     active_scenario: ScenarioConfig  # Used during mapped execution
-    feature_flags: dict[str, bool]
+    feature_flags: FeatureFlagSnapshot
 
     # --- Current iteration ---
     current_code: str | None
@@ -159,18 +170,43 @@ class RefinementState(TypedDict, total=False):
         "done",
         "failed",
     ]
-    terminal_reason: (
-        Literal[
-            "converged",
-            "plateau_detected",
-            "max_iterations_reached",
-            "validation_budget_exhausted",
-            "failed_execution",
-        ]
-        | None
-    )
+    terminal_reason: TerminalReason | None
     terminal_iteration: int | None
     terminal_context: dict[str, Any]
 
     # LangGraph message list (for tracing / debugging)
     messages: Annotated[list, add_messages]
+
+
+def is_feature_enabled(
+    feature_flags: FeatureFlagState | None,
+    flag: str,
+    default: bool = True,
+) -> bool:
+    """Read a rollout flag from either the typed snapshot or legacy dict form."""
+    if feature_flags is None:
+        return default
+    if isinstance(feature_flags, FeatureFlagSnapshot):
+        return bool(getattr(feature_flags, flag, default))
+    return bool(feature_flags.get(flag, default))
+
+
+def terminal_metadata(
+    feature_flags: FeatureFlagState | None,
+    *,
+    reason: TerminalReason,
+    iteration: int,
+    context: dict[str, Any],
+) -> dict[str, TerminalReason | int | dict[str, Any] | None]:
+    """Build terminal-state fields, respecting the rollout flag for explicit reasons."""
+    if not is_feature_enabled(feature_flags, "explicit_terminal_reasons_v1", default=True):
+        return {
+            "terminal_reason": None,
+            "terminal_iteration": None,
+            "terminal_context": {},
+        }
+    return {
+        "terminal_reason": reason,
+        "terminal_iteration": iteration,
+        "terminal_context": context,
+    }

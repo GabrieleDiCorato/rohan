@@ -6,6 +6,7 @@ transitions, and error handling without requiring API keys.
 
 from unittest.mock import MagicMock, patch
 
+from rohan.config.feature_flags import FeatureFlagSnapshot
 from rohan.llm.models import (
     AggregatedFeedback,
     GeneratedStrategy,
@@ -426,6 +427,39 @@ class TestAggregatorNode:
         assert result["aggregated_feedback"].verdict.recommendation == "stop_converged"
         assert result["terminal_reason"] == "converged"
         assert result["terminal_iteration"] == 3
+
+    @patch(_PATCH_FINAL, return_value=8.0)
+    @patch(_PATCH_AXIS, return_value=AxisScores(8.0, 8.0, 7.0, 7.0, 7.0, 8.0))
+    @patch(_PATCH_STRUCTURED)
+    @patch("rohan.llm.nodes.get_judge_model")
+    def test_terminal_reason_flag_can_disable_explicit_metadata(self, mock_model, mock_struct, _mock_axis, _mock_final):
+        mock_inst = MagicMock()
+        mock_inst.invoke.return_value = _QUALITATIVE
+        mock_struct.return_value = mock_inst
+        mock_model.return_value = MagicMock()
+
+        prev_iterations = [
+            IterationSummary(iteration_number=1, strategy_code="v1", judge_score=8.0),
+            IterationSummary(iteration_number=2, strategy_code="v2", judge_score=8.0),
+        ]
+        state = _base_state(
+            current_code="class X: pass",
+            iteration_number=3,
+            explanations=[ScenarioExplanation()],
+            scenario_results=[ScenarioResult(scenario_name="default", strategy_pnl=50.0)],
+            iterations=prev_iterations,
+            best_score=8.0,
+            best_code="class X: pass",
+            best_iteration_number=2,
+            feature_flags=FeatureFlagSnapshot(explicit_terminal_reasons_v1=False),
+        )
+
+        result = aggregator_node(state)
+
+        assert result["status"] == "done"
+        assert result["terminal_reason"] is None
+        assert result["terminal_iteration"] is None
+        assert result["terminal_context"] == {}
 
     @patch(_PATCH_FINAL, return_value=5.0)
     @patch(_PATCH_AXIS, return_value=AxisScores(5.0, 5.0, 5.5, 5.5, 5.5, 5.0))

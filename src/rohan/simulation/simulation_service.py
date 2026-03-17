@@ -78,7 +78,7 @@ class SimulationService:
                 self._baseline_cache.move_to_end(cache_key)
                 logger.info("Baseline cache hit: %s", cache_key[:12])
                 if feature_flags.llm_telemetry_v1:
-                    emit_metric("baseline_cache_hit", cache_key=cache_key[:12])
+                    emit_metric("baseline_cache_hit", component="rohan.simulation", cache_key=cache_key[:12])
                 return SimulationResult(
                     context=context,
                     duration_seconds=0.0,
@@ -106,7 +106,12 @@ class SimulationService:
                         self._baseline_cache.popitem(last=False)
                     logger.info("Baseline cache stored: %s (size=%d)", cache_key[:12], len(self._baseline_cache))
                     if feature_flags.llm_telemetry_v1:
-                        emit_metric("baseline_cache_store", cache_key=cache_key[:12], cache_size=len(self._baseline_cache))
+                        emit_metric(
+                            "baseline_cache_store",
+                            component="rohan.simulation",
+                            cache_key=cache_key[:12],
+                            cache_size=len(self._baseline_cache),
+                        )
 
                 return SimulationResult(
                     context=context,

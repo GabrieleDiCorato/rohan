@@ -38,6 +38,7 @@ ROHAN organizes its documentation into three distinct categories to serve differ
 
 - **[Functional Docs (`docs/functional/`)](docs/functional/)**: User-facing documentation explaining the "why" and "how" of the system. Includes functional definitions of all quantitative market metrics.
 - **[Technical Docs (`docs/technical/`)](docs/technical/)**: Developer-facing documentation containing the core system architecture, adversarial scenario generation design, and parallel simulation execution guides.
+- **[Refinement Observability Notes (`docs/technical/llm_refinement_observability.md`)](docs/technical/llm_refinement_observability.md)**: Execution assumptions, rollout controls, and how local telemetry complements LangGraph/LangSmith tracing.
 - **[LLM Knowledge Base (`docs/llm/`)](docs/llm/)**: Explicitly designed references, API contracts, and gotchas built for AI coding assistants integrating with the `abides-rohan` simulator.
 
 ## Getting Started
@@ -84,7 +85,7 @@ SIM_BASELINE_CACHE_ENABLED=true
 SIM_BASELINE_CACHE_MAX_ENTRIES=64
 ```
 
-Refinement telemetry is emitted as structured JSON log lines under the `rohan.telemetry` logger.
+Refinement telemetry is emitted as structured JSON log lines under the `rohan.telemetry` logger. LangGraph-native tracing remains compatible; the local telemetry layer adds stable event names, run identifiers, and component tags for refinement-specific analysis.
 
 Rollout feature flags (for staged enablement):
 ```env

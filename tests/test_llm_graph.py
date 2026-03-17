@@ -6,6 +6,7 @@ are mocked since they require LLM API keys.
 
 from langgraph.types import Send
 
+from rohan.config.feature_flags import FeatureFlagSnapshot
 from rohan.llm.graph import (
     _DEFAULT_RECURSION_LIMIT,
     MAX_VALIDATION_RETRIES,
@@ -106,6 +107,7 @@ class TestTerminalizeValidationFailure:
     def test_sets_explicit_terminal_reason(self):
         result = terminalize_validation_failure_node(
             _state(
+                feature_flags=FeatureFlagSnapshot(),
                 validation_attempts=MAX_VALIDATION_RETRIES,
                 validation_errors=["bad code"],
                 iteration_number=4,
@@ -115,6 +117,20 @@ class TestTerminalizeValidationFailure:
         assert result["terminal_reason"] == "validation_budget_exhausted"
         assert result["terminal_iteration"] == 4
         assert result["terminal_context"]["max_validation_retries"] == MAX_VALIDATION_RETRIES
+
+    def test_respects_terminal_reason_feature_flag(self):
+        result = terminalize_validation_failure_node(
+            _state(
+                feature_flags=FeatureFlagSnapshot(explicit_terminal_reasons_v1=False),
+                validation_attempts=MAX_VALIDATION_RETRIES,
+                validation_errors=["bad code"],
+                iteration_number=4,
+            )
+        )
+        assert result["status"] == "failed"
+        assert result["terminal_reason"] is None
+        assert result["terminal_iteration"] is None
+        assert result["terminal_context"] == {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -190,15 +206,16 @@ class TestFeatureFlagPropagation:
 
         monkeypatch.setattr("rohan.llm.graph.build_refinement_graph", lambda: _FakeGraph())
         monkeypatch.setattr(
-            "rohan.llm.graph.feature_flags_dict",
-            lambda: {
-                "llm_explainer_tiers_v1": True,
-                "explicit_terminal_reasons_v1": False,
-                "baseline_cache_v1": True,
-                "llm_telemetry_v1": False,
-            },
+            "rohan.llm.graph.feature_flags_snapshot",
+            lambda: FeatureFlagSnapshot(
+                llm_explainer_tiers_v1=True,
+                explicit_terminal_reasons_v1=False,
+                baseline_cache_v1=True,
+                llm_telemetry_v1=False,
+            ),
         )
 
         final_state = run_refinement(goal="test", max_iterations=1, scenarios=[ScenarioConfig(name="s")])
-        assert final_state["feature_flags"]["llm_explainer_tiers_v1"] is True
-        assert final_state["feature_flags"]["llm_telemetry_v1"] is False
+        assert final_state["feature_flags"].llm_explainer_tiers_v1 is True
+        assert final_state["feature_flags"].llm_telemetry_v1 is False
+        assert final_state["run_id"]

@@ -49,7 +49,7 @@ from rohan.llm.prompts import (
     WRITER_SYSTEM,
 )
 from rohan.llm.scoring import WEIGHT_PROFILES, classify_goal_weights, compute_axis_scores, compute_final_score
-from rohan.llm.state import RefinementState, ScenarioResult
+from rohan.llm.state import RefinementState, ScenarioResult, is_feature_enabled, terminal_metadata
 from rohan.llm.telemetry import emit_metric
 from rohan.llm.tools import make_investigation_tools
 from rohan.simulation.models.simulation_metrics import (
@@ -65,13 +65,19 @@ logger = logging.getLogger(__name__)
 
 
 def _feature_enabled(state: RefinementState, flag: str, default: bool = True) -> bool:
-    flags = state.get("feature_flags", {})
-    return bool(flags.get(flag, default))
+    return is_feature_enabled(state.get("feature_flags"), flag, default)
 
 
 def _emit(state: RefinementState, event: str, **fields) -> None:
     if _feature_enabled(state, "llm_telemetry_v1", default=True):
-        emit_metric(event, **fields)
+        payload = dict(fields)
+        payload.setdefault("iteration", state.get("iteration_number", 1))
+        emit_metric(
+            event,
+            component="rohan.llm.refinement",
+            run_id=state.get("run_id"),
+            **payload,
+        )
 
 
 # ─── Formatting helpers (thin wrappers over rohan.utils.formatting) ───────
@@ -1181,6 +1187,20 @@ def aggregator_node(state: RefinementState) -> dict:
         terminal_reason=terminal_reason,
     )
 
+    if terminal_reason is None:
+        terminal_fields = {
+            "terminal_reason": None,
+            "terminal_iteration": None,
+            "terminal_context": {},
+        }
+    else:
+        terminal_fields = terminal_metadata(
+            state.get("feature_flags"),
+            reason=terminal_reason,
+            iteration=iteration_number,
+            context=terminal_context,
+        )
+
     return {
         "aggregated_feedback": feedback,
         "iterations": new_iterations,
@@ -1192,7 +1212,5 @@ def aggregator_node(state: RefinementState) -> dict:
         "best_code": new_best_code,
         "best_iteration_number": new_best_iteration,
         "rolled_back_from": rolled_back_from,
-        "terminal_reason": terminal_reason,
-        "terminal_iteration": iteration_number if terminal_reason else None,
-        "terminal_context": terminal_context,
+        **terminal_fields,
     }

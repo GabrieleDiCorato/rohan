@@ -16,7 +16,7 @@ from .agent_settings import (
     ValueAgentSettings,
 )
 from .database_settings import DatabaseSettings
-from .feature_flags import FeatureFlags, feature_flags_dict, get_feature_flags
+from .feature_flags import FeatureFlags, FeatureFlagSnapshot, feature_flags_dict, feature_flags_snapshot, get_feature_flags
 from .latency_settings import LatencyModelSettings, LatencyType
 from .llm_settings import LLMProvider, LLMSettings
 from .simulation_settings import SimulationEngine, SimulationSettings
@@ -44,7 +44,9 @@ __all__ = [
     "ExchangeAgentSettings",
     "ValueAgentSettings",
     "DatabaseSettings",
+    "FeatureFlagSnapshot",
     "FeatureFlags",
     "feature_flags_dict",
+    "feature_flags_snapshot",
     "get_feature_flags",
 ]
