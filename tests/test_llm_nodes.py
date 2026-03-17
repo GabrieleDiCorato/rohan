@@ -424,6 +424,8 @@ class TestAggregatorNode:
         result = aggregator_node(state)
         assert result["status"] == "done"
         assert result["aggregated_feedback"].verdict.recommendation == "stop_converged"
+        assert result["terminal_reason"] == "converged"
+        assert result["terminal_iteration"] == 3
 
     @patch(_PATCH_FINAL, return_value=5.0)
     @patch(_PATCH_AXIS, return_value=AxisScores(5.0, 5.0, 5.5, 5.5, 5.5, 5.0))
@@ -444,6 +446,8 @@ class TestAggregatorNode:
         )
         result = aggregator_node(state)
         assert result["status"] == "done"  # max reached
+        assert result["terminal_reason"] == "max_iterations_reached"
+        assert result["terminal_iteration"] == 3
 
     @patch(_PATCH_FINAL, return_value=5.0)
     @patch(_PATCH_AXIS, return_value=_DEFAULT_AXIS)

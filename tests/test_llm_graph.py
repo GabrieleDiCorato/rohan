@@ -12,6 +12,7 @@ from rohan.llm.graph import (
     _deterministic_seed,
     build_refinement_graph,
     should_continue,
+    terminalize_validation_failure_node,
     validation_router,
 )
 from rohan.llm.state import RefinementState, ScenarioConfig
@@ -98,6 +99,21 @@ class TestShouldContinue:
         state = _state()
         del state["status"]
         assert should_continue(state) == "done"
+
+
+class TestTerminalizeValidationFailure:
+    def test_sets_explicit_terminal_reason(self):
+        result = terminalize_validation_failure_node(
+            _state(
+                validation_attempts=MAX_VALIDATION_RETRIES,
+                validation_errors=["bad code"],
+                iteration_number=4,
+            )
+        )
+        assert result["status"] == "failed"
+        assert result["terminal_reason"] == "validation_budget_exhausted"
+        assert result["terminal_iteration"] == 4
+        assert result["terminal_context"]["max_validation_retries"] == MAX_VALIDATION_RETRIES
 
 
 # ═══════════════════════════════════════════════════════════════════════════

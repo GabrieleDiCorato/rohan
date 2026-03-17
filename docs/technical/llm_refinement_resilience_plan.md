@@ -96,6 +96,20 @@ Execution notes:
 
 Make retry counters and terminal status reasons explicit and consistent.
 
+Validation checklist:
+
+- [x] Explicit terminal metadata fields added to refinement state.
+- [x] Validation-budget exhaustion now routes through a terminalization node.
+- [x] Aggregator sets terminal reason for converged/plateau/max-iterations exits.
+- [x] `pre-commit run --all-files` passes after Phase 3 changes.
+
+Execution notes:
+
+- Added `terminal_reason`, `terminal_iteration`, and `terminal_context` to graph state.
+- Added `terminalize_validation_failure_node` in the graph to make validation-stop reasons explicit.
+- Updated aggregator to emit terminal reasons for deterministic stop conditions.
+- Added unit tests for terminalization node and aggregator terminal reason fields.
+
 ### Phase 4: Baseline Reuse Caching
 
 Cache deterministic baseline runs to cut iteration latency.

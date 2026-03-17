@@ -108,6 +108,20 @@ def should_continue(state: RefinementState) -> Literal["continue", "done"]:
     return "done"
 
 
+def terminalize_validation_failure_node(state: RefinementState) -> dict:
+    """Set explicit terminal metadata when validation retry budget is exhausted."""
+    return {
+        "status": "failed",
+        "terminal_reason": "validation_budget_exhausted",
+        "terminal_iteration": state.get("iteration_number", 1),
+        "terminal_context": {
+            "validation_attempts": state.get("validation_attempts", 0),
+            "max_validation_retries": MAX_VALIDATION_RETRIES,
+            "validation_errors": state.get("validation_errors", []),
+        },
+    }
+
+
 # ── Graph builder ─────────────────────────────────────────────────────────
 
 
@@ -130,6 +144,7 @@ def build_refinement_graph() -> Any:
     graph.add_node("writer", _timed_node("writer", writer_node))
     graph.add_node("validator", _timed_node("validator", validator_node))
     graph.add_node("process_scenario", _timed_node("process_scenario", process_scenario_node))
+    graph.add_node("terminalize_validation_failure", _timed_node("terminalize_validation_failure", terminalize_validation_failure_node))
 
     graph.add_node("aggregator", _timed_node("aggregator", aggregator_node))
 
@@ -141,10 +156,12 @@ def build_refinement_graph() -> Any:
         validation_router,
         {
             "retry": "writer",  # Invalid + retries left → regenerate
-            "fail": END,  # Max retries exceeded → abort
+            "fail": "terminalize_validation_failure",  # Max retries exceeded → explicit failure reason
             "process_scenario": "process_scenario",
         },
     )
+
+    graph.add_edge("terminalize_validation_failure", END)
 
     graph.add_edge("process_scenario", "aggregator")
 
@@ -230,6 +247,9 @@ def run_refinement(
         "iterations": [],
         "iteration_number": 1,
         "status": "writing",
+        "terminal_reason": None,
+        "terminal_iteration": 0,
+        "terminal_context": {},
         "messages": [],
     }
 

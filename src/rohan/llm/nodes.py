@@ -1075,11 +1075,26 @@ def aggregator_node(state: RefinementState) -> dict:
     if all_scenarios_failed:
         recommendation = "continue"
 
+    terminal_reason = None
+    terminal_context: dict[str, object] = {}
+
     if recommendation in ("stop_converged", "stop_plateau") and not is_regression:
         next_status = "done"
+        terminal_reason = "converged" if recommendation == "stop_converged" else "plateau_detected"
+        terminal_context = {
+            "recommendation": recommendation,
+            "score": final_score,
+            "best_score": new_best_score,
+        }
     elif iteration_number >= max_iterations:
         logger.info("Max iterations (%d) reached", max_iterations)
         next_status = "done"
+        terminal_reason = "max_iterations_reached"
+        terminal_context = {
+            "iteration_number": iteration_number,
+            "max_iterations": max_iterations,
+            "score": final_score,
+        }
     else:
         next_status = "writing"
 
@@ -1104,4 +1119,7 @@ def aggregator_node(state: RefinementState) -> dict:
         "best_code": new_best_code,
         "best_iteration_number": new_best_iteration,
         "rolled_back_from": rolled_back_from,
+        "terminal_reason": terminal_reason,
+        "terminal_iteration": iteration_number if terminal_reason else None,
+        "terminal_context": terminal_context,
     }

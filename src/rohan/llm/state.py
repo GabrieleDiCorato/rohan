@@ -158,6 +158,18 @@ class RefinementState(TypedDict, total=False):
         "done",
         "failed",
     ]
+    terminal_reason: (
+        Literal[
+            "converged",
+            "plateau_detected",
+            "max_iterations_reached",
+            "validation_budget_exhausted",
+            "failed_execution",
+        ]
+        | None
+    )
+    terminal_iteration: int | None
+    terminal_context: dict[str, Any]
 
     # LangGraph message list (for tracing / debugging)
     messages: Annotated[list, add_messages]
