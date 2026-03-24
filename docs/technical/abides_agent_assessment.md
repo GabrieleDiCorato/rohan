@@ -163,7 +163,7 @@ noise_mkt_close = date + str_to_ns("16:00:00")  # ignores settings.end_time
 
 When the simulation window ends before 16:00 (e.g., 11:30), noise agents continue trading for hours after the strategic agent's evaluation window. This creates non-representative volume and price dynamics during the measured period.
 
-**Recommended fix:** `noise_mkt_close = date + str_to_ns(max(settings.end_time, "16:00:00"))` — or make it independently configurable.
+**Recommended fix:** Compare parsed time values (not string lexicographic order) and use the later of `end_time` and `"16:00:00"`, or make `noise_mkt_close` an independently configurable field on `SimulationSettings`.
 
 ### 4.4 Value Agent sigma_n Coupled to r_bar
 
