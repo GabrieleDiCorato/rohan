@@ -12,8 +12,6 @@ from abides_core import NanosecondTime
 from abides_core.utils import str_to_ns
 from abides_markets.oracles import SparseMeanRevertingOracle
 
-from rohan.simulation.abides_impl.random_state_handler import RandomStateHandler
-
 
 def generate_fundamental_csv(
     output_path: Path,
@@ -61,7 +59,7 @@ def generate_fundamental_csv(
     mkt_open: NanosecondTime = day_ns + str_to_ns(start_time)
     mkt_close: NanosecondTime = day_ns + str_to_ns(end_time)
 
-    handler = RandomStateHandler(seed)
+    oracle_rng = np.random.RandomState(seed)
 
     # Instantiate the Oracle
     oracle = SparseMeanRevertingOracle(
@@ -75,7 +73,7 @@ def generate_fundamental_csv(
                 "megashock_lambda_a": megashock_lambda_a,
                 "megashock_mean": megashock_mean,
                 "megashock_var": megashock_var,
-                "random_state": handler.oracle_state,
+                "random_state": oracle_rng,
             }
         },
     )
