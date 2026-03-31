@@ -791,10 +791,10 @@ class TestRichAnalysisIntegration:
         settings.start_time = "09:30:00"
         settings.end_time = "09:35:00"
         settings.seed = 42
-        settings.agents.noise.num_agents = 10
-        settings.agents.value.num_agents = 5
-        settings.agents.momentum.num_agents = 0
-        settings.agents.adaptive_market_maker.num_agents = 0
+        settings.agents.noise.num_agents = 100
+        settings.agents.value.num_agents = 20
+        settings.agents.momentum.num_agents = 2
+        settings.agents.adaptive_market_maker.num_agents = 1
 
         service = SimulationService()
         result = service.run_simulation(settings)

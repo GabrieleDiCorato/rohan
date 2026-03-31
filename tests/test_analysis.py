@@ -77,7 +77,7 @@ class TestAnalysisService:
         assert metrics.lob_imbalance_mean is not None
         # market_ott_ratio requires at least some order activity
         if metrics.market_ott_ratio is not None:
-            assert metrics.market_ott_ratio >= 1.0  # OTT = submitted / executed ≥ 1
+            assert metrics.market_ott_ratio > 0.0  # OTT = submitted / executed; can be < 1 with partial fills
 
     def test_generate_price_and_volume_plots(self, sample_simulation_output):
         """Test generating matplotlib visualizations for price series and volume."""

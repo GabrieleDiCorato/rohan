@@ -63,16 +63,26 @@ def test_historical_simulation_runs_successfully(historical_csv_path):
     result = service.run_simulation(settings)
 
     # 3. Verify
-    assert result.error is None
+    assert result.error is None, f"Simulation failed: {result.error}"
     assert result.result is not None
-    assert len(result.result.exchange_messages) > 0
-    assert len(result.result.agent_logs) > 0
 
-    # 4. Verify the oracle fundamental value actually matches our expectations
-    # The true fundamental value is logged by the exchange in its own logs, or we can check the prices
-    # For a quick smoke test, ensure the market didn't explode to NaN
-    prices = [msg.price for msg in result.result.exchange_messages if hasattr(msg, "price") and msg.price is not None]
-    if prices:
-        # Should be roughly near our 50,000 r_bar
-        avg_price = sum(prices) / len(prices)
-        assert 40_000 < avg_price < 60_000
+    output = result.result
+
+    # Verify order book data was produced
+    l1 = output.get_order_book_l1()
+    assert not l1.empty, "L1 order book should not be empty"
+
+    # Verify agent logs were produced
+    logs = output.get_logs_df()
+    assert not logs.empty, "Agent logs should not be empty"
+
+    # 4. Verify the fundamental value didn't explode to NaN
+    # Check that L1 prices are roughly near our 50,000 r_bar
+    import pandas as pd
+
+    bid_prices = l1["bid_price"].dropna()
+    ask_prices = l1["ask_price"].dropna()
+    all_prices = pd.concat([bid_prices, ask_prices])
+    if not all_prices.empty:
+        avg_price = all_prices.mean()
+        assert 40_000 < avg_price < 60_000, f"Average price {avg_price} outside expected range"

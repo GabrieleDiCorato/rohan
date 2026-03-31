@@ -51,10 +51,10 @@ def _short_settings() -> SimulationSettings:
     s = SimulationSettings(seed=42)
     s.start_time = "09:30:00"
     s.end_time = "09:35:00"
-    s.agents.noise.num_agents = 10
-    s.agents.value.num_agents = 5
-    s.agents.momentum.num_agents = 0
-    s.agents.adaptive_market_maker.num_agents = 0
+    s.agents.noise.num_agents = 100
+    s.agents.value.num_agents = 20
+    s.agents.momentum.num_agents = 2
+    s.agents.adaptive_market_maker.num_agents = 1
     return s
 
 

@@ -122,14 +122,14 @@ class CancellingStrategy:
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         self.ticks += 1
 
-        if not self.order_placed and state.best_ask is not None:
-            # Place a limit BID 1 cent below ask — should rest in book
+        if not self.order_placed and state.best_bid is not None:
+            # Place a limit BID well below market — must rest, never fill
             self.order_placed = True
             return [
                 OrderAction(
                     side=Side.BID,
                     quantity=1,
-                    price=state.best_ask - 1,
+                    price=state.best_bid - 500,
                     order_type=OrderType.LIMIT,
                 )
             ]
@@ -170,26 +170,26 @@ class CancelAllStrategy:
     def on_market_data(self, state: MarketState) -> list[OrderAction]:
         self.ticks += 1
 
-        if not self.orders_placed and state.best_ask is not None:
-            # Place 3 orders, each 1 cent below ask
+        if not self.orders_placed and state.best_bid is not None:
+            # Place 3 orders well below market — must rest, never fill
             self.orders_placed = True
             return [
                 OrderAction(
                     side=Side.BID,
                     quantity=1,
-                    price=state.best_ask - 1,
+                    price=state.best_bid - 500,
                     order_type=OrderType.LIMIT,
                 ),
                 OrderAction(
                     side=Side.BID,
                     quantity=1,
-                    price=state.best_ask - 2,
+                    price=state.best_bid - 600,
                     order_type=OrderType.LIMIT,
                 ),
                 OrderAction(
                     side=Side.BID,
                     quantity=1,
-                    price=state.best_ask - 3,
+                    price=state.best_bid - 700,
                     order_type=OrderType.LIMIT,
                 ),
             ]
