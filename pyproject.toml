@@ -92,6 +92,7 @@ known-first-party = ["rohan"]
 
 [tool.pyright]
 include = ["src"]
+exclude = ["src/rohan/ui"]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
 reportMissingImports = true

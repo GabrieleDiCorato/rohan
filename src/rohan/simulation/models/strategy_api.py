@@ -12,23 +12,23 @@ Units & conventions (matching ABIDES):
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     BID = "BID"
     ASK = "ASK"
 
 
-class OrderType(str, Enum):
+class OrderType(StrEnum):
     LIMIT = "LIMIT"
     MARKET = "MARKET"
 
 
-class OrderStatus(str, Enum):
+class OrderStatus(StrEnum):
     ACCEPTED = "ACCEPTED"
     NEW = "NEW"
     PARTIAL = "PARTIAL"
@@ -136,7 +136,7 @@ class MarketState(BaseModel):
 CANCEL_ALL: int = -1
 
 
-class OrderActionType(str, Enum):
+class OrderActionType(StrEnum):
     """Discriminator for order action intent."""
 
     PLACE = "PLACE"

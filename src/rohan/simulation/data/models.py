@@ -5,14 +5,14 @@ value data throughout the pipeline from providers to the simulation oracle.
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class DataProviderType(str, Enum):
+class DataProviderType(StrEnum):
     """Supported types of historical data providers."""
 
     CSV = "CSV"

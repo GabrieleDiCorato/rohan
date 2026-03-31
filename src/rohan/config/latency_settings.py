@@ -1,9 +1,9 @@
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class LatencyType(str, Enum):
+class LatencyType(StrEnum):
     """Specifies the type of latency model to be used in the simulation.
     See LatencyModel class in abides_core.latency_model for details."""
 

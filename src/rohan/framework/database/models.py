@@ -35,7 +35,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class RunStatus(str, enum.Enum):
+class RunStatus(enum.StrEnum):
     """Status of a simulation run."""
 
     PENDING = "PENDING"
@@ -45,7 +45,7 @@ class RunStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
-class ArtifactType(str, enum.Enum):
+class ArtifactType(enum.StrEnum):
     """Type of stored artifact."""
 
     IMAGE = "IMAGE"

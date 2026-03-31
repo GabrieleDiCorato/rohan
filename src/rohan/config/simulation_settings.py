@@ -3,7 +3,7 @@ This is agnostic to the simulation engine used (e.g., ABIDES) and focuses on hig
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,7 +15,7 @@ from .latency_settings import LatencyModelSettings
 DEFAULT_TICKER: str = "ABM"
 
 
-class SimulationEngine(str, Enum):
+class SimulationEngine(StrEnum):
     """Enumeration of supported simulation engines."""
 
     ABIDES = "ABIDES"

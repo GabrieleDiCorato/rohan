@@ -31,9 +31,9 @@ from typing import Any, override
 
 import numpy as np
 import pandas as pd
-from abides_core.utils import parse_logs_df
+from abides_core.utils import ns_date, parse_logs_df
 from abides_markets.agents import ExchangeAgent
-from abides_markets.order_book import OrderBook, ns_date
+from abides_markets.order_book import OrderBook
 from pandera.typing.pandas import DataFrame
 
 from rohan.simulation.models import SimulationOutput

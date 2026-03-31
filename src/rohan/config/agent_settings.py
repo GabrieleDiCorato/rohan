@@ -1,11 +1,11 @@
 """Configures all the non-learning agents that will run in the simulation."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class AgentType(str, Enum):
+class AgentType(StrEnum):
     """Specifies the type of agent in the simulation."""
 
     EXCHANGE = "ExchangeAgent"
@@ -15,14 +15,14 @@ class AgentType(str, Enum):
     MOMENTUM = "MomentumAgent"
 
 
-class OracleType(str, Enum):
+class OracleType(StrEnum):
     """Specifies the type of oracle in the simulation."""
 
     SYNTHETIC = "SYNTHETIC"
     HISTORICAL = "HISTORICAL"
 
 
-class ProviderType(str, Enum):
+class ProviderType(StrEnum):
     """Specifies the historical data backend."""
 
     CSV = "CSV"
@@ -30,7 +30,7 @@ class ProviderType(str, Enum):
     API = "API"
 
 
-class InterpolationMode(str, Enum):
+class InterpolationMode(StrEnum):
     """Interpolation strategy supported by ExternalDataOracle."""
 
     FORWARD_FILL = "ffill"
@@ -38,7 +38,7 @@ class InterpolationMode(str, Enum):
     LINEAR = "linear"
 
 
-class PriceUnit(str, Enum):
+class PriceUnit(StrEnum):
     """Input price unit used by the data source before normalization."""
 
     CENTS = "CENTS"

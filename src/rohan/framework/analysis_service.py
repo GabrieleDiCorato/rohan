@@ -7,7 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from abides_markets.order_book import ns_date
+from abides_core.utils import ns_date
 from matplotlib.figure import Figure
 
 from rohan.framework.analysis_models import (
