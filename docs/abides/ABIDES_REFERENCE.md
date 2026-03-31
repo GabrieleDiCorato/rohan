@@ -1,7 +1,7 @@
 # ABIDES Integration Reference
 
-Condensed reference for integrating with `abides-jpmc-public`.
-Copy this into your project's `.github/copilot-instructions.md` or LLM context.
+Condensed quick-reference for integrating with `abides-hasufel`.
+For full details, see the specialized guides linked at the bottom.
 
 ---
 
@@ -16,16 +16,14 @@ Nothing is synchronous. Calling `get_current_spread()` sends a message to the Ex
 
 ---
 
-## Agent Lifecycle (6 phases)
+## Agent Lifecycle
 
-```
-kernel_initializing() → kernel_starting() → wakeup() / receive_message() [repeated] → kernel_stopping() → kernel_terminating()
-```
+Custom agents only implement two callbacks:
 
-- **`kernel_starting`**: Find exchange ID. Set up state. Do not trade.
-- **`wakeup`**: Schedule next wakeup with `set_wakeup()`. Request data or place orders.
-- **`receive_message`**: React to fills, spread responses, market data.
-- **`kernel_stopping`**: Log final results. TradingAgent auto-marks holdings to market.
+- **`wakeup(current_time)`**: Schedule next wakeup with `set_wakeup()`. Request data or place orders.
+- **`receive_message(current_time, sender_id, message)`**: React to fills, spread responses, market data.
+
+`TradingAgent` handles all other lifecycle phases internally (`kernel_starting`, `kernel_stopping`, etc.).
 
 ---
 
@@ -181,57 +179,57 @@ self.cancel_all_orders()
 
 ---
 
-## Custom Agent — Adapter Pattern
+## Custom Agents
 
-Implement `TradingStrategy` (no ABIDES imports), wrap it in `AbidesStrategyAdapter(TradingAgent)`.
+Subclass `TradingAgent`, register with `@register_agent`, and declare a `BaseAgentConfig`.
+See [`ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md`](./ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md) for the full pattern, copy-paste scaffold, and checklist.
+
+---
+
+## Running Simulations
 
 ```python
-class MyStrategy(TradingStrategy):
-    def on_tick(self, snapshot: MarketSnapshot, portfolio: PortfolioState) -> List[StrategyOrder]:
-        bid, ask = snapshot.best_bid, snapshot.best_ask
-        if bid is None or ask is None:
-            return []
-        mid = (bid + ask) // 2
-        return [StrategyOrder("ABM", OrderSide.BUY, 10, OrderType.LIMIT, mid - 50)]
+from abides_markets.config_system import SimulationBuilder
+from abides_markets.simulation import run_simulation
 
-    def get_wakeup_interval_ns(self): return 60_000_000_000  # 1 min
-    def on_trading_start(self, s, p): pass
-    def on_fill(self, fill, p): return []
+config = (SimulationBuilder()
+    .from_template("rmsc04")
+    .enable_agent("my_strategy", count=1, threshold=0.08)
+    .seed(42)
+    .build())
 
-# Wire into config:
-adapter = AbidesStrategyAdapter(id=len(config["agents"]), strategy=MyStrategy(), symbol="ABM")
-config["agents"].append(adapter)
+result = run_simulation(config)  # → SimulationResult
 ```
 
-`MarketSnapshot` fields: `timestamp`, `symbol`, `best_bid`, `best_ask`, `best_bid_size`, `best_ask_size`, `last_trade_price`, `bid_depth`, `ask_depth`, `mkt_open`, `mkt_close`. All prices `Optional[int]` in cents.
+`SimulationResult` fields: `result.agents` (per-agent PnL, holdings), `result.markets` (L1 close, liquidity), `result.metadata` (seed, timing). Control depth with `ResultProfile`: `SUMMARY` (default), `QUANT` (adds L1/L2 series), `FULL` (adds raw logs).
+
+See [`ABIDES_CONFIG_SYSTEM.md`](./ABIDES_CONFIG_SYSTEM.md) for builder API, templates, oracle config, and serialization.
 
 ---
 
 ## External Oracle — Historical / Generated Data
 
+> [!IMPORTANT]
+> The `Oracle` base class is an `abc.ABC`. Any custom oracle must implement both `get_daily_open_price(...)` and `observe_price(...)`.
+
+Build the oracle externally and inject it via the builder:
+
 ```python
-from abides_markets.oracles import ExternalDataOracle, DataFrameProvider, InterpolationStrategy
-
-# Batch mode (pre-load full series)
-oracle = ExternalDataOracle(
-    mkt_open, mkt_close, ["AAPL"],
-    data={"AAPL": my_series},          # pd.Series, DatetimeIndex, int cents
-    interpolation=InterpolationStrategy.FORWARD_FILL,
-)
-
-# Point mode (on-demand, memory-bounded — for DB / CGAN)
-class MyProvider:
-    def get_fundamental_at(self, symbol: str, timestamp: int) -> int: ...
+from abides_markets.oracles import ExternalDataOracle, DataFrameProvider
 
 oracle = ExternalDataOracle(
     mkt_open, mkt_close, ["AAPL"],
-    provider=MyProvider(),
-    cache_size=10_000,
+    data={"AAPL": my_series},     # pd.Series, DatetimeIndex, int cents
 )
 
-# Inject into simulation config:
-config["kernel"]["oracle"] = oracle
+config = (SimulationBuilder()
+    .oracle_instance(oracle)
+    .enable_agent("noise", count=500)
+    .seed(42)
+    .build())
 ```
+
+See [`ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md` §7](./ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md) for point-mode providers, oracle-less simulations, and `ExternalDataOracleConfig`.
 
 ---
 
@@ -246,11 +244,30 @@ if self.last_trade.get(self.symbol) is not None:
 
 ---
 
+## logEvent Default: No Deep Copy
+
+`logEvent(event_type, event, deepcopy_event=False)` logs agent events to the event log. The default is **no deep copy** — if you log a mutable object (e.g. `self.holdings`) and modify it later, the log entry will reflect the *final* state, not the state at log time.
+
+```python
+# BAD — holdings dict will be mutated after logging
+self.logEvent("SNAPSHOT", self.holdings)
+
+# GOOD — snapshot captured at log time
+self.logEvent("SNAPSHOT", self.holdings, deepcopy_event=True)
+
+# OK — immutable values don't need deepcopy
+self.logEvent("TRADE", {"price": price, "qty": qty})
+```
+
+---
+
 ## Full Reference
 
-- `docs/ABIDES_LLM_INTEGRATION_GOTCHAS.md` — all None/NaN traps, safe patterns
-- `docs/ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md` — full adapter pattern
-- `docs/ABIDES_DATA_EXTRACTION.md` — parsing results (`parse_logs_df`, L1/L2 book history)
+- [`ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md`](./ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md) — adapter pattern, scaffold, checklist, testing
+- [`ABIDES_CONFIG_SYSTEM.md`](./ABIDES_CONFIG_SYSTEM.md) — builder API, templates, oracle config, serialization
+- [`ABIDES_LLM_INTEGRATION_GOTCHAS.md`](./ABIDES_LLM_INTEGRATION_GOTCHAS.md) — all None/NaN traps, safe patterns
+- [`ABIDES_DATA_EXTRACTION.md`](./ABIDES_DATA_EXTRACTION.md) — parsing results, L1/L2 book history
+- [`PARALLEL_SIMULATION_GUIDE.md`](./PARALLEL_SIMULATION_GUIDE.md) — multiprocessing, RNG hierarchy, log layout
 
 ---
 
