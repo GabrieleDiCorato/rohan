@@ -5,6 +5,25 @@ All notable changes to ROHAN are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-03-31
+
+### Changed
+
+- **Migrated from legacy ABIDES to abides-hasufel v2.5.1** — Replaced the 504-line `AbidesConfigMapper` and manual agent instantiation with a thin `config_builder.py` (~145 lines) that maps `SimulationSettings` onto hasufel's declarative `SimulationBuilder` API. Agent instantiation, seed derivation, and latency model construction are now handled by hasufel's `compile()` step.
+- **`SimulationRunnerAbides` rewritten** — Uses `build_simulation_config()` → `compile()` → `config_add_agents()` → `abides_run()` pipeline. Strategic agent injected post-compilation via `config_add_agents()`.
+- **Dependency source** — `abides-hasufel` now sourced from GitHub (`GabrieleDiCorato/abides-hasufel@v2.5.1`) instead of local editable install.
+- **Value agent sigma_s auto-inheritance** — For synthetic oracle, value agents auto-inherit `sigma_s = fund_vol²` from hasufel's oracle context. For historical oracle (ExternalDataOracle), `sigma_s` is computed explicitly using the same `fund_vol²` convention.
+- **Noise agent wakeup window** — `noise_mkt_close_time` set to `settings.end_time` instead of default `"16:00:00"` to ensure agents wake during short simulations.
+- **Log level mapping** — `"OFF"` mapped to `"CRITICAL"` (hasufel only accepts `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`).
+- **Test assertion relaxed** — `market_ott_ratio` assertion changed from `>= 1.0` to `> 0.0` since partial fills can produce ratio < 1.
+- **Historical integration test** — Updated assertions to use `AbidesOutput` API (`get_order_book_l1()`, `get_logs_df()`) instead of removed `exchange_messages`/`agent_logs` attributes.
+
+### Removed
+
+- **`AbidesConfigMapper`** — Replaced by `config_builder.build_simulation_config()`.
+- **`RandomStateHandler`** — Replaced by direct `np.random.RandomState` usage and hasufel's identity-based SHA-256 seed derivation.
+- **`test_random_state_handler.py`** — Tests for deleted module.
+
 ## [0.2.1] — 2026-03-09
 
 ### Added

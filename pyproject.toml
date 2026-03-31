@@ -1,6 +1,6 @@
 [project]
 name = "rohan"
-version = "0.2.2"
+version = "0.3.0"
 description = "Risk Optimization with Heuristic Agent Network"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -8,7 +8,7 @@ license = { text = "Apache-2.0" }
 keywords = ["trading", "llm", "agents", "reinforcement-learning", "risk-optimization", "algorithmic-trading"]
 
 dependencies = [
-    "abides-rohan",
+    "abides-hasufel",
     "numpy>=1.26.0",
     "pandas>=2.2.0,<3.0.0",
     "pandera>=0.22.0",
@@ -132,4 +132,4 @@ show_missing = true
 skip_covered = false
 
 [tool.uv.sources]
-abides-rohan = { git = "https://github.com/GabrieleDiCorato/abides-jpmc-public.git", rev = "v1.2.8-rohan" }
+abides-hasufel = { git = "https://github.com/GabrieleDiCorato/abides-hasufel.git", branch = "main" }
