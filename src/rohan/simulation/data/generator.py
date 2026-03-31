@@ -73,9 +73,9 @@ def generate_fundamental_csv(
                 "megashock_lambda_a": megashock_lambda_a,
                 "megashock_mean": megashock_mean,
                 "megashock_var": megashock_var,
-                "random_state": oracle_rng,
             }
         },
+        random_state=oracle_rng,
     )
 
     # We step through the day and sample the oracle at the requested interval
