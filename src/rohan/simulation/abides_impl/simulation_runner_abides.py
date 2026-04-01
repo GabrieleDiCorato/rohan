@@ -12,12 +12,11 @@ from uuid import uuid4
 
 import numpy as np
 from abides_core.abides import run as abides_run
-from abides_markets.config_system import compile as compile_config
 from abides_markets.utils import config_add_agents
 
 from rohan.config import SimulationSettings
 from rohan.simulation.abides_impl.abides_output import AbidesOutput
-from rohan.simulation.abides_impl.config_builder import build_simulation_config
+from rohan.simulation.abides_impl.config_builder import create_simulation_builder
 from rohan.simulation.abides_impl.strategic_agent_adapter import StrategicAgentAdapter
 from rohan.simulation.models import SimulationOutput
 from rohan.simulation.models.strategy_api import StrategicAgent
@@ -40,8 +39,8 @@ class SimulationRunnerAbides(SimulationRunner):
 
     @override
     def run(self) -> SimulationOutput:
-        config, oracle_instance = build_simulation_config(self.settings)
-        runtime = compile_config(config, oracle_instance=oracle_instance)
+        builder = create_simulation_builder(self.settings)
+        runtime = builder.build_and_compile()
 
         # Inject StrategicAgentAdapter after compilation
         if self.strategy is not None:

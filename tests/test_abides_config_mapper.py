@@ -1,7 +1,7 @@
 """Unit tests for config_builder (replaces old AbidesConfigMapper tests).
 
 Tests agent count correctness, oracle parameter passthrough, latency model
-type switching, and configuration structure via the hasufel pipeline.
+type switching, configuration structure, and hasufel template compilation.
 """
 
 from __future__ import annotations
@@ -16,11 +16,15 @@ from abides_markets.agents import (
     NoiseAgent,
     ValueAgent,
 )
-from abides_markets.config_system import compile as compile_config
 from abides_markets.oracles import SparseMeanRevertingOracle
 
 from rohan.config import SimulationSettings
-from rohan.simulation.abides_impl.config_builder import build_simulation_config
+from rohan.simulation.abides_impl.config_builder import (
+    available_templates,
+    build_simulation_config,
+    compile_template,
+    create_simulation_builder,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,9 +36,9 @@ def _default_settings(**overrides) -> SimulationSettings:
 
 
 def _build_and_compile(settings: SimulationSettings) -> dict:
-    """Build + compile in one step (convenience for tests)."""
-    config, oracle = build_simulation_config(settings)
-    return compile_config(config, oracle_instance=oracle)
+    """Build + compile in one step using the builder's build_and_compile()."""
+    builder = create_simulation_builder(settings)
+    return builder.build_and_compile()
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +228,37 @@ class TestReproducibility:
         r1 = _build_and_compile(s1)
         r2 = _build_and_compile(s2)
         assert len(r1["agents"]) == len(r2["agents"])
+
+
+# ---------------------------------------------------------------------------
+# Hasufel scenario templates
+# ---------------------------------------------------------------------------
+
+
+class TestTemplates:
+    """Verify built-in hasufel templates compile correctly."""
+
+    def test_available_templates_returns_non_empty_list(self):
+        templates = available_templates()
+        assert len(templates) > 0
+        assert all("name" in t for t in templates)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["stable_day", "volatile_day", "low_liquidity", "trending_day", "stress_test"],
+    )
+    def test_scenario_template_compiles(self, name):
+        runtime = compile_template(name, seed=42)
+        assert "agents" in runtime
+        assert len(runtime["agents"]) > 0
+        assert isinstance(runtime["agents"][0], ExchangeAgent)
+
+    def test_template_seed_override(self):
+        r1 = compile_template("stable_day", seed=1)
+        r2 = compile_template("stable_day", seed=2)
+        assert r1["seed"] != r2["seed"]
+
+    def test_template_has_oracle(self):
+        runtime = compile_template("volatile_day")
+        assert "oracle" in runtime["custom_properties"]
+        assert isinstance(runtime["custom_properties"]["oracle"], SparseMeanRevertingOracle)

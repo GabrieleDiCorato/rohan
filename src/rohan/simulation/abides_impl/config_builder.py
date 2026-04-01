@@ -8,9 +8,11 @@ derivation, and latency model construction are all handled by hasufel's
 
 Usage::
 
-    config, oracle_instance = build_simulation_config(settings)
-    # config is a serialisable SimulationConfig
-    # oracle_instance is non-None when using historical data
+    builder = create_simulation_builder(settings)
+    runtime = builder.build_and_compile()
+
+    # Or for pre-built scenario templates:
+    runtime = compile_template("stable_day", seed=42)
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from typing import Any
 
 import pandas as pd
 from abides_core.utils import str_to_ns
-from abides_markets.config_system import SimulationBuilder
+from abides_markets.config_system import SimulationBuilder, list_templates
 from abides_markets.config_system.models import SimulationConfig
 from abides_markets.oracles import ExternalDataOracle
 from abides_markets.oracles.data_providers import InterpolationStrategy
@@ -41,14 +43,16 @@ from rohan.simulation.data.provider_protocol import (
 )
 
 
-def build_simulation_config(
+def create_simulation_builder(
     settings: SimulationSettings,
-) -> tuple[SimulationConfig, Any]:
-    """Build a hasufel SimulationConfig from Rohan SimulationSettings.
+) -> SimulationBuilder:
+    """Create a configured hasufel SimulationBuilder from Rohan SimulationSettings.
 
-    Returns ``(config, oracle_instance)`` where *oracle_instance* is non-None
-    only for historical oracle mode (the ``ExternalDataOracle`` must be
-    injected at compile-time via ``compile(config, oracle_instance=...)``).
+    The returned builder can be used to obtain either the declarative config
+    (``builder.build()``) or the compiled runtime dict
+    (``builder.build_and_compile()``).  Any pre-built oracle instance (for
+    historical mode) is stored inside the builder and passed through
+    automatically by ``build_and_compile()``.
     """
     builder = SimulationBuilder()
 
@@ -104,7 +108,39 @@ def build_simulation_config(
         log_level = "CRITICAL"
     builder.log_level(log_level)
 
+    return builder
+
+
+def build_simulation_config(
+    settings: SimulationSettings,
+) -> tuple[SimulationConfig, Any]:
+    """Build a hasufel SimulationConfig from Rohan SimulationSettings.
+
+    Backward-compatible wrapper around :func:`create_simulation_builder`.
+    Returns ``(config, oracle_instance)``.
+    """
+    builder = create_simulation_builder(settings)
     return builder.build(), builder.get_oracle_instance()
+
+
+def compile_template(name: str, seed: int = 42, **overrides: Any) -> dict[str, Any]:
+    """Compile one of hasufel's built-in scenario templates into a runtime dict.
+
+    *name* must be a registered template (see ``available_templates()``).
+    Optional *overrides* are applied after loading the template — for example
+    ``compile_template("stable_day", seed=99, ticker="XYZ")``.
+    """
+    builder = SimulationBuilder()
+    builder.from_template(name)
+    builder.seed(seed)
+    for key, value in overrides.items():
+        getattr(builder, key)(value)
+    return builder.build_and_compile()
+
+
+def available_templates() -> list[dict[str, Any]]:
+    """Return metadata for all registered hasufel templates."""
+    return list_templates()
 
 
 # ---------------------------------------------------------------------------
