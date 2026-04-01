@@ -1,4 +1,4 @@
-# ROHAN: Risk Optimization with Heuristic Agent Network
+# ROHAN: Risk Optimizing Holistic Agentic Network
 
 [![CI](https://github.com/GabrieleDiCorato/rohan/actions/workflows/ci.yml/badge.svg)](https://github.com/GabrieleDiCorato/rohan/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/GabrieleDiCorato/rohan/branch/main/graph/badge.svg)](https://codecov.io/gh/GabrieleDiCorato/rohan)
