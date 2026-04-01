@@ -3,6 +3,7 @@
 > **Reviewer:** AI Framework Architect (Financial Engineering / Risk Management)
 > **Scope:** Usability of abides-hasufel v2.5.x within Rohan's agentic strategy refinement loop
 > **Date:** 2026-04-01
+> **Last updated:** 2026-04-01 — refreshed after hasufel v2.5.3 upgrade
 
 ---
 
@@ -10,9 +11,9 @@
 
 The migration from the legacy ABIDES fork (`abides-rohan v1.2.7`) to `abides-hasufel v2.5` represents a **major architectural improvement**. The old `AbidesConfigMapper` (504 lines of brittle manual agent instantiation) has been replaced by a 145-line `config_builder.py` translation layer backed by hasufel's declarative `SimulationBuilder` API. The new system delivers real benefits: build-time parameter validation, composable templates, identity-based seed derivation, and a typed `SimulationResult` extraction API that eliminates ad-hoc `end_state` dict mining.
 
-That said, the current integration does not yet leverage several high-value features of the new API, and there are areas where the boundary between Rohan and hasufel creates unnecessary friction. This review identifies **13 concrete findings** across four categories: things that work well, things that should be adopted, things that should be simplified on the abides side, and things that should be simplified on the Rohan side.
+The v2.5.3 upgrade resolved 5 of the original 6 hasufel-side requests: template metadata with regime tags (§3.3), raw physical parameter acceptance (§3.4), standalone `compute_metrics()` (§3.2), new scenario templates (§5.1), and `agent.category` with `get_agents_by_category()` (§3.5). The only remaining hasufel-side blocker is first-class post-compilation agent injection (§3.1).
 
-**Overall assessment:** The hasufel upgrade is a clear net positive. The remaining integration gaps are tactical, not architectural. With the changes proposed here, the Rohan↔hasufel boundary could shrink by an estimated 30–40% in lines-of-code while gaining new agentic capabilities.
+The remaining integration gaps are Rohan-side adoption tasks and one hasufel request. With the changes proposed here, the Rohan↔hasufel boundary could shrink by an estimated 30–40% in lines-of-code while gaining new agentic capabilities.
 
 ---
 
@@ -20,13 +21,14 @@ That said, the current integration does not yet leverage several high-value feat
 
 1. [What Works Well](#1-what-works-well)
 2. [Adopt from Hasufel (Rohan-Side Changes)](#2-adopt-from-hasufel-rohan-side-changes)
-3. [Requests for Hasufel (Abides-Side Changes)](#3-requests-for-hasufel-abides-side-changes)
+3. [Remaining Requests for Hasufel](#3-remaining-requests-for-hasufel)
 4. [Rohan Internal Simplifications](#4-rohan-internal-simplifications)
 5. [Template System Assessment](#5-template-system-assessment)
 6. [Metrics & Output Pipeline Assessment](#6-metrics--output-pipeline-assessment)
 7. [Agentic Tooling Opportunities](#7-agentic-tooling-opportunities)
 8. [Risk & Migration Notes](#8-risk--migration-notes)
 9. [Prioritised Recommendations](#9-prioritised-recommendations)
+10. [Resolved Items (v2.5.3)](#10-resolved-items-v253)
 
 ---
 
@@ -118,9 +120,9 @@ These are features that hasufel already provides but Rohan does not yet use. Eac
 
 ---
 
-## 3. Requests for Hasufel (Abides-Side Changes)
+## 3. Remaining Requests for Hasufel
 
-These are areas where changes to hasufel itself would simplify the Rohan integration or improve the agentic developer experience. Since the maintainer is the same, these are concrete feature requests.
+Most original hasufel-side requests were addressed in v2.5.3 (see [§10](#10-resolved-items-v253)). One significant blocker remains.
 
 ### 3.1 First-Class Post-Compilation Agent Injection in `run_simulation()`
 
@@ -132,39 +134,7 @@ These are areas where changes to hasufel itself would simplify the Rohan integra
 
 **Rationale:** This is the single blocker preventing Rohan from using `run_simulation()` and `ResultProfile.QUANT`. It would eliminate ~155 lines of manual extraction code on the Rohan side.
 
-### 3.2 Expose `compute_metrics()` as a Standalone Function
-
-**Problem:** Rohan has its own `AnalysisService` that computes volatility, mean spread, LOB imbalance, VPIN, resilience, OTT ratio, effective spread, Sharpe, max drawdown, and inventory std from raw L1 DataFrames and agent logs. Many of these are standard microstructure metrics.
-
-**Request:** Factor the metrics computation in hasufel's `SimulationResult` pipeline into a standalone `compute_metrics(l1_df, logs_df, ...)` function. This would let Rohan (and any other consumer) compute the same metric set from any data source without running through the full `run_simulation()` → `SimulationResult` pipeline.
-
-**Rationale:** Rohan already computes these metrics; if hasufel provides a canonical, tested implementation, Rohan can delete its own and use the canonical one. This also positions hasufel's metrics as agentic tools (see §7).
-
-### 3.3 Template Metadata: Add `scenario_description` and `regime_tags`
-
-**Problem:** Templates provide composable presets (e.g., `rmsc04`, `liquid_market`, `thin_market`) but the metadata returned by `list_templates()` only includes `name`, `description`, and `agent_types`.
-
-**Request:** Add:
-- `scenario_description: str` — a 1–2 sentence human-readable description of the market regime the template models (e.g., "Normal liquidity conditions with balanced order flow and moderate volatility").
-- `regime_tags: list[str]` — searchable tags like `["liquid", "balanced", "low_vol"]` or `["thin", "illiquid", "high_vol"]`.
-
-**Rationale:** In the agentic loop, the scenario executor selects templates based on a textual goal. Without structured metadata, template selection requires hardcoded string matching or LLM-based description parsing. Tags enable programmatic matching.
-
-### 3.4 Oracle Parameterisation: Accept `fund_vol` Directly for Value Agent
-
-**Problem:** Rohan's `config_builder.py` must manually convert `kappa` (per-nanosecond mean-reversion rate) to `mean_reversion_half_life` (human-readable duration string) and `lambda_a` (per-nanosecond Poisson rate) to `mean_wakeup_gap` (duration string). These conversions are in `_kappa_to_half_life()` and `_lambda_to_interval()` — 35 lines of unit-conversion boilerplate.
-
-**Request:** Accept the raw physical parameters (`kappa`, `lambda_a`, `fund_vol`, `sigma_s`) as alternatives to the human-friendly strings. The builder could accept either form and convert internally.
-
-**Rationale:** The human-readable duration strings (`"48d"`, `"175s"`) are good for YAML configs and human users, but programmatic consumers (like Rohan's settings model) store the raw physical parameters. Having hasufel accept both eliminates the conversion boilerplate and removes a class of unit-conversion bugs.
-
-### 3.5 `SimulationResult.get_strategic_agent()` Helper
-
-**Problem:** `AbidesOutput.get_strategic_agent_id()` identifies the strategic agent by matching `agent.type == "StrategicAgent"`. This is fragile — it depends on a string convention rather than a typed marker.
-
-**Request:** Add `SimulationResult.get_agents_by_type(type_name)` or a first-class `agent.category` field on `AgentData` (populated from the registry's `category` field). This would let Rohan query `result.get_agents_by_category("strategy")` instead of string-matching on agent type.
-
-### 3.6 Risk Guards Documentation in Template Metadata
+### 3.2 Risk Guards Documentation in Template Metadata
 
 **Problem:** Templates do not advertise what risk guard defaults they set. A user choosing `rmsc04` vs. `thin_market` cannot know whether position limits or max drawdown guards are pre-configured.
 
@@ -178,11 +148,11 @@ These are changes entirely within Rohan's codebase that do not require hasufel c
 
 ### 4.1 Eliminate Dual Parameter Vocabularies
 
-**Problem:** Rohan's `AgentSettings` stores oracle and value agent parameters using raw physical names (`kappa`, `lambda_a`, `sigma_s`, `fund_vol`), but hasufel's builder expects human-friendly names (`mean_reversion_half_life`, `mean_wakeup_gap`, `fund_vol`). This dual vocabulary means:
-- `config_builder.py` has 35 lines of unit-conversion helpers (`_kappa_to_half_life`, `_lambda_to_interval`).
-- The field names in `OracleSettings` and `ValueAgentSettings` don't match anything in hasufel's API, making the mapping non-obvious.
+**Problem:** Rohan's `AgentSettings` stores oracle and value agent parameters using raw physical names (`kappa`, `lambda_a`, `sigma_s`, `fund_vol`), while hasufel's builder historically only accepted human-friendly names (`mean_reversion_half_life`, `mean_wakeup_gap`, `fund_vol`). This dual vocabulary required 35 lines of unit-conversion helpers (`_kappa_to_half_life`, `_lambda_to_interval`).
 
-**Recommendation:** Update `AgentSettings` to use hasufel-native names as the primary representation. If backward compatibility with existing `.env` files or stored presets is needed, use `Field(alias=...)` or a migration validator.
+**v2.5.3 update:** Hasufel now accepts raw physical parameters (`kappa`, `lambda_a`) directly alongside human-readable strings. The conversion helpers in `config_builder.py` can be deleted, and Rohan can pass its raw parameters straight through.
+
+**Recommendation:** Remove `_kappa_to_half_life()` and `_lambda_to_interval()` from `config_builder.py` and pass `kappa`/`lambda_a` directly to the builder. This eliminates ~35 lines of boilerplate and a class of unit-conversion bugs.
 
 ### 4.2 Register `StrategicAgentAdapter` via `@register_agent`
 
@@ -210,21 +180,24 @@ This unlocks: `run_simulation()` usage, `ResultProfile.QUANT` extraction, `Agent
 
 ### 5.1 Template Coverage
 
-The current templates cover three useful market regimes:
+As of v2.5.3, hasufel provides eight base templates covering a broad range of market regimes:
 
-| Template | Regime | Noise | Value | Momentum | MM | Use Case |
-|---|---|---|---|---|---|---|
-| `rmsc04` | Reference | 1000 | 102 | 12 | 2 | Default benchmark, balanced market |
-| `liquid_market` | High liquidity | 5000 | 200 | 25 | 4 | Stress-test market impact in deep markets |
-| `thin_market` | Low liquidity | 100 | 20 | 0 | 0 | Illiquid conditions, large spreads |
+| Template | Regime | Key Characteristics | Use Case |
+|---|---|---|---|
+| `rmsc04` | Reference | 1000 noise, 102 value, 12 momentum, 2 MM | Default benchmark, balanced market |
+| `liquid_market` | High liquidity | 5000 noise, 200 value, 25 momentum, 4 MM | Stress-test market impact in deep markets |
+| `thin_market` | Low liquidity | 100 noise, 20 value, no momentum/MM | Illiquid conditions, large spreads |
+| `stable_day` | Low volatility | Low fund_vol, no megashocks | Control scenario |
+| `volatile_day` | High volatility | High fund_vol, megashocks every ~6h | Strategy robustness testing |
+| `low_liquidity` | Illiquid | No MM, 25 slow noise, 10 slow value | Extreme illiquidity |
+| `trending_day` | Trending | Weak mean-reversion (365d half-life), momentum | Directional markets |
+| `stress_test` | Extreme stress | fund_vol=3e-4, 3+ megashocks/session | Tail-risk scenarios |
 
-**Gap analysis for Rohan's agentic loop:**
+All templates now include `scenario_description` and `regime_tags` for programmatic selection.
 
-- **Missing: High-volatility regime** — No template models a regime with elevated `fund_vol` or frequent megashocks. This is critical for testing strategy robustness.
-- **Missing: Adversarial regime** — A template where the market maker is aggressive (tight spreads, high backstop) to test adverse selection.
-- **Missing: Short-duration preset** — Templates default to full-day simulations. A `quick_test` template with a 10-minute window and reduced agent counts would accelerate the inner loop of strategy refinement.
+**Remaining gap:** A **short-duration `quick_test` template** (10-minute window, reduced agent counts) would accelerate the inner loop of strategy refinement. This would be a useful addition for rapid iteration.
 
-**Overlay templates** (`with_momentum`, `with_execution`) are a strong composition primitive. They enable adding agent groups without replacing the base market environment.
+**Overlay templates** (`with_momentum`, `with_execution`) remain a strong composition primitive. They enable adding agent groups without replacing the base market environment.
 
 ### 5.2 Template Composability for Agentic Use
 
@@ -237,14 +210,14 @@ The `SimulationBuilder.from_template()` composability is well-designed. Stacking
 
 ### 5.3 Template Recommendations for Agentic Scenario Generation
 
-Templates are a strong foundation for agentic scenario composition. An LLM agent selecting market conditions could:
+Templates are a strong foundation for agentic scenario composition. With v2.5.3's structured metadata (`scenario_description`, `regime_tags`), an LLM agent selecting market conditions can now:
 
-1. Query `list_templates()` for available regimes
-2. Select a base template matching the desired market conditions
+1. Query `list_templates()` for available regimes with tags
+2. Filter by `regime_tags` to match desired market conditions programmatically
 3. Stack overlays for additional agent groups
 4. Override specific parameters via `enable_agent(..., param=value)`
 
-For this workflow to be robust, templates need the structured metadata requested in §3.3 (description, regime tags). Currently, an LLM would need to parse the template name or description text, which is brittle.
+**Rohan action:** Update the scenario executor to use `regime_tags` for template selection instead of hardcoded string matching.
 
 ---
 
@@ -272,15 +245,20 @@ AbidesOutput (raw end_state)
   → AnalysisService.compute_*() → SimulationMetrics / AgentMetrics
 ```
 
-**Hasufel alternative:**
+**Hasufel alternative (available since v2.5.3):**
 ```
 run_simulation(config, profile=ResultProfile.QUANT)
   → SimulationResult.markets[symbol] → MarketSummary (L1 close, VWAP, volume)
-  → SimulationResult.agents[i] → AgentData (PnL, holdings)
+  → SimulationResult.agents[i] → AgentData (PnL, holdings, agent_category)
   → SimulationResult.markets[symbol].l1_series → numpy array
+
+# Or standalone:
+from abides_markets.simulation.metrics import compute_metrics
+metrics = compute_metrics(book_log2=snapshots, exec_trades=fills,
+                          agent_holdings=holdings, symbol="AAPL")
 ```
 
-**Assessment:** The hasufel path provides a subset of Rohan's metrics directly. The advanced microstructure metrics (VPIN, resilience, LOB imbalance) are computed by Rohan and documented in the functional spec (`docs/functional/metrics_definition.md`). These should remain in Rohan unless hasufel provides equivalent functionality (see request §3.2).
+**Assessment:** The hasufel path now provides a superset of basic metrics plus a standalone `compute_metrics()` function. Rohan's advanced microstructure metrics (VPIN, resilience, LOB imbalance) should be audited against hasufel's canonical implementation to determine overlap. Metrics not covered by hasufel should remain in Rohan's `AnalysisService`.
 
 ### 6.3 `AbidesOutput` Extraction Quality
 
@@ -306,13 +284,13 @@ The hasufel upgrade enables new capabilities that could become tools in Rohan's 
 # Agentic tool signature
 def build_scenario(description: str, ticker: str = "ABM", seed: int = 42) -> SimulationConfig:
     """Build a simulation scenario from a natural-language description.
-    
+
     Uses list_templates() and list_agent_types() to select appropriate
     templates and parameter overrides.
     """
 ```
 
-**Prerequisites:** Template metadata (§3.3), structured parameter descriptions from `get_full_manifest()`.
+**Prerequisites:** Structured parameter descriptions from `get_full_manifest()`. Template metadata (`scenario_description`, `regime_tags`) is now available in v2.5.3.
 
 ### 7.2 Config Validation Tool
 
@@ -321,7 +299,7 @@ def build_scenario(description: str, ticker: str = "ABM", seed: int = 42) -> Sim
 ```python
 def validate_scenario(config_dict: dict) -> ValidationResult:
     """Validate a proposed simulation configuration.
-    
+
     Returns structured errors and warnings with field paths and agent names.
     """
 ```
@@ -338,7 +316,7 @@ The diagnostic feedback patterns in `docs/functional/metrics_definition.md` §4 
 - High VPIN → "reduce order aggressiveness"
 - High inventory_std + high max_drawdown → "large unhedged positions"
 
-This could be codified as a rule-based explainer tool that supplements the LLM explainer agent.
+This could be codified as a rule-based explainer tool that supplements the LLM explainer agent. With hasufel v2.5.3's standalone `compute_metrics()`, the canonical metric values can be fed directly into such a tool.
 
 ### 7.4 Market Regime Classifier Tool
 
@@ -347,7 +325,7 @@ This could be codified as a rule-based explainer tool that supplements the LLM e
 ```python
 def classify_regime(l1_df: DataFrame) -> RegimeClassification:
     """Classify the market regime from L1 order book data.
-    
+
     Returns volatility bucket, liquidity bucket, and directional bias.
     """
 ```
@@ -374,7 +352,7 @@ Rohan's `AbidesOutput` accesses `end_state["agents"]`, `end_state["seed"]`, and 
 
 If `StrategicAgentAdapter` is registered via `@register_agent`, it becomes visible to `list_agent_types()`. This means the LLM discoverability API will return it as an available agent type, which could confuse the scenario builder (it's not a user-selectable agent; it's injected by the refinement loop).
 
-**Mitigation:** Use a `category="internal"` or `hidden=True` flag to exclude it from discovery queries. If hasufel doesn't support this, the registration description should clearly mark it as "framework-internal, not user-selectable."
+**Mitigation:** Hasufel v2.5.3 now supports `agent_category` on `AgentData`. Register the adapter with `category="internal"` or `hidden=True` to exclude it from discovery queries. The registration description should clearly mark it as "framework-internal, not user-selectable."
 
 ---
 
@@ -385,8 +363,8 @@ If `StrategicAgentAdapter` is registered via `@register_agent`, it becomes visib
 | # | Action | Owner | Effort | Impact |
 |---|---|---|---|---|
 | R1 | Add `extra_agents` parameter to `run_simulation()` or `compile()` | **Hasufel** | Low | Unblocks Rohan's use of `SimulationResult` and `ResultProfile.QUANT` |
-| R2 | Add `scenario_description` and `regime_tags` to template metadata | **Hasufel** | Low | Enables agentic scenario selection |
-| R3 | Remove `build_simulation_config()` backward-compat wrapper | **Rohan** | Trivial | Reduces API surface, dead code |
+| R2 | Remove `build_simulation_config()` backward-compat wrapper | **Rohan** | Trivial | Reduces API surface, dead code |
+| R3 | Delete `_kappa_to_half_life()` / `_lambda_to_interval()`, pass raw params to builder | **Rohan** | Trivial | −35 lines, leverages v2.5.3 raw parameter support |
 
 ### Tier 2 — High Impact, Medium Effort
 
@@ -395,18 +373,18 @@ If `StrategicAgentAdapter` is registered via `@register_agent`, it becomes visib
 | R4 | Register `StrategicAgentAdapter` via `@register_agent` | **Rohan** | Medium | Unlocks `run_simulation()`, risk guards, typed results |
 | R5 | Adopt `run_batch()` for parallel baseline runs | **Rohan** | Low | Reduces iteration latency |
 | R6 | Consolidate `SimulationMetrics` / `MarketMetrics` duplication | **Rohan** | Low | Cleaner models |
-| R7 | Accept raw physical parameters (`kappa`, `lambda_a`) alongside human-readable strings | **Hasufel** | Medium | Eliminates 35 lines of conversion boilerplate in Rohan |
+| R7 | Use `get_agents_by_category("strategy")` instead of type string matching | **Rohan** | Trivial | Leverages v2.5.3; replaces fragile identification |
 
 ### Tier 3 — Strategic, Higher Effort
 
 | # | Action | Owner | Effort | Impact |
 |---|---|---|---|---|
-| R8 | Factor `compute_metrics()` into a standalone hasufel function | **Hasufel** | Medium | Canonical metrics implementation; enables tool-based extraction |
-| R9 | Migrate `AbidesOutput` to use `SimulationResult` (after R1 or R4) | **Rohan** | Medium | Eliminates ~155 lines, insulates from internal dict changes |
-| R10 | Add high-volatility and quick-test templates | **Hasufel** | Low | Covers gaps in Rohan's scenario matrix |
-| R11 | Build template-based scenario generation tool (§7.1) | **Rohan** | Medium | New agentic capability |
+| R8 | Migrate `AbidesOutput` to use `SimulationResult` (after R1 or R4) | **Rohan** | Medium | Eliminates ~155 lines, insulates from internal dict changes |
+| R9 | Audit Rohan metrics against hasufel `compute_metrics()` for deduplication | **Rohan** | Medium | Canonical metrics; delete overlapping Rohan implementations |
+| R10 | Add short-duration `quick_test` template | **Hasufel** | Low | Accelerates inner refinement loop |
+| R11 | Build template-based scenario generation tool (§7.1) | **Rohan** | Medium | New agentic capability (prerequisites met in v2.5.3) |
 | R12 | Build rule-based metric explanation tool (§7.3) | **Rohan** | Medium | Augments LLM explainer with deterministic interpretation |
-| R13 | Add `agent.category` to `AgentData` and `get_agents_by_category()` to `SimulationResult` | **Hasufel** | Low | Replaces fragile string-matching for agent identification |
+| R13 | Add `default_risk_guards` to template metadata | **Hasufel** | Low | Enables LLM writer to reason about existing guardrails |
 
 ---
 
@@ -414,13 +392,12 @@ If `StrategicAgentAdapter` is registered via `@register_agent`, it becomes visib
 
 | Rohan File | Lines | Change Impact |
 |---|---|---|
-| `config_builder.py` | 325 | R3 removes dead wrapper; R7 eliminates unit-conversion helpers (−35 lines) |
+| `config_builder.py` | 325 | R2 removes dead wrapper; R3 deletes unit-conversion helpers (−35 lines) |
 | `simulation_runner_abides.py` | 82 | R1/R4 enable `run_simulation()` path, potentially replacing entire file |
-| `abides_output.py` | 309 | R9 replaces L1/L2 extraction with `SimulationResult` accessors (−155 lines) |
+| `abides_output.py` | 309 | R8 replaces L1/L2 extraction with `SimulationResult` accessors (−155 lines); R7 replaces type string matching |
 | `strategic_agent_adapter.py` | 460 | R4 adds `@register_agent` + `BaseAgentConfig` (+30 lines) |
 | `simulation_metrics.py` | 128 | R6 merges `SimulationMetrics`/`MarketMetrics` (−30 lines) |
 | `simulation_service.py` | 200 | R5 adds `run_batch()` call path |
-| `agent_settings.py` | 283 | R7 would update field names to hasufel-native vocabulary |
 
 **Net estimated change:** −185 lines removed, +50 lines added = **−135 lines** total reduction in integration code.
 
@@ -432,7 +409,22 @@ If `StrategicAgentAdapter` is registered via `@register_agent`, it becomes visib
 | `ABIDES_CONFIG_SYSTEM.md` | High — full builder API + templates | Verified against code | High — discoverability API section | 9/10 |
 | `ABIDES_CUSTOM_AGENT_IMPLEMENTATION_GUIDE.md` | High — two patterns + scaffold | Verified against code | High — copy-paste ready | 8/10 |
 | `ABIDES_LLM_INTEGRATION_GOTCHAS.md` | High — exhaustive None/NaN catalog | Verified against code | Very high — directly targets LLM failure modes | 10/10 |
-| `ABIDES_DATA_EXTRACTION.md` | Medium — covers L1/L2 but not all `ResultProfile` fields | Partially verified | Medium — missing `summary_dict()` examples | 7/10 |
+| `ABIDES_DATA_EXTRACTION.md` | Medium — covers L1/L2 but not all `ResultProfile` fields | Partially verified | Medium — `summary_dict()` now available in v2.5.3 but examples may need updating | 7/10 |
 | `PARALLEL_SIMULATION_GUIDE.md` | High — covers `run_batch()` + manual parallelism | Verified against code | Medium — mostly operational, less agentic | 8/10 |
 
 **Overall documentation score: 8.5/10** — Exceptional for a simulation library. The LLM gotchas document alone would prevent most common integration failures.
+
+---
+
+## 10. Resolved Items (v2.5.3)
+
+The following items from the original review were addressed in hasufel v2.5.3 and no longer require action on the hasufel side.
+
+| Original # | Item | Resolution |
+|---|---|---|
+| §3.2 | Expose `compute_metrics()` as standalone function | ✅ `abides_markets.simulation.metrics.compute_metrics()` — accepts book_log2, exec_trades, agent_holdings |
+| §3.3 | Add `scenario_description` and `regime_tags` to template metadata | ✅ `TemplateInfo` extended; `list_templates()` returns structured metadata with tags |
+| §3.4 | Accept raw physical parameters (`kappa`, `lambda_a`) | ✅ Both oracle and value agent configs accept raw per-ns rates as alternatives to human-readable strings |
+| §3.5 | `agent.category` on `AgentData` + `get_agents_by_category()` | ✅ Categories: "background", "strategy", "execution", "market_maker" |
+| §5.1 gaps | Missing high-volatility and stress templates | ✅ Added: `stable_day`, `volatile_day`, `low_liquidity`, `trending_day`, `stress_test` |
+| §2.4 | `summary_dict()` for LLM-friendly output | ✅ `SimulationResult.summary_dict()` returns structured dict (metadata, markets, leaderboard, warnings) |
