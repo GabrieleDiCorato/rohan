@@ -15,6 +15,7 @@ from rohan.simulation.models import (
 )
 from rohan.simulation.models.simulation_output import SimulationOutput
 from rohan.simulation.models.strategy_api import StrategicAgent
+from rohan.simulation.models.strategy_spec import StrategySpec
 from rohan.simulation.simulation_runner import SimulationRunner
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class SimulationService:
         self,
         settings: SimulationSettings,
         context: SimulationContext | None = None,
+        strategy_spec: StrategySpec | None = None,
         strategy: StrategicAgent | None = None,
     ) -> SimulationResult:
         """Runs a single simulation with the given settings.
@@ -62,7 +64,10 @@ class SimulationService:
         Args:
             settings: Configuration for the simulation.
             context: Optional context for tracking metadata. If not provided, one will be created.
-            strategy: Optional StrategicAgent to inject into the simulation.
+            strategy_spec: Optional serializable StrategySpec — preferred path for
+                LLM-generated strategies (goes through hasufel's config pipeline).
+            strategy: Optional pre-built StrategicAgent instance — legacy path
+                useful for tests that inspect strategy state after simulation.
 
         Returns:
             SimulationResult: Result object containing output, metadata, and status.
@@ -76,7 +81,7 @@ class SimulationService:
 
         feature_flags = get_feature_flags()
         cache_key: str | None = None
-        if strategy is None and settings.baseline_cache_enabled and feature_flags.baseline_cache_v1:
+        if strategy_spec is None and strategy is None and settings.baseline_cache_enabled and feature_flags.baseline_cache_v1:
             cache_key = self._build_baseline_cache_key(settings)
             cached_output = self._baseline_cache.get(cache_key)
             if cached_output is not None:
@@ -93,7 +98,7 @@ class SimulationService:
         start_time = time.time()
 
         try:
-            runner = self._create_runner(settings, strategy=strategy)
+            runner = self._create_runner(settings, strategy_spec=strategy_spec, strategy=strategy)
 
             # Validate before running
             errors = runner.validate()
@@ -164,12 +169,18 @@ class SimulationService:
 
         return results
 
-    def _create_runner(self, settings: SimulationSettings, strategy: StrategicAgent | None = None) -> SimulationRunner:
+    def _create_runner(
+        self,
+        settings: SimulationSettings,
+        strategy_spec: StrategySpec | None = None,
+        strategy: StrategicAgent | None = None,
+    ) -> SimulationRunner:
         """Factory method to create the appropriate simulation runner.
 
         Args:
             settings: Simulation configuration.
-            strategy: Optional StrategicAgent to inject into the simulation.
+            strategy_spec: Optional serializable StrategySpec (preferred).
+            strategy: Optional pre-built StrategicAgent instance (legacy).
 
         Returns:
             SimulationRunner instance for the specified engine.
@@ -180,7 +191,7 @@ class SimulationService:
         if settings.engine == SimulationEngine.ABIDES:
             from rohan.simulation.abides_impl import SimulationRunnerAbides
 
-            return SimulationRunnerAbides(settings, strategy=strategy)
+            return SimulationRunnerAbides(settings, strategy_spec=strategy_spec, strategy=strategy)
 
         raise ValueError(f"Unsupported simulation engine: {settings.engine}")
 

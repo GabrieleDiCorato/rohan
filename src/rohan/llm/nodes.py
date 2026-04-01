@@ -415,7 +415,7 @@ def process_scenario_node(state: RefinementState) -> dict:
 
         # Run baseline
         baseline_t0 = time.monotonic()
-        baseline_result = service.run_simulation(settings, strategy=None)
+        baseline_result = service.run_simulation(settings)
         baseline_duration = time.monotonic() - baseline_t0
         if baseline_result.error or not baseline_result.result:
             result = ScenarioResult(

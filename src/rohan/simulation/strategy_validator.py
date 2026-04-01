@@ -309,6 +309,8 @@ def _run_simulation_in_thread(
     settings: SimulationSettings,
 ) -> SimulationResult:
     """Run strategy simulation in the current thread.  Used by execute_strategy_safely."""
+    from rohan.simulation.models.strategy_spec import StrategySpec
+
     validator = StrategyValidator()
 
     tree = ast.parse(strategy_code)
@@ -325,10 +327,14 @@ def _run_simulation_in_thread(
             error=StrategyValidationError("No strategy class found in code"),
         )
 
+    # Validate + exec + smoke test — catches errors early before full simulation
     strategy_class = validator.execute_strategy(strategy_code, class_name)
-    strategy_instance = strategy_class()
+    validator.smoke_test(strategy_class)
+
+    # Create serializable spec and run through the registered agent pipeline
+    spec = StrategySpec(source_code=strategy_code, class_name=class_name)
     service = SimulationService()
-    return service.run_simulation(settings, strategy=strategy_instance)
+    return service.run_simulation(settings, strategy_spec=spec)
 
 
 def execute_strategy_safely(

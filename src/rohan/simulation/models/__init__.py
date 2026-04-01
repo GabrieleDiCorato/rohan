@@ -10,6 +10,7 @@ from .simulation_metrics import (
 from .simulation_output import SimulationOutput
 from .simulation_result import SimulationContext, SimulationResult
 from .strategy_api import MarketState, OrderAction, StrategicAgent
+from .strategy_spec import StrategySpec
 from .validation import ValidationResult
 
 # Rebuild Pydantic models after all imports are complete to resolve forward references
@@ -31,5 +32,6 @@ __all__ = [
     "MarketState",
     "OrderAction",
     "StrategicAgent",
+    "StrategySpec",
     "ValidationResult",
 ]

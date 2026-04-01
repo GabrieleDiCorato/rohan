@@ -41,10 +41,12 @@ from rohan.simulation.data.provider_protocol import (
     FundamentalDataProvider,
     LazyLinearPointAdapter,
 )
+from rohan.simulation.models.strategy_spec import StrategySpec
 
 
 def create_simulation_builder(
     settings: SimulationSettings,
+    strategy_spec: StrategySpec | None = None,
 ) -> SimulationBuilder:
     """Create a configured hasufel SimulationBuilder from Rohan SimulationSettings.
 
@@ -53,6 +55,16 @@ def create_simulation_builder(
     (``builder.build_and_compile()``).  Any pre-built oracle instance (for
     historical mode) is stored inside the builder and passed through
     automatically by ``build_and_compile()``.
+
+    Parameters
+    ----------
+    settings:
+        Rohan simulation configuration.
+    strategy_spec:
+        Optional serializable strategy to inject.  When provided the
+        ``rohan_strategy`` agent type is enabled in the config, and
+        hasufel's ``compile()`` pipeline handles instantiation via
+        :class:`StrategicAgentConfig`.
     """
     builder = SimulationBuilder()
 
@@ -94,6 +106,18 @@ def create_simulation_builder(
 
     # ── Background agents ─────────────────────────────────────────
     _add_agents(builder, settings)
+
+    # ── Strategic agent (optional) ────────────────────────────────
+    if strategy_spec is not None:
+        # Ensure registration has fired (idempotent via allow_overwrite=True)
+        import rohan.simulation.abides_impl.strategic_agent_config  # noqa: F401
+
+        builder.enable_agent(
+            "rohan_strategy",
+            count=1,
+            strategy_spec=strategy_spec,
+            starting_cash=settings.starting_cash,
+        )
 
     # ── Infrastructure ────────────────────────────────────────────
     builder.latency(type=settings.latency.type.value)

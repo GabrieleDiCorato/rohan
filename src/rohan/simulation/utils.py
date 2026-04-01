@@ -74,7 +74,7 @@ def run_with_baseline(
                 setattr(baseline_settings, k, v)
 
     service = SimulationService()
-    res2 = service.run_simulation(baseline_settings, strategy=None)
+    res2 = service.run_simulation(baseline_settings)
     if res2.error:
         raise RuntimeError(f"Baseline run failed: {res2.error}")
     if not res2.result:

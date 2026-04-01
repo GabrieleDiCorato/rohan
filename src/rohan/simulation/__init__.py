@@ -14,6 +14,7 @@ from .models import (
     SimulationOutput,
     SimulationResult,
     StrategicAgent,
+    StrategySpec,
 )
 from .simulation_runner import SimulationRunner
 from .simulation_service import SimulationService
@@ -36,4 +37,5 @@ __all__ = [
     "MarketState",
     "OrderAction",
     "StrategicAgent",
+    "StrategySpec",
 ]

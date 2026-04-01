@@ -254,7 +254,7 @@ class IterationPipeline:
                 if hasattr(baseline_settings, k):
                     setattr(baseline_settings, k, v)
 
-        baseline_result = self._service.run_simulation(baseline_settings, strategy=None)
+        baseline_result = self._service.run_simulation(baseline_settings)
         if baseline_result.error:
             raise RuntimeError(f"Baseline run failed: {baseline_result.error}")
         if not baseline_result.result:
