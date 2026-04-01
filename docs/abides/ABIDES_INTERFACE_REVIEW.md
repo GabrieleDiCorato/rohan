@@ -192,7 +192,7 @@ These are changes entirely within Rohan's codebase that do not require hasufel c
 
 This unlocks: `run_simulation()` usage, `ResultProfile.QUANT` extraction, `AgentData` in `SimulationResult`, and proper risk guard integration.
 
-### 4.3 Consolidate `SimulationMetrics` / `MarketMetrics` / `SimulationMetrics` Duplication
+### 4.3 Consolidate `SimulationMetrics` / `MarketMetrics` Duplication
 
 **Problem:** `SimulationMetrics` and `MarketMetrics` have 11 identical fields. Both models exist because `SimulationMetrics` was the original aggregate model and `MarketMetrics` was added for baseline comparison. But they're structurally identical.
 
