@@ -1,6 +1,6 @@
 # THESIS PROPOSAL
 
-## R.O.H.A.N.: Risk Optimization with Heuristic Agent Network
+## R.O.H.A.N.: Risk Optimizing Holistic Agentic Network
 
 
 # Preliminary Title
