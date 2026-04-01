@@ -119,17 +119,29 @@ addopts = [
 
 [tool.coverage.run]
 source = ["src/rohan"]
+branch = true
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/.venv/*",
     "src/rohan/ui/*",
+    "notebooks/*",
+    "docs/*",
 ]
 
 [tool.coverage.report]
 precision = 2
 show_missing = true
 skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+    "class \\w+\\(.*Protocol\\):",
+    "\\.\\.\\.",
+]
 
 [tool.uv.sources]
 abides-hasufel = { git = "https://github.com/GabrieleDiCorato/abides-hasufel.git", tag = "v2.5.2" }
