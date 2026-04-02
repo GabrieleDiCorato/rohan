@@ -131,6 +131,59 @@ class TestBatchSimulation:
         assert settings.agents.momentum.num_agents == 2
         assert settings.agents.adaptive_market_maker.num_agents == 1
 
+    def test_run_batch_parallel_with_n_workers(self):
+        """Test parallel batch execution via hasufel run_batch."""
+        service = SimulationService()
+
+        settings_list = []
+        for seed in [42, 43]:
+            s = SimulationSettings(
+                seed=seed,
+                start_time="09:30:00",
+                end_time="09:35:00",
+                stdout_log_level="OFF",
+            )
+            s.agents.noise.num_agents = 5
+            s.agents.value.num_agents = 2
+            s.agents.momentum.num_agents = 0
+            s.agents.adaptive_market_maker.num_agents = 0
+            settings_list.append(s)
+
+        results = service.run_batch(settings_list, n_workers=2)
+
+        assert len(results) == 2
+        assert all(r.error is None for r in results)
+        assert all(r.result is not None for r in results)
+
+        # Verify L1 data is accessible through HasufelOutput
+        for r in results:
+            l1 = r.result.get_order_book_l1()
+            assert not l1.empty
+            assert "bid_price" in l1.columns
+            assert "ask_price" in l1.columns
+            assert "timestamp" in l1.columns
+
+    def test_run_batch_parallel_falls_back_for_single_item(self):
+        """Parallel is skipped when only one settings is provided."""
+        service = SimulationService()
+
+        s = SimulationSettings(
+            seed=42,
+            start_time="09:30:00",
+            end_time="09:35:00",
+            stdout_log_level="OFF",
+        )
+        s.agents.noise.num_agents = 5
+        s.agents.value.num_agents = 2
+        s.agents.momentum.num_agents = 0
+        s.agents.adaptive_market_maker.num_agents = 0
+
+        # n_workers=2 but only 1 item → sequential fallback
+        results = service.run_batch([s], n_workers=2)
+
+        assert len(results) == 1
+        assert results[0].error is None
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

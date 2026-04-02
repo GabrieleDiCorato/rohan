@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from typing import Any, cast
 
-from rohan.config import SimulationEngine, SimulationSettings, get_feature_flags
+from rohan.config import OracleType, SimulationEngine, SimulationSettings, get_feature_flags
 from rohan.llm.telemetry import emit_metric
 from rohan.simulation.models import (
     SimulationContext,
@@ -139,12 +139,23 @@ class SimulationService:
                 error=e,
             )
 
-    def run_batch(self, settings_list: list[SimulationSettings], fail_fast: bool = False) -> list[SimulationResult]:
-        """Run multiple simulations sequentially with different settings.
+    def run_batch(
+        self,
+        settings_list: list[SimulationSettings],
+        fail_fast: bool = False,
+        n_workers: int | None = None,
+    ) -> list[SimulationResult]:
+        """Run multiple simulations with different settings.
+
+        When *n_workers* > 1 and all settings use a non-historical oracle,
+        simulations are executed in parallel via hasufel's
+        ``run_batch()``.  Otherwise they run sequentially.
 
         Args:
             settings_list: List of simulation configurations to run.
             fail_fast: If True, stop on first failure. If False, continue and collect all results.
+            n_workers: Number of parallel workers.  ``None`` or 1 for sequential
+                execution, > 1 for parallel via hasufel ``run_batch()``.
 
         Returns:
             List of SimulationResult objects containing outputs and metadata.
@@ -152,20 +163,79 @@ class SimulationService:
         Example:
             >>> service = SimulationService()
             >>> settings_list = [SimulationSettings(seed=i) for i in range(10)]
-            >>> results = service.run_batch(settings_list)
+            >>> results = service.run_batch(settings_list, n_workers=4)
             >>> successful = [r for r in results if r.error is None]
             >>> failed = [r for r in results if r.error is not None]
         """
+        use_parallel = n_workers is not None and n_workers > 1 and len(settings_list) > 1 and all(s.agents.oracle.oracle_type != OracleType.HISTORICAL for s in settings_list)
+
+        if use_parallel:
+            return self._run_batch_parallel(settings_list, n_workers=cast(int, n_workers))
+
+        # Sequential fallback
         results = []
 
         for settings in settings_list:
-            # Each simulation gets its own context
             result = self.run_simulation(settings)
             results.append(result)
 
-            # If fail_fast is enabled and simulation failed, raise the error
             if fail_fast and result.error is not None:
                 raise result.error
+
+        return results
+
+    def _run_batch_parallel(
+        self,
+        settings_list: list[SimulationSettings],
+        n_workers: int,
+    ) -> list[SimulationResult]:
+        """Run baseline simulations in parallel via hasufel's ``run_batch()``.
+
+        Builds a ``SimulationConfig`` from each settings object and delegates
+        to hasufel for multi-process execution.  Results are wrapped in
+        :class:`HasufelOutput` to satisfy the ``SimulationOutput`` interface.
+        """
+        from abides_markets.simulation import ResultProfile
+        from abides_markets.simulation import run_batch as hasufel_run_batch
+
+        from rohan.simulation.abides_impl.config_builder import create_simulation_builder
+        from rohan.simulation.abides_impl.hasufel_output import HasufelOutput
+
+        start_time = time.time()
+        contexts = [SimulationContext(settings=s) for s in settings_list]
+
+        try:
+            configs = [create_simulation_builder(s).build() for s in settings_list]
+        except Exception as e:
+            # If any config build fails, return errors for all
+            duration = time.time() - start_time
+            return [SimulationResult(context=ctx, duration_seconds=duration, error=e) for ctx in contexts]
+
+        try:
+            hasufel_results = hasufel_run_batch(
+                configs,
+                n_workers=n_workers,
+                profile=ResultProfile.FULL,
+            )
+        except Exception as e:
+            duration = time.time() - start_time
+            return [SimulationResult(context=ctx, duration_seconds=duration, error=e) for ctx in contexts]
+
+        duration = time.time() - start_time
+        results: list[SimulationResult] = []
+
+        for ctx, hr, settings in zip(contexts, hasufel_results, settings_list, strict=True):
+            try:
+                output: SimulationOutput = HasufelOutput(hr, ticker=settings.ticker)
+                results.append(
+                    SimulationResult(
+                        context=ctx,
+                        duration_seconds=duration / len(settings_list),
+                        result=output,
+                    )
+                )
+            except Exception as e:
+                results.append(SimulationResult(context=ctx, duration_seconds=duration / len(settings_list), error=e))
 
         return results
 
