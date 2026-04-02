@@ -9,7 +9,7 @@ derivation, and latency model construction are all handled by hasufel's
 Usage::
 
     builder = create_simulation_builder(settings)
-    runtime = builder.build_and_compile()
+    config = builder.build()
 
     # Or for pre-built scenario templates:
     runtime = compile_template("stable_day", seed=42)
