@@ -1,8 +1,7 @@
 """Adapter that wraps hasufel's ``SimulationResult`` as a Rohan ``SimulationOutput``.
 
-Used by the parallel ``run_batch()`` path where hasufel compiles and runs
-simulations internally, returning typed ``SimulationResult`` objects instead
-of the raw ``end_state`` dicts consumed by :class:`AbidesOutput`.
+Wraps hasufel's typed ``SimulationResult`` objects and converts
+numpy-array snapshots and agent logs into Pandera-validated DataFrames.
 
 The adapter converts hasufel's numpy-array L1/L2 snapshots and agent logs
 into the Pandera-validated DataFrames that downstream consumers expect.

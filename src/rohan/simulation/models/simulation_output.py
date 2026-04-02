@@ -22,7 +22,7 @@ class SimulationOutput(ABC):
     """Abstract base class for simulation output handlers.
 
     Subclasses must validate their DataFrames against the corresponding
-    Pandera schema before returning.  See :class:`AbidesOutput` for the
+    Pandera schema before returning.  See :class:`HasufelOutput` for the
     reference implementation.
     """
 

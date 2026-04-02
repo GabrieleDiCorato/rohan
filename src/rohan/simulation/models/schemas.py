@@ -7,7 +7,8 @@ column-name conventions with explicit, validated definitions.
 Validation philosophy
 ---------------------
 Schemas are validated at the **production boundary** — i.e. inside
-``AbidesOutput`` right after data is computed and before it is cached.
+the ``SimulationOutput`` implementation right after data is computed
+and before it is cached.
 Consumers (e.g. ``AnalysisService``) rely on type annotations
 (``DataFrame[OrderBookL1Schema]``) for documentation without re-validating.
 
@@ -23,7 +24,7 @@ Consumers (e.g. ``AnalysisService``) rely on type annotations
   to handle float agent IDs from ABIDES JSON round-trips.
 
 Usage:
-    Producers (e.g. ``AbidesOutput``) call ``schema.validate(df)`` before
+    Producers (e.g. ``HasufelOutput``) call ``schema.validate(df)`` before
     returning data.  Consumers (e.g. ``AnalysisService``) can rely on type
     annotations (``DataFrame[OrderBookL1Schema]``) for documentation without
     re-validating.

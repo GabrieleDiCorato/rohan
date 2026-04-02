@@ -359,7 +359,7 @@ def execute_strategy_safely(
     #
     # Timeout implementation note:
     #   We use a ThreadPoolExecutor rather than multiprocessing because the ABIDES
-    #   simulation output (AbidesOutput / end_state) contains C-extension thread
+    #   simulation output (HasufelOutput / SimulationResult) contains C-extension thread
     #   locks that are not picklable and cannot cross process boundaries.
     #   Thread-based timeout cannot forcibly kill a runaway thread (Python has no
     #   such primitive), but the AST-level import whitelist prevents user code from
