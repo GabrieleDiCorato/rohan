@@ -21,7 +21,6 @@ from abides_markets.oracles import SparseMeanRevertingOracle
 from rohan.config import SimulationSettings
 from rohan.simulation.abides_impl.config_builder import (
     available_templates,
-    build_simulation_config,
     compile_template,
     create_simulation_builder,
 )
@@ -198,7 +197,8 @@ class TestOracle:
             csv=CsvHistoricalProviderSettings(csv_path=str(csv_path)),
         )
 
-        config, oracle_instance = build_simulation_config(settings)
+        builder = create_simulation_builder(settings)
+        oracle_instance = builder.get_oracle_instance()
         assert isinstance(oracle_instance, ExternalDataOracle)
 
     def test_historical_oracle_requires_csv_path(self):
@@ -211,7 +211,7 @@ class TestOracle:
         settings.agents.oracle.historical = HistoricalOracleSettings(provider_type=ProviderType.CSV)
 
         with pytest.raises(ValueError, match="historical.csv.csv_path"):
-            build_simulation_config(settings)
+            create_simulation_builder(settings)
 
 
 # ---------------------------------------------------------------------------
