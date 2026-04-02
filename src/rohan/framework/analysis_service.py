@@ -256,6 +256,21 @@ class AnalysisService:
         if fills and not two_sided.empty:
             sharpe_ratio, max_drawdown, inventory_std = AnalysisService._agent_risk_metrics(fills, two_sided, initial_cash)
 
+        # --- VWAP: volume-weighted average fill price ---
+        vwap_cents: int | None = None
+        if fills:
+            total_value = 0
+            total_qty = 0
+            for entry in fills:
+                payload = entry[2] if len(entry) > 2 and isinstance(entry[2], dict) else {}
+                fp = payload.get("fill_price")
+                qty = payload.get("quantity")
+                if fp is not None and qty is not None:
+                    total_value += int(fp) * int(qty)
+                    total_qty += int(qty)
+            if total_qty > 0:
+                vwap_cents = total_value // total_qty
+
         return AgentMetrics(
             agent_id=agent_id,
             initial_cash=initial_cash,
@@ -267,6 +282,7 @@ class AnalysisService:
             trade_count=trade_count,
             fill_rate=fill_rate,
             order_to_trade_ratio=otr,
+            vwap_cents=vwap_cents,
             end_inventory=inventory,
         )
 

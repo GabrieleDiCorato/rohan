@@ -56,6 +56,7 @@ class AgentMetrics(BaseModel):
     trade_count: int = Field(default=0, description="Number of fills")
     fill_rate: float | None = Field(default=None, description="Fills / submissions")
     order_to_trade_ratio: float | None = Field(default=None, description="Submissions / fills (lower is better)")
+    vwap_cents: int | None = Field(default=None, description="Volume-weighted average fill price (integer cents)")
 
     # --- Inventory ---
     start_inventory: int = Field(default=0, description="Position at simulation start")
