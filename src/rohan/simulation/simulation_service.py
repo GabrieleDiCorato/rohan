@@ -144,6 +144,7 @@ class SimulationService:
         settings_list: list[SimulationSettings],
         fail_fast: bool = False,
         n_workers: int | None = None,
+        strategy_spec: StrategySpec | None = None,
     ) -> list[SimulationResult]:
         """Run multiple simulations with different settings.
 
@@ -156,6 +157,9 @@ class SimulationService:
             fail_fast: If True, stop on first failure. If False, continue and collect all results.
             n_workers: Number of parallel workers.  ``None`` or 1 for sequential
                 execution, > 1 for parallel via hasufel ``run_batch()``.
+            strategy_spec: Optional serializable StrategySpec to include in all
+                batch configs.  Workers compile the spec in-process via the
+                registered ``rohan_strategy`` agent type.
 
         Returns:
             List of SimulationResult objects containing outputs and metadata.
@@ -170,13 +174,13 @@ class SimulationService:
         use_parallel = n_workers is not None and n_workers > 1 and len(settings_list) > 1 and all(s.agents.oracle.oracle_type != OracleType.HISTORICAL for s in settings_list)
 
         if use_parallel:
-            return self._run_batch_parallel(settings_list, n_workers=cast(int, n_workers))
+            return self._run_batch_parallel(settings_list, n_workers=cast(int, n_workers), strategy_spec=strategy_spec)
 
         # Sequential fallback
         results = []
 
         for settings in settings_list:
-            result = self.run_simulation(settings)
+            result = self.run_simulation(settings, strategy_spec=strategy_spec)
             results.append(result)
 
             if fail_fast and result.error is not None:
@@ -188,12 +192,17 @@ class SimulationService:
         self,
         settings_list: list[SimulationSettings],
         n_workers: int,
+        strategy_spec: StrategySpec | None = None,
     ) -> list[SimulationResult]:
-        """Run baseline simulations in parallel via hasufel's ``run_batch()``.
+        """Run simulations in parallel via hasufel's ``run_batch()``.
 
         Builds a ``SimulationConfig`` from each settings object and delegates
         to hasufel for multi-process execution.  Results are wrapped in
         :class:`HasufelOutput` to satisfy the ``SimulationOutput`` interface.
+
+        When *strategy_spec* is provided, each config includes the
+        ``rohan_strategy`` agent type and a ``worker_initializer`` ensures
+        the agent registration fires in each worker process.
         """
         from abides_markets.simulation import ResultProfile
         from abides_markets.simulation import run_batch as hasufel_run_batch
@@ -205,17 +214,28 @@ class SimulationService:
         contexts = [SimulationContext(settings=s) for s in settings_list]
 
         try:
-            configs = [create_simulation_builder(s).build() for s in settings_list]
+            configs = [create_simulation_builder(s, strategy_spec=strategy_spec).build() for s in settings_list]
         except Exception as e:
             # If any config build fails, return errors for all
             duration = time.time() - start_time
             return [SimulationResult(context=ctx, duration_seconds=duration, error=e) for ctx in contexts]
+
+        # When strategy_spec is used, workers need the rohan_strategy
+        # agent type registered in their process.
+        worker_init = None
+        if strategy_spec is not None:
+
+            def _register_rohan_agents() -> None:
+                import rohan.simulation.abides_impl.strategic_agent_config  # noqa: F401
+
+            worker_init = _register_rohan_agents
 
         try:
             hasufel_results = hasufel_run_batch(
                 configs,
                 n_workers=n_workers,
                 profile=ResultProfile.FULL,
+                worker_initializer=worker_init,
             )
         except Exception as e:
             duration = time.time() - start_time
@@ -226,7 +246,14 @@ class SimulationService:
 
         for ctx, hr, settings in zip(contexts, hasufel_results, settings_list, strict=True):
             try:
-                output: SimulationOutput = HasufelOutput(hr, ticker=settings.ticker)
+                # Discover strategic agent ID from result
+                strategic_agent_id: int | None = None
+                if strategy_spec is not None:
+                    strategy_agents = hr.get_agents_by_category("strategy")
+                    if strategy_agents:
+                        strategic_agent_id = strategy_agents[0].agent_id
+
+                output: SimulationOutput = HasufelOutput(hr, ticker=settings.ticker, strategic_agent_id=strategic_agent_id)
                 results.append(
                     SimulationResult(
                         context=ctx,
