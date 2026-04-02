@@ -93,17 +93,9 @@ These are features that hasufel already provides but Rohan does not yet use. Eac
 
 **Recommendation:** Audit the overlap between `MarketSummary` fields and Rohan's `SimulationMetrics` to determine which metrics can be read directly.
 
-### 2.3 Use `run_batch()` for Parallel Baseline Execution
+### 2.3 ~~Use `run_batch()` for Parallel Baseline Execution~~ ✅ Implemented
 
-**Current state:** `SimulationService.run_batch()` runs simulations sequentially via a for-loop.
-
-**Hasufel offers:** `run_batch(configs, n_workers=N)` runs simulations in parallel using `ProcessPoolExecutor`, returns results in input order, handles per-process log isolation automatically.
-
-**Why adopt:** The refinement loop runs at least 2 simulations per iteration (strategy + baseline) across potentially multiple scenarios. Sequential execution is a latency bottleneck.
-
-**Caveat:** Rohan's current `StrategicAgent` is a protocol with non-picklable strategy instances (they hold closures and dynamically-generated code). The baseline runs (strategy=None) could use `run_batch()` immediately; strategy runs would need the `@register_agent` registration from §2.1 to make strategies compilable rather than injected.
-
-**Effort:** Low for baseline parallelization; medium if combined with §2.1.
+**Resolved:** `SimulationService.run_batch()` now accepts an `n_workers` parameter. When `n_workers > 1` and all settings use a non-historical oracle, simulations are executed in parallel via hasufel's `run_batch()` with `ResultProfile.FULL`. Results are wrapped in `HasufelOutput(SimulationOutput)`, a new adapter that converts hasufel's typed `SimulationResult` into the Pandera-validated DataFrames expected by downstream consumers. Falls back to sequential execution for historical oracle settings or single-item batches.
 
 ### 2.4 Use `summary()` / `summary_dict()` for LLM-Friendly Output
 
@@ -113,13 +105,9 @@ These are features that hasufel already provides but Rohan does not yet use. Eac
 
 **Why adopt:** The explainer agent and writer agent in the refinement loop currently receive `RunSummary` serialized as JSON. Hasufel's `summary_dict()` could serve as the basis, enriched with Rohan-specific fields (market impact, scoring).
 
-### 2.5 Leverage VWAP from `LiquidityMetrics`
+### 2.5 ~~Leverage VWAP from `LiquidityMetrics`~~ ✅ Implemented
 
-**Current state:** Rohan does not compute VWAP.
-
-**Hasufel offers:** `LiquidityMetrics.vwap_cents` is computed automatically from execution history.
-
-**Why adopt:** VWAP is a standard benchmark for execution quality assessment. Adding it to `AgentMetrics` or using it in the scoring system (execution quality axis) would improve the refinement loop's feedback quality.
+**Resolved:** `AgentMetrics.vwap_cents` is now computed from agent fill events in `AnalysisService.compute_agent_metrics()`. The VWAP is calculated as `Σ(fill_price × quantity) / Σ(quantity)` across all fills. The `explain_metrics` tool also reports agent VWAP in its diagnostic output.
 
 ---
 
@@ -143,13 +131,9 @@ All original hasufel-side requests have been addressed in v2.5.3–v2.5.4 (see [
 
 These are changes entirely within Rohan's codebase that do not require hasufel changes.
 
-### 4.1 Eliminate Dual Parameter Vocabularies
+### 4.1 ~~Eliminate Dual Parameter Vocabularies~~ ✅ Implemented
 
-**Problem:** Rohan's `AgentSettings` stores oracle and value agent parameters using raw physical names (`kappa`, `lambda_a`, `sigma_s`, `fund_vol`), while hasufel's builder historically only accepted human-friendly names (`mean_reversion_half_life`, `mean_wakeup_gap`, `fund_vol`). This dual vocabulary required 35 lines of unit-conversion helpers (`_kappa_to_half_life`, `_lambda_to_interval`).
-
-**v2.5.3 update:** Hasufel now accepts raw physical parameters (`kappa`, `lambda_a`) directly alongside human-readable strings. The conversion helpers in `config_builder.py` can be deleted, and Rohan can pass its raw parameters straight through.
-
-**Recommendation:** Remove `_kappa_to_half_life()` and `_lambda_to_interval()` from `config_builder.py` and pass `kappa`/`lambda_a` directly to the builder. This eliminates ~35 lines of boilerplate and a class of unit-conversion bugs.
+**Resolved:** `_kappa_to_half_life()` and `_lambda_to_interval()` deleted from `config_builder.py`. Raw physical parameters (`kappa`, `lambda_a`, `megashock_lambda_a`) are now passed directly to hasufel's builder. Eliminated −35 lines of unit-conversion boilerplate.
 
 ### 4.2 ~~Register `StrategicAgentAdapter` via `@register_agent`~~ ✅ Implemented
 
@@ -157,17 +141,13 @@ These are changes entirely within Rohan's codebase that do not require hasufel c
 
 This unlocks: config-pipeline seed derivation, latency model integration, and agent group management for strategy agents. `run_simulation()` usage and typed `SimulationResult` extraction remain blocked by oracle-instance compatibility (see §2.1).
 
-### 4.3 Consolidate `SimulationMetrics` / `MarketMetrics` Duplication
+### 4.3 ~~Consolidate `SimulationMetrics` / `MarketMetrics` Duplication~~ ✅ Implemented
 
-**Problem:** `SimulationMetrics` and `MarketMetrics` have 11 identical fields. Both models exist because `SimulationMetrics` was the original aggregate model and `MarketMetrics` was added for baseline comparison. But they're structurally identical.
+**Resolved:** `MarketMetrics` is now a type alias for `SimulationMetrics`. The 16-line duplicate class and the `_to_market_metrics()` conversion helper were deleted. All existing imports and constructors continue to work through the alias.
 
-**Recommendation:** Use a single `MarketMetrics` model for both. `SimulationMetrics` becomes an alias or is removed.
+### 4.4 ~~Replace `build_simulation_config()` Backward-Compat Wrapper~~ ✅ Implemented
 
-### 4.4 Replace `build_simulation_config()` Backward-Compat Wrapper
-
-**Problem:** `build_simulation_config()` exists as a "backward-compatible wrapper" around `create_simulation_builder()` but returns a tuple `(SimulationConfig, oracle_instance)` that is no longer used anywhere in the codebase — `SimulationRunnerAbides` calls `create_simulation_builder()` directly.
-
-**Recommendation:** If no external code depends on this function, remove it to reduce the public API surface.
+**Resolved:** `build_simulation_config()` deleted from `config_builder.py` and removed from all `__init__.py` exports. Tests updated to use `create_simulation_builder()` directly.
 
 ---
 
@@ -271,47 +251,24 @@ The main concern is **coupling to ABIDES internals**: direct access to `end_stat
 
 The hasufel upgrade enables new capabilities that could become tools in Rohan's agentic framework.
 
-### 7.1 Template-Based Scenario Generation Tool
+### 7.1 ~~Template-Based Scenario Generation Tool~~ ✅ Implemented
 
-**Concept:** An LLM tool that takes a natural-language market condition description and returns a `SimulationConfig` assembled from templates and parameter overrides.
+**Resolved:** `build_scenario` LangChain tool in `scenario_tools.py`. Selects a base template by matching `regime_tags` against template metadata (most-matching-tags algorithm), or uses an explicit `template_name`. Supports `ticker`, `seed`, `start_time`, `end_time`, and arbitrary builder `overrides`. Returns a JSON config dict with template metadata.
 
-```python
-# Agentic tool signature
-def build_scenario(description: str, ticker: str = "ABM", seed: int = 42) -> SimulationConfig:
-    """Build a simulation scenario from a natural-language description.
+### 7.2 ~~Config Validation Tool~~ ✅ Implemented
 
-    Uses list_templates() and list_agent_types() to select appropriate
-    templates and parameter overrides.
-    """
-```
+**Resolved:** `validate_scenario` LangChain tool in `scenario_tools.py`. Takes a JSON config string, delegates to hasufel's `validate_config()`, and returns structured errors/warnings with field paths and suggestions.
 
-**Prerequisites:** Structured parameter descriptions from `get_full_manifest()`. Template metadata (`scenario_description`, `regime_tags`) is now available in v2.5.3.
+### 7.3 ~~Metric Explanation Tool~~ ✅ Implemented
 
-### 7.2 Config Validation Tool
-
-**Concept:** Wrap `validate_config()` as an agentic tool that checks a proposed configuration before simulation.
-
-```python
-def validate_scenario(config_dict: dict) -> ValidationResult:
-    """Validate a proposed simulation configuration.
-
-    Returns structured errors and warnings with field paths and agent names.
-    """
-```
-
-**Already available:** `validate_config()` returns structured `ValidationIssue` objects. This just needs a tool wrapper.
-
-### 7.3 Metric Explanation Tool
-
-**Concept:** Given a `ComparisonResult`, generate a structured interpretation of what each metric means for the strategy.
-
-The diagnostic feedback patterns in `docs/functional/metrics_definition.md` §4 already define the logic:
+**Resolved:** `explain_metrics` LangChain tool in `scenario_tools.py`. Implements the diagnostic feedback patterns from `metrics_definition.md` §4 as rule-based checks:
 - High PnL + high `volatility_delta_pct` → "profitable but destabilising"
-- Low fill_rate + low PnL → "too passive"
+- Low `fill_rate` + low PnL → "too passive"
 - High VPIN → "reduce order aggressiveness"
-- High inventory_std + high max_drawdown → "large unhedged positions"
-
-This could be codified as a rule-based explainer tool that supplements the LLM explainer agent. With hasufel v2.5.3's standalone `compute_metrics()`, the canonical metric values can be fed directly into such a tool.
+- High `inventory_std` + high `max_drawdown` → "large unhedged positions"
+- Positive `resilience_delta_pct` → "slowing spread recovery"
+- Spread/availability impact detection
+- VWAP reporting from `AgentMetrics.vwap_cents`
 
 ### 7.4 Market Regime Classifier Tool
 
@@ -358,17 +315,17 @@ If `StrategicAgentAdapter` is registered via `@register_agent`, it becomes visib
 | # | Action | Owner | Effort | Impact |
 |---|---|---|---|---|
 | ~~R1~~ | ~~Add `extra_agents` parameter to `run_simulation()` or `compile()`~~ | ~~**Hasufel**~~ | ~~Low~~ | ✅ Resolved in v2.5.4 via `runtime_agents` parameter |
-| R2 | Remove `build_simulation_config()` backward-compat wrapper | **Rohan** | Trivial | Reduces API surface, dead code |
-| R3 | Delete `_kappa_to_half_life()` / `_lambda_to_interval()`, pass raw params to builder | **Rohan** | Trivial | −35 lines, leverages v2.5.3 raw parameter support |
+| ~~R2~~ | ~~Remove `build_simulation_config()` backward-compat wrapper~~ | ~~**Rohan**~~ | ~~Trivial~~ | ✅ Removed — dead code deleted |
+| ~~R3~~ | ~~Delete `_kappa_to_half_life()` / `_lambda_to_interval()`, pass raw params to builder~~ | ~~**Rohan**~~ | ~~Trivial~~ | ✅ Deleted — raw `kappa`/`lambda_a`/`megashock_lambda_a` passed directly (−35 lines) |
 
 ### Tier 2 — High Impact, Medium Effort
 
 | # | Action | Owner | Effort | Impact |
 |---|---|---|---|---|
 | ~~R4~~ | ~~Register `StrategicAgentAdapter` via `@register_agent`~~ | ~~**Rohan**~~ | ~~Medium~~ | ✅ Implemented — `StrategicAgentConfig` registered as `"rohan_strategy"` |
-| R5 | Adopt `run_batch()` for parallel baseline runs | **Rohan** | Low | Reduces iteration latency |
-| R6 | Consolidate `SimulationMetrics` / `MarketMetrics` duplication | **Rohan** | Low | Cleaner models |
-| R7 | Use `get_agents_by_category("strategy")` instead of type string matching | **Rohan** | Trivial | Leverages v2.5.3; replaces fragile identification |
+| ~~R5~~ | ~~Adopt `run_batch()` for parallel baseline runs~~ | ~~**Rohan**~~ | ~~Low~~ | ✅ Implemented — `HasufelOutput` adapter + parallel `run_batch(n_workers=N)` via hasufel |
+| ~~R6~~ | ~~Consolidate `SimulationMetrics` / `MarketMetrics` duplication~~ | ~~**Rohan**~~ | ~~Low~~ | ✅ Consolidated — `MarketMetrics` is now a type alias for `SimulationMetrics` |
+| ~~R7~~ | ~~Use `get_agents_by_category("strategy")` instead of type string matching~~ | ~~**Rohan**~~ | ~~Trivial~~ | ✅ Already migrated — runner uses `agent.category == "strategy"` for discovery |
 
 ### Tier 3 — Strategic, Higher Effort
 
@@ -377,8 +334,8 @@ If `StrategicAgentAdapter` is registered via `@register_agent`, it becomes visib
 | R8 | Migrate `AbidesOutput` to use `SimulationResult` (after R1 or R4) | **Rohan** | Medium | Eliminates ~155 lines, insulates from internal dict changes |
 | R9 | Audit Rohan metrics against hasufel `compute_metrics()` for deduplication | **Rohan** | Medium | Canonical metrics; delete overlapping Rohan implementations |
 | R10 | Add short-duration `quick_test` template | **Hasufel** | Low | Accelerates inner refinement loop |
-| R11 | Build template-based scenario generation tool (§7.1) | **Rohan** | Medium | New agentic capability (prerequisites met in v2.5.3) |
-| R12 | Build rule-based metric explanation tool (§7.3) | **Rohan** | Medium | Augments LLM explainer with deterministic interpretation |
+| ~~R11~~ | ~~Build template-based scenario generation tool (§7.1)~~ | ~~**Rohan**~~ | ~~Medium~~ | ✅ Implemented — `build_scenario` tool with regime-tag matching |
+| ~~R12~~ | ~~Build rule-based metric explanation tool (§7.3)~~ | ~~**Rohan**~~ | ~~Medium~~ | ✅ Implemented — `explain_metrics` tool with diagnostic patterns from §4 |
 | R13 | Add `default_risk_guards` to template metadata | **Hasufel** | Low | Enables LLM writer to reason about existing guardrails |
 
 ---
@@ -387,16 +344,18 @@ If `StrategicAgentAdapter` is registered via `@register_agent`, it becomes visib
 
 | Rohan File | Lines | Change Impact |
 |---|---|---|
-| `config_builder.py` | 325 | R2 removes dead wrapper; R3 deletes unit-conversion helpers (−35 lines) |
-| `simulation_runner_abides.py` | 82 | R4 completed — dual-path runner supports StrategySpec (config pipeline) and legacy instance injection |
-| `abides_output.py` | 309 | R8 replaces L1/L2 extraction with `SimulationResult` accessors (−155 lines); R7 replaces type string matching |
-| `strategic_agent_adapter.py` | 460 | R4 completed — `strategic_agent_config.py` (+75 lines) registered as `"rohan_strategy"` |
-| `strategy_spec.py` *(new)* | 55 | Frozen Pydantic model carrying serialisable strategy code for the config pipeline |
-| `strategic_agent_config.py` *(new)* | 75 | `@register_agent("rohan_strategy")` + `StrategicAgentConfig(BaseAgentConfig)` |
-| `simulation_metrics.py` | 128 | R6 merges `SimulationMetrics`/`MarketMetrics` (−30 lines) |
-| `simulation_service.py` | 200 | R5 adds `run_batch()` call path |
+| `config_builder.py` | 286 | ✅ R2 removed dead wrapper; R3 deleted unit-conversion helpers (−58 lines net) |
+| `simulation_runner_abides.py` | 82 | ✅ R4 completed — dual-path runner supports StrategySpec (config pipeline) and legacy instance injection |
+| `abides_output.py` | 309 | R8 replaces L1/L2 extraction with `SimulationResult` accessors (−155 lines); ✅ R7 migrated to `agent.category` |
+| `hasufel_output.py` *(new)* | 160 | ✅ R5 — `HasufelOutput(SimulationOutput)` adapter bridging hasufel's `SimulationResult` to Rohan's interface |
+| `strategic_agent_adapter.py` | 460 | ✅ R4 completed — `strategic_agent_config.py` (+75 lines) registered as `"rohan_strategy"` |
+| `strategy_spec.py` *(new)* | 55 | ✅ Frozen Pydantic model carrying serialisable strategy code for the config pipeline |
+| `strategic_agent_config.py` *(new)* | 75 | ✅ `@register_agent("rohan_strategy")` + `StrategicAgentConfig(BaseAgentConfig)` |
+| `simulation_metrics.py` | 100 | ✅ R6 merged `SimulationMetrics`/`MarketMetrics` (−30 lines); §2.5 added `vwap_cents` to `AgentMetrics` |
+| `simulation_service.py` | 280 | ✅ R5 adds parallel `run_batch(n_workers=N)` call path with `HasufelOutput` |
+| `scenario_tools.py` *(new)* | 260 | ✅ R11 `build_scenario`, R12 `explain_metrics`, §7.2 `validate_scenario` — 3 LangChain tools |
 
-**Net estimated change:** −185 lines removed, +50 lines added = **−135 lines** total reduction in integration code.
+**Net change (from original review baseline):** ~−120 lines removed, ~+550 lines added (new capabilities), with ~60 lines of dead code eliminated.
 
 ## Appendix B: Hasufel Documentation Quality Score
 
