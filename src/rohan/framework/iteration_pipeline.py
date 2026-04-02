@@ -36,7 +36,7 @@ from rohan.simulation.models.simulation_metrics import (
 )
 from rohan.simulation.simulation_service import SimulationService
 from rohan.simulation.strategy_validator import StrategyValidator, execute_strategy_safely
-from rohan.simulation.utils import _pct_change, _to_market_metrics
+from rohan.simulation.utils import _pct_change
 
 logger = logging.getLogger(__name__)
 
@@ -263,8 +263,8 @@ class IterationPipeline:
         baseline_sim_metrics = self._analyzer.compute_metrics(baseline_result.result)
 
         # --- Build ComparisonResult ---
-        strat_market = _to_market_metrics(strategy_sim_metrics)
-        base_market = _to_market_metrics(baseline_sim_metrics)
+        strat_market = strategy_sim_metrics
+        base_market = baseline_sim_metrics
 
         impact = MarketImpact(
             spread_delta_pct=_pct_change(strat_market.mean_spread, base_market.mean_spread),

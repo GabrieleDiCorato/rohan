@@ -5,31 +5,11 @@ from rohan.framework.analysis_service import AnalysisService
 from rohan.simulation import (
     ComparisonResult,
     MarketImpact,
-    MarketMetrics,
 )
-from rohan.simulation.models import SimulationMetrics
 from rohan.simulation.simulation_service import SimulationService
 from rohan.simulation.strategy_validator import (
     execute_strategy_safely,
 )
-
-
-def _to_market_metrics(sim: "SimulationMetrics") -> MarketMetrics:
-    """Convert a SimulationMetrics to MarketMetrics (same shape, 1-to-1)."""
-    return MarketMetrics(
-        volatility=sim.volatility,
-        mean_spread=sim.mean_spread,
-        effective_spread=sim.effective_spread,
-        avg_bid_liquidity=sim.avg_bid_liquidity,
-        avg_ask_liquidity=sim.avg_ask_liquidity,
-        traded_volume=sim.traded_volume,
-        lob_imbalance_mean=sim.lob_imbalance_mean,
-        lob_imbalance_std=sim.lob_imbalance_std,
-        vpin=sim.vpin,
-        resilience_mean_ns=sim.resilience_mean_ns,
-        market_ott_ratio=sim.market_ott_ratio,
-        pct_time_two_sided=sim.pct_time_two_sided,
-    )
 
 
 def _pct_change(a: float | None, b: float | None) -> float | None:
@@ -82,9 +62,9 @@ def run_with_baseline(
 
     metrics2_sim = AnalysisService.compute_metrics(res2.result)
 
-    # Convert to MarketMetrics
-    strat_market = _to_market_metrics(metrics1_sim)
-    base_market = _to_market_metrics(metrics2_sim)
+    # Market metrics (SimulationMetrics is now also MarketMetrics)
+    strat_market = metrics1_sim
+    base_market = metrics2_sim
 
     # Compute typed market impact
     impact = MarketImpact(

@@ -63,23 +63,12 @@ class AgentMetrics(BaseModel):
     avg_hold_time_ns: float | None = Field(default=None, description="Mean holding period (ns)")
 
 
-class MarketMetrics(BaseModel):
-    """Market-wide statistics for baseline comparison."""
+MarketMetrics = SimulationMetrics
+"""Alias for :class:`SimulationMetrics` — used in baseline comparison contexts.
 
-    volatility: float | None = Field(default=None, description="Annualised mid-price volatility")
-    mean_spread: float | None = Field(default=None, description="Average quoted spread (cents)")
-    effective_spread: float | None = Field(default=None, description="Average effective spread (cents)")
-    avg_bid_liquidity: float | None = Field(default=None, description="Mean qty at best bid")
-    avg_ask_liquidity: float | None = Field(default=None, description="Mean qty at best ask")
-    traded_volume: int | None = Field(default=None, description="Total shares traded")
-
-    # --- Microstructure metrics ---
-    lob_imbalance_mean: float | None = Field(default=None, description="Mean L1 order-book imbalance")
-    lob_imbalance_std: float | None = Field(default=None, description="Std of L1 order-book imbalance")
-    vpin: float | None = Field(default=None, description="Volume-synchronised probability of informed trading")
-    resilience_mean_ns: float | None = Field(default=None, description="Mean spread recovery time after shocks (ns)")
-    market_ott_ratio: float | None = Field(default=None, description="Market-wide order-to-trade ratio")
-    pct_time_two_sided: float | None = Field(default=None, description="Fraction of L1 snapshots where both bid and ask are present (0–1)")
+Historically a separate class with identical fields.  Unified to avoid
+duplication and the need for a ``_to_market_metrics()`` conversion helper.
+"""
 
 
 # ---------------------------------------------------------------------------
