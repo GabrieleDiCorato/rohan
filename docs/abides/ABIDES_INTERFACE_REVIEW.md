@@ -1,16 +1,18 @@
 # abides-hasufel v2.5 Interface Review
 
 > **Reviewer:** AI Framework Architect (Financial Engineering / Risk Management)
-> **Scope:** Usability of abides-hasufel v2.5.x within Rohan's agentic strategy refinement loop (Rev 2 — updated to v2.5.5, expanded scope)
-> **Date:** 2026-04-02
+> **Scope:** Usability of abides-hasufel v2.5.x within Rohan's agentic strategy refinement loop (Rev 3 — updated to v2.5.6, oracle-instance blocker resolved)
+> **Date:** 2026-04-03
 
 ---
 
 ## Executive Summary
 
-The migration from the legacy ABIDES fork (`abides-rohan v1.2.7`) to `abides-hasufel v2.5` is **complete**. The old `AbidesConfigMapper` (504 lines) has been replaced by a 293-line `config_builder.py` backed by hasufel's declarative `SimulationBuilder` API. All original hasufel-side requests are resolved (v2.5.3–v2.5.5). Phase 2 Rohan implementation is complete: `StrategySpec` model, `@register_agent("rohan_strategy")`, parallel `run_batch()`, 11 LangChain tools (3 scenario + 8 investigation), and 6-axis deterministic scoring.
+The migration from the legacy ABIDES fork (`abides-rohan v1.2.7`) to `abides-hasufel v2.5` is **complete**. The old `AbidesConfigMapper` (504 lines) has been replaced by a 293-line `config_builder.py` backed by hasufel's declarative `SimulationBuilder` API. All original hasufel-side requests are resolved (v2.5.3–v2.5.6). Phase 2 Rohan implementation is complete: `StrategySpec` model, `@register_agent("rohan_strategy")`, parallel `run_batch()`, 11 LangChain tools (3 scenario + 8 investigation), and 6-axis deterministic scoring.
 
-**Remaining work** falls into six areas: (1) migrating the runner from `build_and_compile()` + `abides_run()` to `run_simulation()` (blocked by oracle-instance dependency), (2) unifying the dual-output architecture (`AbidesOutput` vs `HasufelOutput`), (3) historical oracle data-provider assessment, (4) LLM tooling gap analysis, (5) strategy compilation security hardening, and (6) operational integration concerns.
+The v2.5.6 release added `oracle_instance` parameter to `run_simulation()`, resolving the last hasufel-side blocker. The runner can now migrate from `build_and_compile()` + `abides_run()` to the high-level `run_simulation()` path for all oracle modes, including historical.
+
+**Remaining work** falls into six areas: (1) migrating the runner to `run_simulation()` (now unblocked — pure Rohan adoption task), (2) unifying the dual-output architecture (`AbidesOutput` vs `HasufelOutput`), (3) historical oracle data-provider assessment, (4) LLM tooling gap analysis, (5) strategy compilation security hardening, and (6) operational integration concerns.
 
 This document contains **11 findings** with prioritised recommendations in [§13](#13-prioritised-recommendations).
 
@@ -72,13 +74,17 @@ Features that hasufel already provides but Rohan does not yet use.
 
 ### 2.1 Migrate to `run_simulation()`
 
-**Current state:** `SimulationRunnerAbides.run()` calls `builder.build_and_compile()` → `abides_run()`, manually managing the runtime dict, log directory, and kernel random state. This path is required because the historical oracle mode uses `builder.oracle_instance()`, which `run_simulation()` does not accept.
+**Current state:** `SimulationRunnerAbides.run()` calls `builder.build_and_compile()` → `abides_run()`, manually managing the runtime dict, log directory, and kernel random state.
 
-**Hasufel offers:** `run_simulation(config)` handles compilation, log directory, kernel RNG, and returns a typed `SimulationResult` with structured per-agent PnL, market summaries, and optional L1/L2 series. `runtime_agents` parameter (v2.5.4) supports post-compile agent injection. `StrategicAgentConfig` is registered and the StrategySpec path goes through hasufel's compile pipeline.
+**Hasufel offers (v2.5.6):** `run_simulation(config, oracle_instance=..., runtime_agents=...)` handles compilation, log directory, kernel RNG, and returns a typed `SimulationResult`. The `oracle_instance` parameter (new in v2.5.6) forwards to `compile()`, supporting `ExternalDataOracleConfig` marker configs. `runtime_agents` (v2.5.4) supports post-compile agent injection. `StrategicAgentConfig` is registered and the StrategySpec path goes through hasufel's compile pipeline.
 
-**Remaining blocker:** Oracle-instance dependency. Migrate once Rohan switches to template-based oracle configuration or hasufel adds oracle-instance support to `run_simulation()`.
+**No remaining blockers.** The oracle-instance dependency was resolved in v2.5.6. Migration is now a pure Rohan adoption task:
+1. `builder.build()` → `SimulationConfig`
+2. `builder.get_oracle_instance()` → extract stored oracle (if historical)
+3. `run_simulation(config, profile=FULL, oracle_instance=..., runtime_agents=...)` → `SimulationResult`
+4. Wrap in `HasufelOutput` instead of `AbidesOutput`
 
-**Impact:** Typed `SimulationResult` extraction, elimination of `end_state` dict coupling (see [§12.2](#122-end_state-dict-stability)).
+**Impact:** Typed `SimulationResult` extraction, elimination of `end_state` dict coupling (see [§12.2](#122-end_state-dict-stability)), single output adapter for all execution paths.
 
 ### 2.2 Use `ResultProfile.QUANT` for Metrics Extraction
 
@@ -136,7 +142,7 @@ Only one hasufel-side request remains open.
 - [ ] Audit all `get_logs_by_agent()` call sites — confirm none are on batch path
 - [ ] Audit all `end_state` accesses — confirm `hasattr()` guards exist everywhere
 - [ ] Plan migration to retire `AbidesOutput` once `run_simulation()` path is adopted (depends on §2.1)
-- [ ] Consider making `HasufelOutput` the single output adapter once historical oracle supports `run_simulation()`
+- [ ] Make `HasufelOutput` the single output adapter — historical oracle now supported by `run_simulation()` (v2.5.6)
 
 **References:** `abides_output.py` (308 lines), `hasufel_output.py` (149 lines), `simulation_service.py` (280 lines)
 
@@ -154,7 +160,7 @@ Only one hasufel-side request remains open.
 
 - Historical oracle mode **disables parallelization**: `SimulationService.run_batch()` falls back to sequential when any setting uses historical oracle
 - `sigma_s` gotcha: for historical oracle, `fund_vol**2` must be passed explicitly (synthetic oracle auto-inherits from oracle context)
-- Oracle instance needs `builder.oracle_instance()`, which blocks `run_simulation()` adoption (see §2.1)
+- Oracle instance needs `builder.oracle_instance()` at build time, but `run_simulation(oracle_instance=...)` now accepts it (v2.5.6) — no longer a blocker
 
 ### 5.3 Checklist
 
@@ -172,7 +178,7 @@ Only one hasufel-side request remains open.
 
 ### 6.1 Template Coverage
 
-As of v2.5.5, hasufel provides eight base templates covering a broad range of market regimes:
+As of v2.5.6, hasufel provides eight base templates covering a broad range of market regimes:
 
 | Template | Regime | Key Characteristics | Use Case |
 |---|---|---|---|
@@ -353,7 +359,8 @@ The refinement loop currently does not adapt scenarios based on observed market 
 
 ### 10.3 Dependency Versioning
 
-- Hasufel pinned at `git+https://github.com/GabrieleDiCorato/abides-hasufel.git@v2.5.5`
+- Hasufel pinned at `git+https://github.com/GabrieleDiCorato/abides-hasufel.git@v2.5.6`
+- v2.5.6 change: `run_simulation()` now accepts `oracle_instance` parameter, resolving the last hasufel-side blocker
 - No automated version-compatibility testing between Rohan and hasufel releases
 - Upgrade procedure: update pin → run `tests/test_abides_integration.py` + `tests/test_reproducibility.py` → verify seed stability
 
@@ -429,7 +436,7 @@ Rohan's `AbidesOutput` accesses `end_state["agents"]`, `end_state["seed"]`, and 
 
 | # | Action | Owner | Effort | Impact |
 |---|---|---|---|---|
-| R1 | Migrate runner to `run_simulation()` — resolve oracle-instance dependency | Rohan | Medium | Typed `SimulationResult`, eliminates `end_state` coupling |
+| R1 | Migrate runner to `run_simulation()` — oracle blocker resolved in v2.5.6 | Rohan | Low-Medium | Typed `SimulationResult`, eliminates `end_state` coupling |
 | R2 | Unify output paths: retire `AbidesOutput`, use `HasufelOutput` everywhere | Rohan | Medium | Single extraction path, no metric drift risk |
 | R3 | Add output-path consistency test (`AbidesOutput` vs `HasufelOutput`) | Rohan | Low | Catch metric drift before it matters |
 | R4 | Security sandbox audit for `StrategyValidator` escape vectors | Rohan | Low | Harden code execution against injection |
@@ -457,7 +464,7 @@ Rohan's `AbidesOutput` accesses `end_state["agents"]`, `end_state["seed"]`, and 
 
 | Rohan File | Lines | Status / Remaining Work |
 |---|---|---|
-| `config_builder.py` | 293 | Stable. Oracle-instance dependency blocks `run_simulation()` adoption (R1) |
+| `config_builder.py` | 293 | Stable. R1 migration now unblocked (v2.5.6 oracle_instance support) |
 | `simulation_runner_abides.py` | 108 | Dual-path runner. R1 would simplify to single `run_simulation()` call |
 | `abides_output.py` | 308 | R2 retires this file entirely once `HasufelOutput` covers all paths |
 | `hasufel_output.py` | 149 | Batch output adapter. Would become sole output adapter after R2 |
