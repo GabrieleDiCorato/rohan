@@ -12,10 +12,12 @@ after simulation).
 
 from __future__ import annotations
 
+import logging
 from typing import override
 
 import numpy as np
 from abides_markets.agents import TradingAgent
+from abides_markets.config_system import validate_config
 from abides_markets.config_system.compiler import derive_seed
 from abides_markets.simulation import ResultProfile, run_simulation
 
@@ -27,6 +29,8 @@ from rohan.simulation.models import SimulationOutput
 from rohan.simulation.models.strategy_api import StrategicAgent
 from rohan.simulation.models.strategy_spec import StrategySpec
 from rohan.simulation.simulation_runner import SimulationRunner
+
+logger = logging.getLogger(__name__)
 
 
 class SimulationRunnerAbides(SimulationRunner):
@@ -58,6 +62,17 @@ class SimulationRunnerAbides(SimulationRunner):
     def run(self) -> SimulationOutput:
         builder = create_simulation_builder(self.settings, strategy_spec=self.strategy_spec)
         config = builder.build()
+
+        # Validate config against hasufel's cross-agent constraints.
+        # The builder computes derived fields (e.g. kappa from
+        # mean_reversion_half_life), so we downgrade errors to warnings
+        # since the builder output is structurally valid by construction.
+        validation = validate_config(config.model_dump(mode="json"))
+        if not validation.valid:
+            msgs = [getattr(e, "message", str(e)) for e in validation.errors]
+            logger.warning("Hasufel config validation: %s", "; ".join(msgs))
+        for w in validation.warnings:
+            logger.warning("Hasufel config warning: %s", getattr(w, "message", str(w)))
 
         # Extract oracle instance for historical mode (ExternalDataOracleConfig
         # is a marker type — the real oracle must be injected at runtime).
