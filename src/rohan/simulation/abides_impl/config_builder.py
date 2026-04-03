@@ -66,6 +66,41 @@ def create_simulation_builder(
     """
     builder = SimulationBuilder()
 
+    # ── Template bootstrap (if set) ──────────────────────────────
+    # When a template is specified, agent composition and oracle params
+    # come from hasufel's template; we only override market timing,
+    # seed, latency, and strategy injection.
+    if settings.template is not None:
+        builder.from_template(settings.template)
+        builder.market(
+            ticker=settings.ticker,
+            date=settings.date,
+            start_time=settings.start_time,
+            end_time=settings.end_time,
+        )
+        builder.latency(type=settings.latency.type.value)
+        builder.computation_delay(settings.computation_delay_ns)
+        builder.seed(settings.seed)
+        builder.log_orders(settings.log_orders)
+        log_level = settings.stdout_log_level
+        if log_level.upper() == "OFF":
+            log_level = "CRITICAL"
+        builder.log_level(log_level)
+
+        if strategy_spec is not None:
+            import rohan.simulation.abides_impl.strategic_agent_config  # noqa: F401
+
+            builder.enable_agent(
+                "rohan_strategy",
+                count=1,
+                strategy_spec=strategy_spec,
+                starting_cash=settings.starting_cash,
+            )
+
+        return builder
+
+    # ── Custom config (no template) ──────────────────────────────
+
     # ── Market ────────────────────────────────────────────────────
     builder.market(
         ticker=settings.ticker,

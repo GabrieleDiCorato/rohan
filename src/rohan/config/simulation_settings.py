@@ -25,6 +25,10 @@ class SimulationSettings(BaseSettings):
     """Configuration for the simulation environment."""
 
     engine: SimulationEngine = Field(default=SimulationEngine.ABIDES, description="The simulation engine to use.")
+    template: str | None = Field(
+        default=None,
+        description="Optional hasufel template name (e.g. 'rmsc04', 'volatile_day'). When set, agent composition and oracle params are loaded from the template; explicit agent/oracle overrides in this settings object are ignored.",
+    )
     seed: int = Field(
         default_factory=lambda: int(datetime.now().timestamp() * 1_000_000) % (2**32 - 1),
         description="Random seed for the simulation.",
