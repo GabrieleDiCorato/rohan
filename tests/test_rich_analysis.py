@@ -812,18 +812,11 @@ class TestRichAnalysisIntegration:
     def test_compute_agent_metrics_still_works(self, simulation_output):
         """Existing compute_agent_metrics must not break."""
         analyzer = AnalysisService()
-        # Use agent_id=0 (ExchangeAgent) which is always present
-        # Agent 0 is ExchangeAgent — it doesn't trade, so just check it doesn't crash
-        agents = simulation_output.end_state["agents"]
-        # Find a trading agent
-        for agent in agents:
-            if agent.type != "ExchangeAgent":
-                try:
-                    metrics = analyzer.compute_agent_metrics(simulation_output, agent.id)
-                    assert metrics is not None
-                    break
-                except Exception:
-                    continue
+        # Agent 1 is typically the first trading agent (agent 0 is ExchangeAgent).
+        # HasufelOutput lacks end_state, so compute_agent_metrics returns an
+        # empty AgentMetrics via its hasattr guard — verify it doesn't crash.
+        metrics = analyzer.compute_agent_metrics(simulation_output, 1)
+        assert metrics is not None
 
     def test_plots_still_work(self, simulation_output):
         """Existing plot methods must not break."""
