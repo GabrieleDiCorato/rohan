@@ -195,3 +195,46 @@ data = result.summary_dict()
 `LiquidityMetrics.vwap_cents` is now computed automatically from order-book
 execution history. It is an integer-cents volume-weighted average price
 across all trades in the session.
+
+---
+
+## 6. Rich Metrics API
+
+For consumers who need agent-level analytics, microstructure indicators, and
+per-fill execution analysis without reimplementing computations from raw logs,
+use `compute_rich_metrics()`:
+
+```python
+from abides_markets.simulation import (
+    compute_rich_metrics,
+    ResultProfile,
+    run_simulation,
+)
+
+result = run_simulation(config, profile=ResultProfile.QUANT)
+rich = compute_rich_metrics(result)
+
+# Per-agent analytics
+for agent in rich.agents:
+    print(f"Agent {agent.agent_id}: PnL={agent.total_pnl_cents}¢ "
+          f"Sharpe={agent.sharpe_ratio} trades={agent.trade_count}")
+
+# Microstructure indicators per symbol
+for sym, mkt in rich.markets.items():
+    m = mkt.microstructure
+    print(f"{sym}: LOB imbalance={m.lob_imbalance_mean:.3f} "
+          f"two-sided={m.pct_time_two_sided:.1f}%")
+
+# Tier 3: per-fill slippage and adverse selection (opt-in)
+rich = compute_rich_metrics(
+    result,
+    include_fills=True,
+    adverse_selection_windows=["100ms", "1s"],
+)
+for fill in (rich.fills or []):
+    print(f"  fill@{fill.price_cents}¢ slip={fill.slippage_bps}bps "
+          f"AS={fill.adverse_selection_bps}")
+```
+
+See [ABIDES_METRICS_API.md](ABIDES_METRICS_API.md) for the full metric
+catalogue and mathematical definitions.
