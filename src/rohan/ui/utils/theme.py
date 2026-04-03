@@ -1,232 +1,222 @@
-"""Bloomberg Terminal-inspired theme for Streamlit application."""
+"""Carbon Dark theme for the Rohan Streamlit UI.
+
+Centralises all visual constants — colour palette, chart heights, CSS injection
+and the per-figure Plotly theme helper — so every page stays presentation-agnostic.
+"""
+
+from __future__ import annotations
 
 from typing import Literal
 
+import plotly.graph_objects as go
 import streamlit as st
 
-# Bloomberg Terminal Color Palette
-COLORS = {
-    "background": "#0A0E27",
-    "secondary_bg": "#131829",
-    "card_bg": "#1A1F3A",
-    "primary": "#00D9FF",  # Cyan
-    "secondary": "#FFB800",  # Amber
-    "success": "#00FF88",
-    "danger": "#FF3366",
-    "text": "#E8E8E8",
-    "text_muted": "#8B92A8",
-    "border": "#2A3150",
+# ── Semantic trading palette ──────────────────────────────────────────────────
+
+PALETTE: dict[str, str] = {
+    "hft": "#FF3B3F",
+    "institutional": "#0070FF",
+    "market": "#00C805",
+    "warning": "#FFA500",
+    "neutral": "#6B7280",
+    "text": "#E0E0E0",
+    "text_secondary": "#A0A8B4",
+    "text_dim": "#6B7280",
+    "bg": "#05070A",
+    "surface": "#0B0E14",
+    "surface_raised": "#111519",
+    "border": "#1C2128",
+}
+
+# Categorical palette for multi-series charts (agent types, etc.)
+SERIES_COLORS: list[str] = [
+    "#0070FF",  # institutional blue
+    "#FF3B3F",  # hft red
+    "#00C805",  # market green
+    "#FFA500",  # warning orange
+    "#9467bd",  # purple
+    "#17becf",  # cyan
+    "#e377c2",  # pink
+    "#8c564b",  # brown
+]
+
+# ── Chart height constants ────────────────────────────────────────────────────
+
+HEIGHT_PRIMARY = 380  # full-width hero charts
+HEIGHT_SECONDARY = 320  # half-width / supporting charts
+
+# ── Legacy COLORS dict (bridges to the new palette so existing references work)
+
+COLORS: dict[str, str] = {
+    "background": PALETTE["bg"],
+    "secondary_bg": PALETTE["surface"],
+    "card_bg": PALETTE["surface_raised"],
+    "primary": PALETTE["institutional"],
+    "secondary": PALETTE["warning"],
+    "success": PALETTE["market"],
+    "danger": PALETTE["hft"],
+    "text": PALETTE["text"],
+    "text_muted": PALETTE["text_dim"],
+    "border": PALETTE["border"],
 }
 
 
-def apply_theme():
-    """Apply Bloomberg Terminal-inspired theme to Streamlit app."""
-    st.markdown(
-        f"""
-        <style>
-        /* Global Styles */
-        .stApp {{
-            background-color: {COLORS["background"]};
-            color: {COLORS["text"]};
-            font-family: 'Courier New', monospace;
-        }}
+# ── Global CSS ────────────────────────────────────────────────────────────────
 
-        /* Sidebar */
-        [data-testid="stSidebar"] {{
-            background-color: {COLORS["secondary_bg"]};
-            border-right: 2px solid {COLORS["border"]};
-        }}
+CARBON_DARK_CSS: str = """
+/* ── Google Fonts ─────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
-        [data-testid="stSidebar"] .stMarkdown {{
-            color: {COLORS["text"]};
-        }}
+/* ── Font overrides ───────────────────────────────────────────────────── */
+html, body, .stApp {
+    font-family: 'Inter', sans-serif !important;
+}
+[data-testid="stWidgetLabel"], label {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 500 !important;
+}
+input, textarea, code, pre, [data-testid="stCode"],
+.stDataFrame, [data-testid="stDataFrame"] {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.82rem !important;
+}
+.mono-value {
+    font-family: 'JetBrains Mono', monospace !important;
+}
 
-        /* Headers */
-        h1, h2, h3 {{
-            color: {COLORS["primary"]};
-            font-family: 'Courier New', monospace;
-            font-weight: 700;
-            letter-spacing: 1px;
-        }}
+/* ── Layout tweaks ────────────────────────────────────────────────────── */
+.stApp > header { background-color: transparent !important; }
+.block-container, [data-testid="stMainBlockContainer"] {
+    padding-top: 1rem !important;
+    padding-bottom: 0.5rem !important;
+    max-width: 100% !important;
+}
 
-        h1 {{
-            border-bottom: 3px solid {COLORS["primary"]};
-            padding-bottom: 10px;
-        }}
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    border-right: 1px solid #1C2128 !important;
+}
 
-        /* Cards/Containers */
-        .element-container {{
-            color: {COLORS["text"]};
-        }}
+/* ── Tabs ─────────────────────────────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0;
+    background: #0B0E14;
+    border-bottom: 1px solid #1C2128;
+    border-radius: 6px 6px 0 0;
+    padding: 0 0.5rem;
+}
+.stTabs [data-baseweb="tab"] {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.8rem !important;
+    font-weight: 500;
+    color: #6B7280 !important;
+    padding: 0.6rem 1.2rem !important;
+    border-radius: 4px 4px 0 0;
+    border: none !important;
+    background: transparent !important;
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    color: #0070FF !important;
+    border-bottom: 2px solid #0070FF !important;
+    background: rgba(0, 112, 255, 0.06) !important;
+}
 
-        /* Metrics */
-        [data-testid="stMetricValue"] {{
-            color: {COLORS["primary"]};
-            font-size: 2rem;
-            font-weight: bold;
-        }}
+/* ── Expander ─────────────────────────────────────────────────────────── */
+details[data-testid="stExpander"] {
+    border: 1px solid #1C2128 !important;
+    border-radius: 6px !important;
+}
 
-        [data-testid="stMetricLabel"] {{
-            color: {COLORS["text_muted"]};
-            text-transform: uppercase;
-            font-size: 0.8rem;
-            letter-spacing: 1px;
-        }}
+/* ── Dividers ─────────────────────────────────────────────────────────── */
+hr { border-color: #1C2128 !important; opacity: 0.5; }
 
-        /* Buttons */
-        .stButton > button {{
-            background-color: {COLORS["primary"]};
-            color: {COLORS["background"]};
-            border: none;
-            border-radius: 4px;
-            padding: 0.5rem 2rem;
-            font-weight: bold;
-            font-family: 'Courier New', monospace;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            transition: all 0.3s ease;
-        }}
+/* ── Scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #05070A; }
+::-webkit-scrollbar-thumb { background: #1C2128; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #6B7280; }
 
-        .stButton > button:hover {{
-            background-color: {COLORS["secondary"]};
-            box-shadow: 0 0 20px {COLORS["primary"]};
-        }}
+/* ── Hide Streamlit chrome ────────────────────────────────────────────── */
+footer { visibility: hidden; }
+#MainMenu { visibility: hidden; }
+"""
 
-        /* Input Fields */
-        .stTextInput > div > div > input,
-        .stNumberInput > div > div > input,
-        .stSelectbox > div > div > select,
-        .stTextArea > div > div > textarea {{
-            background-color: {COLORS["card_bg"]};
-            color: {COLORS["text"]};
-            border: 1px solid {COLORS["border"]};
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-        }}
+# ── Theme helpers ─────────────────────────────────────────────────────────────
 
-        .stTextInput > div > div > input:focus,
-        .stNumberInput > div > div > input:focus,
-        .stSelectbox > div > div > select:focus,
-        .stTextArea > div > div > textarea:focus {{
-            border-color: {COLORS["primary"]};
-            box-shadow: 0 0 10px {COLORS["primary"]}33;
-        }}
 
-        /* Labels */
-        .stTextInput > label,
-        .stNumberInput > label,
-        .stSelectbox > label,
-        .stTextArea > label,
-        .stCheckbox > label {{
-            color: {COLORS["text_muted"]};
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }}
+def apply_theme() -> None:
+    """Inject Carbon Dark CSS into the Streamlit app."""
+    st.markdown(f"<style>{CARBON_DARK_CSS}</style>", unsafe_allow_html=True)
 
-        /* Tabs */
-        .stTabs [data-baseweb="tab-list"] {{
-            gap: 2px;
-            background-color: {COLORS["secondary_bg"]};
-        }}
 
-        .stTabs [data-baseweb="tab"] {{
-            background-color: {COLORS["card_bg"]};
-            color: {COLORS["text_muted"]};
-            border-radius: 4px 4px 0 0;
-            padding: 10px 20px;
-            font-family: 'Courier New', monospace;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }}
+# ── Plotly theme ──────────────────────────────────────────────────────────────
 
-        .stTabs [aria-selected="true"] {{
-            background-color: {COLORS["primary"]};
-            color: {COLORS["background"]};
-        }}
 
-        /* Expander */
-        .streamlit-expanderHeader {{
-            background-color: {COLORS["card_bg"]};
-            color: {COLORS["primary"]};
-            border: 1px solid {COLORS["border"]};
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }}
+def apply_fin_theme(fig: go.Figure) -> go.Figure:
+    """Apply institutional-grade dark theme to any Plotly figure."""
+    _grid = "rgba(255, 255, 255, 0.07)"
+    _spike = "#6B7280"
 
-        .streamlit-expanderContent {{
-            background-color: {COLORS["secondary_bg"]};
-            border: 1px solid {COLORS["border"]};
-            border-top: none;
-        }}
-
-        /* DataFrames */
-        .dataframe {{
-            background-color: {COLORS["card_bg"]};
-            color: {COLORS["text"]};
-            font-family: 'Courier New', monospace;
-            font-size: 0.85rem;
-        }}
-
-        .dataframe th {{
-            background-color: {COLORS["secondary_bg"]};
-            color: {COLORS["primary"]};
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-weight: bold;
-        }}
-
-        /* Success/Error Messages */
-        .stSuccess {{
-            background-color: {COLORS["success"]}22;
-            color: {COLORS["success"]};
-            border-left: 4px solid {COLORS["success"]};
-        }}
-
-        .stError {{
-            background-color: {COLORS["danger"]}22;
-            color: {COLORS["danger"]};
-            border-left: 4px solid {COLORS["danger"]};
-        }}
-
-        .stWarning {{
-            background-color: {COLORS["secondary"]}22;
-            color: {COLORS["secondary"]};
-            border-left: 4px solid {COLORS["secondary"]};
-        }}
-
-        .stInfo {{
-            background-color: {COLORS["primary"]}22;
-            color: {COLORS["primary"]};
-            border-left: 4px solid {COLORS["primary"]};
-        }}
-
-        /* Progress Bar */
-        .stProgress > div > div > div > div {{
-            background-color: {COLORS["primary"]};
-        }}
-
-        /* Divider */
-        hr {{
-            border-color: {COLORS["border"]};
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": "JetBrains Mono, monospace", "color": "#E0E0E0", "size": 11},
+        title_font={"family": "Inter, sans-serif", "color": "#E0E0E0", "size": 13},
+        hovermode="x unified",
+        hoverlabel={
+            "bgcolor": "rgba(11, 14, 20, 0.92)",
+            "bordercolor": "#1C2128",
+            "font": {"family": "JetBrains Mono, monospace", "size": 11, "color": "#E0E0E0"},
+        },
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+            "bgcolor": "rgba(11, 14, 20, 0.6)",
+            "bordercolor": "rgba(255, 255, 255, 0.06)",
+            "borderwidth": 1,
+            "font": {"size": 10, "color": "#8A919B"},
+        },
+        margin={"l": 50, "r": 16, "t": 44, "b": 32},
     )
+
+    _axis_common = {
+        "gridcolor": _grid,
+        "gridwidth": 1,
+        "zerolinecolor": "rgba(255, 255, 255, 0.12)",
+        "zerolinewidth": 1,
+        "showspikes": True,
+        "spikemode": "across",
+        "spikethickness": 1,
+        "spikedash": "dot",
+        "spikecolor": _spike,
+        "spikesnap": "cursor",
+        "title_font": {"family": "Inter, sans-serif", "size": 11, "color": "#8A919B"},
+        "tickfont": {"family": "JetBrains Mono, monospace", "size": 10, "color": "#8A919B"},
+    }
+    fig.update_xaxes(**_axis_common)
+    fig.update_yaxes(**_axis_common)
+
+    return fig
+
+
+# ── Backward-compatible helpers ───────────────────────────────────────────────
 
 
 def create_metric_card(
-    label: str, value: str, delta: str | None = None, delta_color: Literal["normal", "inverse", "off", "red", "orange", "yellow", "green", "blue", "violet", "gray", "grey", "primary"] = "normal"
-):
-    """Create a styled metric card."""
+    label: str,
+    value: str,
+    delta: str | None = None,
+    delta_color: Literal["normal", "inverse", "off", "red", "orange", "yellow", "green", "blue", "violet", "gray", "grey", "primary"] = "normal",
+) -> None:
+    """Render a Streamlit metric widget (kept for backward compatibility)."""
     st.metric(label=label, value=value, delta=delta, delta_color=delta_color)
 
 
-def create_header(title: str, subtitle: str | None = None):
-    """Create a styled header with optional subtitle."""
+def create_header(title: str, subtitle: str | None = None) -> None:
+    """Render a styled page header with optional subtitle."""
     st.markdown(f"# {title}")
     if subtitle:
         st.markdown(
