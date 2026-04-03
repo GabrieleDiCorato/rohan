@@ -565,6 +565,8 @@ def process_scenario_node(state: RefinementState) -> dict:
             inventory_chart_b64=inventory_chart_b64,
             fill_scatter_b64=fill_scatter_b64,
             rich_analysis_json=rich_analysis_json,
+            compiled_config=getattr(strategy_output, "compiled_config", None),
+            hasufel_summary=getattr(strategy_output, "summary_dict", lambda: None)(),
         )
         explanation = _run_explainer(result, state)
         _emit(
@@ -1070,6 +1072,8 @@ def aggregator_node(state: RefinementState) -> dict:
             pnl_chart_b64=sr.pnl_chart_b64,
             inventory_chart_b64=sr.inventory_chart_b64,
             fill_scatter_b64=sr.fill_scatter_b64,
+            compiled_config=sr.compiled_config,
+            hasufel_summary=sr.hasufel_summary,
         )
 
     # ── Regression detection & hard rollback ─────────────────────────────

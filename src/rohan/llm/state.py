@@ -111,6 +111,10 @@ class ScenarioResult(BaseModel):
     # Regime context for explainer (Step 9 — forward-compatible with adversarial plan)
     regime_context: str = ""
 
+    # Hasufel-native objects for persistence
+    compiled_config: dict[str, Any] | None = None
+    hasufel_summary: dict[str, Any] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Graph state

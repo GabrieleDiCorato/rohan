@@ -13,8 +13,7 @@ import matplotlib.pyplot as plt
 import pytest
 
 from rohan.config import SimulationSettings
-from rohan.framework import AnalysisService, ArtifactStore, DatabaseConnector
-from rohan.framework.database import ArtifactType
+from rohan.framework import AnalysisService, DatabaseConnector
 from rohan.simulation import SimulationService
 
 
@@ -99,40 +98,6 @@ class TestAnalysisService:
         assert fig is not None
         assert isinstance(fig, plt.Figure)  # pyright: ignore[reportPrivateImportUsage]
         plt.close(fig)
-
-    def test_save_plots_as_binary_artifacts(self, setup_db, sample_simulation_output):
-        """Test generating plots and saving them as binary artifacts in the database."""
-        db = setup_db
-        repo = ArtifactStore(db)
-        analyzer = AnalysisService()
-
-        # Create test run
-        session = repo.create_session("Test Artifacts")
-        scenario = repo.create_scenario("Test Scenario", {})
-        iteration = repo.create_iteration(session.session_id, 1, "test_code")
-        run = repo.create_run(
-            iteration_id=iteration.iteration_id,
-            scenario_id=scenario.scenario_id,
-            full_config={},
-        )
-
-        # Generate and save plot
-        fig = analyzer.plot_price_series(sample_simulation_output)
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png")
-        buf.seek(0)
-        plt.close(fig)
-
-        # Save as artifact
-        repo.save_artifact(run.run_id, ArtifactType.IMAGE, "price_series.png", buf.read())
-
-        # Retrieve and verify
-        artifacts = repo.get_artifacts(run.run_id)
-        assert len(artifacts) == 1
-        assert artifacts[0].artifact_type == ArtifactType.IMAGE
-        assert artifacts[0].path == "price_series.png"
-        assert artifacts[0].content is not None
-        assert len(artifacts[0].content) > 0
 
 
 if __name__ == "__main__":

@@ -1,15 +1,16 @@
-"""Tests for the new database ORM models (SavedScenario, RefinementSession, etc.).
+"""Tests for the database ORM models (Session, Iteration, ScenarioRun, Artifact, SavedScenario).
 
 Verifies table creation, field defaults, and relationship cascades
 using the in-memory SQLite from conftest.py.
 """
 
 from rohan.framework.database import (
+    Artifact,
     DatabaseConnector,
-    RefinementIteration,
-    RefinementScenarioResult,
-    RefinementSession,
+    Iteration,
     SavedScenario,
+    ScenarioRun,
+    Session,
 )
 
 
@@ -70,19 +71,19 @@ class TestSavedScenarioModel:
             db.remove_session()
 
 
-class TestRefinementModels:
-    """Tests for RefinementSession, RefinementIteration, RefinementScenarioResult."""
+class TestSessionModels:
+    """Tests for Session, Iteration, ScenarioRun, Artifact ORM models."""
 
     def _setup_db(self):
         db = DatabaseConnector()
         db.create_tables()
         return db
 
-    def test_create_refinement_session(self):
+    def test_create_session(self):
         db = self._setup_db()
         session = db.get_session()
         try:
-            rs = RefinementSession(
+            s = Session(
                 name="Run 1",
                 goal="Make money",
                 max_iterations=3,
@@ -95,17 +96,17 @@ class TestRefinementModels:
                 final_class_name="S",
                 final_reasoning="Good",
             )
-            session.add(rs)
+            session.add(s)
             session.commit()
-            session.refresh(rs)
+            session.refresh(s)
 
-            assert rs.session_id is not None
-            assert rs.name == "Run 1"
-            assert rs.goal == "Make money"
-            assert rs.max_iterations == 3
-            assert rs.final_score == 8.5
-            assert rs.status == "done"
-            assert rs.iterations == []
+            assert s.session_id is not None
+            assert s.name == "Run 1"
+            assert s.goal == "Make money"
+            assert s.max_iterations == 3
+            assert s.final_score == 8.5
+            assert s.status == "done"
+            assert s.iterations == []
         finally:
             db.remove_session()
 
@@ -113,117 +114,128 @@ class TestRefinementModels:
         db = self._setup_db()
         session = db.get_session()
         try:
-            rs = RefinementSession(
+            s = Session(
                 name="RelTest",
                 goal="g",
                 max_iterations=1,
                 scenario_configs=[],
                 status="done",
             )
-            it = RefinementIteration(
+            it = Iteration(
                 iteration_number=1,
                 strategy_code="class S: pass",
                 class_name="S",
                 judge_score=7.0,
                 judge_reasoning="OK",
             )
-            rs.iterations.append(it)
-            session.add(rs)
+            s.iterations.append(it)
+            session.add(s)
             session.commit()
-            session.refresh(rs)
+            session.refresh(s)
 
-            assert len(rs.iterations) == 1
-            assert rs.iterations[0].iteration_number == 1
-            assert rs.iterations[0].session_id == rs.session_id
+            assert len(s.iterations) == 1
+            assert s.iterations[0].iteration_number == 1
+            assert s.iterations[0].session_id == s.session_id
         finally:
             db.remove_session()
 
-    def test_scenario_result_relationship(self):
+    def test_scenario_run_relationship(self):
         db = self._setup_db()
         session = db.get_session()
         try:
-            rs = RefinementSession(
+            s = Session(
                 name="SRTest",
                 goal="g",
                 max_iterations=1,
                 scenario_configs=[],
                 status="done",
             )
-            it = RefinementIteration(
+            it = Iteration(
                 iteration_number=1,
                 strategy_code="code",
             )
-            sr = RefinementScenarioResult(
+            sr = ScenarioRun(
                 scenario_name="Default",
-                total_pnl=500.0,
-                sharpe_ratio=1.2,
-                max_drawdown=-100.0,
-                trade_count=25,
-                volatility_delta_pct=0.05,
-                spread_delta_pct=-0.02,
+                domain_metrics={
+                    "agent": {"total_pnl": 500.0, "trade_count": 25},
+                    "impact": {"volatility_delta_pct": 0.05, "spread_delta_pct": -0.02},
+                },
+                compiled_config={"agents": [{"type": "NoiseAgent"}]},
+                hasufel_summary={"total_volume": 5000},
             )
-            it.scenario_results.append(sr)
-            rs.iterations.append(it)
-            session.add(rs)
+            it.scenario_runs.append(sr)
+            s.iterations.append(it)
+            session.add(s)
             session.commit()
-            session.refresh(rs)
+            session.refresh(s)
 
-            loaded_sr = rs.iterations[0].scenario_results[0]
+            loaded_sr = s.iterations[0].scenario_runs[0]
             assert loaded_sr.scenario_name == "Default"
-            assert loaded_sr.total_pnl == 500.0
-            assert loaded_sr.trade_count == 25
+            assert loaded_sr.domain_metrics["agent"]["total_pnl"] == 500.0
+            assert loaded_sr.compiled_config["agents"][0]["type"] == "NoiseAgent"
+            assert loaded_sr.hasufel_summary["total_volume"] == 5000
+        finally:
+            db.remove_session()
+
+    def test_artifact_relationship(self):
+        db = self._setup_db()
+        session = db.get_session()
+        try:
+            s = Session(name="ArtTest", goal="g", max_iterations=1, scenario_configs=[], status="done")
+            it = Iteration(iteration_number=1, strategy_code="code")
+            sr = ScenarioRun(scenario_name="Default")
+            art = Artifact(artifact_type="price_chart_b64", content="cHJpY2U=")
+            sr.artifacts.append(art)
+            it.scenario_runs.append(sr)
+            s.iterations.append(it)
+            session.add(s)
+            session.commit()
+            session.refresh(s)
+
+            loaded_art = s.iterations[0].scenario_runs[0].artifacts[0]
+            assert loaded_art.artifact_type == "price_chart_b64"
+            assert loaded_art.content == "cHJpY2U="
         finally:
             db.remove_session()
 
     def test_cascade_delete(self):
-        """Deleting a session should cascade-delete iterations and results."""
+        """Deleting a session should cascade-delete iterations, runs, and artifacts."""
         db = self._setup_db()
         session = db.get_session()
         try:
-            rs = RefinementSession(
-                name="CascadeDel",
-                goal="g",
-                max_iterations=1,
-                scenario_configs=[],
-                status="done",
-            )
-            it = RefinementIteration(iteration_number=1, strategy_code="c")
-            it.scenario_results.append(RefinementScenarioResult(scenario_name="A", trade_count=5))
-            rs.iterations.append(it)
-            session.add(rs)
+            s = Session(name="CascadeDel", goal="g", max_iterations=1, scenario_configs=[], status="done")
+            it = Iteration(iteration_number=1, strategy_code="c")
+            sr = ScenarioRun(scenario_name="A")
+            sr.artifacts.append(Artifact(artifact_type="chart", content="data"))
+            it.scenario_runs.append(sr)
+            s.iterations.append(it)
+            session.add(s)
             session.commit()
 
-            sid = rs.session_id
-            session.delete(rs)
+            sid = s.session_id
+            session.delete(s)
             session.commit()
 
-            # Session gone
-            assert session.get(RefinementSession, sid) is None
+            assert session.get(Session, sid) is None
         finally:
             db.remove_session()
 
-    def test_multiple_scenario_results_per_iteration(self):
+    def test_multiple_scenario_runs_per_iteration(self):
         db = self._setup_db()
         session = db.get_session()
         try:
-            rs = RefinementSession(
-                name="MultiSR",
-                goal="g",
-                max_iterations=1,
-                scenario_configs=[],
-                status="done",
-            )
-            it = RefinementIteration(iteration_number=1, strategy_code="code")
-            it.scenario_results.append(RefinementScenarioResult(scenario_name="Default", trade_count=10))
-            it.scenario_results.append(RefinementScenarioResult(scenario_name="HighVol", trade_count=20, total_pnl=-200.0))
-            rs.iterations.append(it)
-            session.add(rs)
+            s = Session(name="MultiSR", goal="g", max_iterations=1, scenario_configs=[], status="done")
+            it = Iteration(iteration_number=1, strategy_code="code")
+            it.scenario_runs.append(ScenarioRun(scenario_name="Default", domain_metrics={"agent": {"trade_count": 10}}))
+            it.scenario_runs.append(ScenarioRun(scenario_name="HighVol", domain_metrics={"agent": {"total_pnl": -200.0, "trade_count": 20}}))
+            s.iterations.append(it)
+            session.add(s)
             session.commit()
-            session.refresh(rs)
+            session.refresh(s)
 
-            results = rs.iterations[0].scenario_results
-            assert len(results) == 2
-            names = {r.scenario_name for r in results}
+            runs = s.iterations[0].scenario_runs
+            assert len(runs) == 2
+            names = {r.scenario_name for r in runs}
             assert names == {"Default", "HighVol"}
         finally:
             db.remove_session()

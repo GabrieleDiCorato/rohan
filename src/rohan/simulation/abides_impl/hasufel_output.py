@@ -23,6 +23,8 @@ from typing import Any, override
 import numpy as np
 import pandas as pd
 from abides_core.utils import ns_date
+from abides_markets.simulation import compute_rich_metrics  # pyright: ignore[reportAttributeAccessIssue]
+from abides_markets.simulation.metrics import RichSimulationMetrics  # pyright: ignore[reportAttributeAccessIssue]
 from abides_markets.simulation.result import SimulationResult as HasufelResult
 from pandera.typing.pandas import DataFrame
 
@@ -45,12 +47,35 @@ class HasufelOutput(SimulationOutput):
         *,
         ticker: str = "ABM",
         strategic_agent_id: int | None = None,
+        compiled_config: dict[str, Any] | None = None,
     ):
         super().__init__()
         self._result = hasufel_result
         self._ticker = ticker
         self.strategic_agent_id = strategic_agent_id
+        self.compiled_config = compiled_config
         self._order_book_l2_cache: dict[int, DataFrame[OrderBookL2Schema]] = {}
+
+    # ------------------------------------------------------------------
+    # Hasufel rich metrics (cached for all downstream consumers)
+    # ------------------------------------------------------------------
+    @property
+    def hasufel_result(self) -> HasufelResult:
+        """The underlying hasufel ``SimulationResult``."""
+        return self._result
+
+    @functools.cached_property
+    def rich_metrics(self) -> RichSimulationMetrics:
+        """Compute and cache hasufel's rich metrics for this simulation run.
+
+        Includes per-fill records with slippage and adverse selection at
+        multiple look-ahead windows.
+        """
+        return compute_rich_metrics(
+            self._result,
+            include_fills=True,
+            adverse_selection_windows=["100ms", "500ms", "1s", "5s"],
+        )
 
     # ------------------------------------------------------------------
     # L1

@@ -20,10 +20,10 @@ from typing import Any
 import streamlit as st
 
 from rohan.config import SimulationSettings
-from rohan.framework.refinement_repository import (
+from rohan.framework.repository import (
     IterationData,
-    RefinementRepository,
-    ScenarioResultData,
+    ScenarioRunData,
+    SessionRepository,
 )
 from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.llm.graph import (
@@ -59,7 +59,7 @@ apply_theme()
 ensure_db_initialized()
 
 _scenario_repo = ScenarioRepository()
-_refinement_repo = RefinementRepository()
+_session_repo = SessionRepository()
 
 # ============================================================================
 # CONSTANTS
@@ -248,19 +248,34 @@ def _save_current_run(run_name: str | None = None) -> bool:
 
     iterations_data: list[IterationData] = []
     for it in fs.get("iterations", []):
-        sc_results = [
-            ScenarioResultData(
+        sc_runs = [
+            ScenarioRunData(
                 scenario_name=sm.scenario_name,
-                total_pnl=sm.total_pnl,
-                sharpe_ratio=sm.sharpe_ratio,
-                max_drawdown=sm.max_drawdown,
-                trade_count=sm.trade_count,
-                volatility_delta_pct=sm.volatility_delta_pct,
-                spread_delta_pct=sm.spread_delta_pct,
-                fill_rate=sm.fill_rate,
-                order_to_trade_ratio=sm.order_to_trade_ratio,
-                inventory_std=sm.inventory_std,
-                end_inventory=sm.end_inventory,
+                compiled_config=sm.compiled_config,
+                hasufel_summary=sm.hasufel_summary,
+                domain_metrics={
+                    "market": {
+                        "vpin": sm.vpin,
+                        "lob_imbalance_mean": sm.lob_imbalance_mean,
+                        "resilience_mean_ns": sm.resilience_mean_ns,
+                        "market_ott_ratio": sm.market_ott_ratio,
+                        "pct_time_two_sided": sm.pct_time_two_sided,
+                    },
+                    "agent": {
+                        "total_pnl": sm.total_pnl,
+                        "sharpe_ratio": sm.sharpe_ratio,
+                        "max_drawdown": sm.max_drawdown,
+                        "trade_count": sm.trade_count,
+                        "fill_rate": sm.fill_rate,
+                        "order_to_trade_ratio": sm.order_to_trade_ratio,
+                        "inventory_std": sm.inventory_std,
+                        "end_inventory": sm.end_inventory,
+                    },
+                    "impact": {
+                        "volatility_delta_pct": sm.volatility_delta_pct,
+                        "spread_delta_pct": sm.spread_delta_pct,
+                    },
+                },
                 price_chart_b64=sm.price_chart_b64,
                 spread_chart_b64=sm.spread_chart_b64,
                 volume_chart_b64=sm.volume_chart_b64,
@@ -280,14 +295,16 @@ def _save_current_run(run_name: str | None = None) -> bool:
                 judge_reasoning=it.judge_reasoning,
                 aggregated_explanation=it.aggregated_explanation,
                 rolled_back=it.rolled_back,
-                profitability_score=it.profitability_score,
-                risk_score=it.risk_score,
-                volatility_impact_score=it.volatility_impact_score,
-                spread_impact_score=it.spread_impact_score,
-                liquidity_impact_score=it.liquidity_impact_score,
-                execution_score=it.execution_score,
-                scoring_profile=it.scoring_profile,
-                scenario_results=sc_results,
+                axis_scores={
+                    "profitability": it.profitability_score,
+                    "risk": it.risk_score,
+                    "volatility_impact": it.volatility_impact_score,
+                    "spread_impact": it.spread_impact_score,
+                    "liquidity_impact": it.liquidity_impact_score,
+                    "execution": it.execution_score,
+                    "profile": it.scoring_profile,
+                },
+                scenario_runs=sc_runs,
             )
         )
 
@@ -304,7 +321,7 @@ def _save_current_run(run_name: str | None = None) -> bool:
     final_score = iterations[-1].judge_score if iterations else None
 
     try:
-        saved = _refinement_repo.save_session(
+        saved = _session_repo.save_session(
             name=run_name,
             goal=goal,
             max_iterations=fs.get("max_iterations", DEFAULT_MAX_ITERATIONS),
@@ -374,7 +391,7 @@ with st.sidebar:
     @st.dialog("Load Past Run", width="large")
     def _sidebar_load_run_dialog():
         try:
-            _sessions = _refinement_repo.list_sessions()
+            _sessions = _session_repo.list_sessions()
         except Exception as _exc:
             st.error(f"Could not load past runs: {_exc}")
             return
@@ -395,7 +412,7 @@ with st.sidebar:
                 st.caption(f"🏆 Score: {_score_str} · 🔄 {_s.iteration_count} iter · 📌 {_s.status} · 📅 {_s.created_at:%Y-%m-%d %H:%M}")
             with _s_col2:
                 if st.button("Load", key=f"sb_load_{_s.session_id}", width="stretch", type="primary"):
-                    _loaded = _refinement_repo.load_session(_s.session_id)
+                    _loaded = _session_repo.load_session(_s.session_id)
                     if _loaded:
                         for _k, _v in _loaded.items():
                             st.session_state[_k] = _v
@@ -408,7 +425,7 @@ with st.sidebar:
                         st.error("Failed to load run.")
             with _s_col3:
                 if st.button("🗑️", key=f"sb_del_{_s.session_id}", width="stretch", help="Delete this run"):
-                    _refinement_repo.delete_session(_s.session_id)
+                    _session_repo.delete_session(_s.session_id)
                     st.rerun()
             st.divider()
 
@@ -581,7 +598,7 @@ def _unsaved_changes_dialog(action: str) -> None:
 def _load_run_dialog() -> None:
     """Browse and load a past refinement run from the database."""
     try:
-        sessions = _refinement_repo.list_sessions()
+        sessions = _session_repo.list_sessions()
     except Exception as exc:
         st.error(f"Could not load past runs: {exc}")
         return
@@ -601,7 +618,7 @@ def _load_run_dialog() -> None:
             st.caption(f"Score: {score_str} · {s.iteration_count} iter · {s.status} · {s.created_at:%Y-%m-%d %H:%M}")
         with s_col2:
             if st.button("Load", key=f"dlg_load_{s.session_id}", width="stretch", type="primary"):
-                loaded = _refinement_repo.load_session(s.session_id)
+                loaded = _session_repo.load_session(s.session_id)
                 if loaded:
                     for k, v in loaded.items():
                         st.session_state[k] = v
@@ -615,7 +632,7 @@ def _load_run_dialog() -> None:
                     st.error("Failed to load run.")
         with s_col3:
             if st.button("🗑️", key=f"dlg_del_{s.session_id}", width="stretch", help="Delete this run"):
-                _refinement_repo.delete_session(s.session_id)
+                _session_repo.delete_session(s.session_id)
                 st.rerun()
 
 
@@ -1127,7 +1144,7 @@ if final_state is not None:
 
                         if sm.price_chart_b64 is None and st.session_state.get("refine_saved_id"):
                             # Lazy load charts from the DB
-                            artifacts = _refinement_repo.load_scenario_artifacts(st.session_state["refine_saved_id"], it.iteration_number, sc_name)
+                            artifacts = _session_repo.load_scenario_artifacts(st.session_state["refine_saved_id"], it.iteration_number, sc_name)
                             sm.price_chart_b64 = artifacts.get("price_chart_b64")
                             sm.spread_chart_b64 = artifacts.get("spread_chart_b64")
                             sm.volume_chart_b64 = artifacts.get("volume_chart_b64")

@@ -7,7 +7,7 @@ guarantee that LLM responses parse into well-typed Python objects.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -119,6 +119,10 @@ class ScenarioMetrics(BaseModel):
     pnl_chart_b64: str | None = None
     inventory_chart_b64: str | None = None
     fill_scatter_b64: str | None = None
+
+    # Hasufel-native objects for persistence
+    compiled_config: dict[str, Any] | None = None
+    hasufel_summary: dict[str, Any] | None = None
 
 
 class IterationSummary(BaseModel):

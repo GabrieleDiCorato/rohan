@@ -115,6 +115,7 @@ class SimulationRunnerAbides(SimulationRunner):
             hasufel_result,
             ticker=self.settings.ticker,
             strategic_agent_id=strategic_agent_id,
+            compiled_config=config.model_dump(mode="json"),
         )
 
     @override

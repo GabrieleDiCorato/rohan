@@ -89,7 +89,7 @@ def get_database_connector() -> DatabaseConnector:
 
         def test_something():
             db = DatabaseConnector()  # fresh instance, custom URL via env
-            repo = ArtifactStore(db)
+            repo = SessionRepository(db)
             ...
     """
     return DatabaseConnector()

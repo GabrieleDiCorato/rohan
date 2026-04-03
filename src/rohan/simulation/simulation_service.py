@@ -244,7 +244,7 @@ class SimulationService:
         duration = time.time() - start_time
         results: list[SimulationResult] = []
 
-        for ctx, hr, settings in zip(contexts, hasufel_results, settings_list, strict=True):
+        for ctx, hr, settings, cfg in zip(contexts, hasufel_results, settings_list, configs, strict=True):
             try:
                 # Discover strategic agent ID from result
                 strategic_agent_id: int | None = None
@@ -253,7 +253,12 @@ class SimulationService:
                     if strategy_agents:
                         strategic_agent_id = strategy_agents[0].agent_id
 
-                output: SimulationOutput = HasufelOutput(hr, ticker=settings.ticker, strategic_agent_id=strategic_agent_id)
+                output: SimulationOutput = HasufelOutput(
+                    hr,
+                    ticker=settings.ticker,
+                    strategic_agent_id=strategic_agent_id,
+                    compiled_config=cfg.model_dump(mode="json"),
+                )
                 results.append(
                     SimulationResult(
                         context=ctx,

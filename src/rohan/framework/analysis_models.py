@@ -5,7 +5,7 @@ These models capture detailed, per-event simulation data that the
 raw ABIDES output.  All models are fully JSON-serialisable (via
 ``.model_dump()`` / ``.model_dump_json()``) so they can be:
 
-* stored as DB artifacts (``ArtifactStore.save_artifact``)
+* stored as DB artifacts (``SessionRepository``)
 * embedded in LangGraph state as a JSON string
 * transmitted across container boundaries without ABIDES dependencies
 
