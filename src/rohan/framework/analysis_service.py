@@ -21,6 +21,7 @@ from rohan.framework.analysis_models import (
     RichAnalysisBundle,
 )
 from rohan.simulation import AgentMetrics, SimulationMetrics, SimulationOutput
+from rohan.simulation.abides_impl.hasufel_output import HasufelOutput
 
 if TYPE_CHECKING:
     from rohan.simulation import ComparisonResult, RunSummary
@@ -113,7 +114,15 @@ class AnalysisService:
         populated.  Fields remain ``None`` when there is insufficient data
         to compute a meaningful value (e.g. too few observations for
         annualised volatility).
+
+        When *result* is a :class:`HasufelOutput`, metrics are delegated to
+        hasufel's ``compute_rich_metrics()`` and standalone compute helpers
+        for a single authoritative source of truth.
         """
+        # ----- HasufelOutput fast path: delegate to hasufel -----
+        if isinstance(result, HasufelOutput):
+            return AnalysisService._compute_metrics_hasufel(result)
+
         l1 = result.get_order_book_l1()
 
         if l1.empty:
@@ -184,6 +193,68 @@ class AnalysisService:
             pct_time_two_sided=pct_two_sided,
         )
 
+    @staticmethod
+    def _compute_metrics_hasufel(result: HasufelOutput) -> SimulationMetrics:
+        """Populate SimulationMetrics from hasufel's rich metrics + standalone helpers."""
+        from abides_markets.simulation import (
+            compute_avg_liquidity,
+            compute_effective_spread,
+            compute_mean_spread,
+            compute_volatility,
+            compute_vpin,
+        )
+
+        rich = result.rich_metrics
+        ticker = result._ticker  # noqa: SLF001
+        market = rich.markets.get(ticker)
+        if market is None:
+            return SimulationMetrics()
+
+        l1 = market.l1_series
+        if l1 is None or len(l1.times_ns) == 0:
+            return SimulationMetrics()
+
+        micro = market.microstructure
+
+        # Standalone helpers operate on hasufel's L1Snapshots directly
+        volatility = compute_volatility(l1)
+        mean_spread = compute_mean_spread(l1)
+        avg_bid_liq, avg_ask_liq = compute_avg_liquidity(l1)
+
+        # Build fills tuples (price_cents, quantity, fill_time_ns) from trades
+        fill_tuples: list[tuple[int, int, int]] = []
+        if market.trades is not None:
+            for t in market.trades:
+                fill_tuples.append((t.price_cents, t.quantity, t.time_ns))
+
+        effective_spread = compute_effective_spread(fill_tuples, l1) if fill_tuples else None
+        vpin = compute_vpin(fill_tuples, l1) if fill_tuples else None
+
+        # Traded volume from liquidity metrics
+        traded_volume: int | None = None
+        if market.liquidity is not None:
+            traded_volume = market.liquidity.total_exchanged_volume
+
+        # pct_time_two_sided: hasufel reports 0-100, Rohan expects 0-1
+        pct_two_sided: float | None = None
+        if micro is not None:
+            pct_two_sided = micro.pct_time_two_sided / 100.0
+
+        return SimulationMetrics(
+            volatility=volatility,
+            mean_spread=mean_spread,
+            effective_spread=effective_spread,
+            avg_bid_liquidity=avg_bid_liq,
+            avg_ask_liquidity=avg_ask_liq,
+            traded_volume=traded_volume,
+            lob_imbalance_mean=micro.lob_imbalance_mean if micro else None,
+            lob_imbalance_std=micro.lob_imbalance_std if micro else None,
+            vpin=vpin,
+            resilience_mean_ns=micro.resilience_mean_ns if micro else None,
+            market_ott_ratio=micro.market_ott_ratio if micro else None,
+            pct_time_two_sided=pct_two_sided,
+        )
+
     # ==================================================================
     # Per-agent metrics
     # ==================================================================
@@ -201,7 +272,19 @@ class AnalysisService:
             agent_id: Numeric ID of the agent to analyse.
             initial_cash: The agent's starting cash (integer cents).
                 Required for correct PnL computation.
+
+        When *result* is a :class:`HasufelOutput`, metrics are populated
+        from hasufel's ``RichAgentMetrics`` for consistency with
+        ``compute_metrics()``.
         """
+        # ----- HasufelOutput fast path -----
+        if isinstance(result, HasufelOutput):
+            return AnalysisService._compute_agent_metrics_hasufel(
+                result,
+                agent_id,
+                initial_cash,
+            )
+
         if not hasattr(result, "end_state"):
             return AgentMetrics(agent_id=agent_id, initial_cash=initial_cash)
 
@@ -284,6 +367,58 @@ class AnalysisService:
             order_to_trade_ratio=otr,
             vwap_cents=vwap_cents,
             end_inventory=inventory,
+        )
+
+    @staticmethod
+    def _compute_agent_metrics_hasufel(
+        result: HasufelOutput,
+        agent_id: int,
+        initial_cash: int,
+    ) -> AgentMetrics:
+        """Populate AgentMetrics from hasufel's RichAgentMetrics + AgentData."""
+        rich = result.rich_metrics
+
+        # Find the RichAgentMetrics for this agent_id
+        rich_agent = None
+        for ra in rich.agents:
+            if ra.agent_id == agent_id:
+                rich_agent = ra
+                break
+        if rich_agent is None:
+            raise ValueError(f"Agent {agent_id} not found in simulation output")
+
+        # Find matching AgentData from the underlying SimulationResult
+        agent_data = None
+        for ad in result.hasufel_result.agents:
+            if ad.agent_id == agent_id:
+                agent_data = ad
+                break
+
+        # Capital from AgentData
+        starting_cash = agent_data.starting_cash_cents if agent_data else initial_cash
+        ending_cash = agent_data.final_holdings.get("CASH", 0) if agent_data else 0
+
+        # End inventory: sum of non-CASH holdings
+        end_inv = sum(v for k, v in rich_agent.end_inventory.items()) if rich_agent.end_inventory else 0
+
+        # fill_rate: hasufel 0-100, Rohan 0-1
+        fill_rate: float | None = None
+        if rich_agent.fill_rate_pct is not None:
+            fill_rate = rich_agent.fill_rate_pct / 100.0
+
+        return AgentMetrics(
+            agent_id=agent_id,
+            initial_cash=starting_cash,
+            ending_cash=ending_cash,
+            total_pnl=float(rich_agent.total_pnl_cents) if rich_agent.total_pnl_cents is not None else None,
+            sharpe_ratio=rich_agent.sharpe_ratio,
+            max_drawdown=float(rich_agent.max_drawdown_cents) if rich_agent.max_drawdown_cents is not None else None,
+            inventory_std=rich_agent.inventory_std,
+            trade_count=rich_agent.trade_count,
+            fill_rate=fill_rate,
+            order_to_trade_ratio=rich_agent.order_to_trade_ratio,
+            vwap_cents=rich_agent.vwap_cents,
+            end_inventory=end_inv,
         )
 
     # ==================================================================
@@ -854,6 +989,10 @@ class AnalysisService:
 
         Returns an empty list if the agent has no fills.
         """
+        # ----- HasufelOutput fast path -----
+        if isinstance(result, HasufelOutput):
+            return AnalysisService._get_fill_analysis_hasufel(result, agent_id)
+
         agent_fills = AnalysisService._get_agent_fills(result, agent_id)
         if agent_fills is None:
             return []
@@ -885,6 +1024,61 @@ class AnalysisService:
                     qty=fill["qty"],
                     mid_at_fill=mid,
                     slippage_bps=slippage,
+                    counterparty_type=cp_type,
+                )
+            )
+        return records
+
+    @staticmethod
+    def _get_fill_analysis_hasufel(
+        result: HasufelOutput,
+        agent_id: int,
+    ) -> list[FillRecord]:
+        """Build Rohan FillRecords from hasufel's rich metrics fills."""
+        rich = result.rich_metrics
+        if rich.fills is None:
+            return []
+
+        # Agent type lookup from hasufel result
+        agent_type_map: dict[int, str] = {a.agent_id: a.agent_type for a in result.hasufel_result.agents}
+
+        # Build counterparty map from TradeAttribution
+        # Each trade has (passive_agent_id, aggressive_agent_id)
+        # Key: (time_ns, price_cents, quantity, agent_id) → counterparty_type
+        cp_map: dict[tuple[int, int, int, int], str] = {}
+        ticker = result._ticker  # noqa: SLF001
+        market = result.hasufel_result.markets.get(ticker)
+        if market is not None and market.trades is not None:
+            for t in market.trades:
+                # passive → counterparty is aggressive
+                cp_map[(t.time_ns, t.price_cents, t.quantity, t.passive_agent_id)] = agent_type_map.get(t.aggressive_agent_id, "Unknown")
+                # aggressive → counterparty is passive
+                cp_map[(t.time_ns, t.price_cents, t.quantity, t.aggressive_agent_id)] = agent_type_map.get(t.passive_agent_id, "Unknown")
+
+        # Build mid lookup for mid_at_fill
+        two_sided = AnalysisService._get_two_sided_l1(result)
+        mid_lookup = AnalysisService._build_mid_lookup(two_sided) if not two_sided.empty else pd.Series(dtype=float)
+
+        records: list[FillRecord] = []
+        for f in rich.fills:
+            if f.agent_id != agent_id:
+                continue
+
+            # Convert epoch ns → ns since midnight
+            t_midnight = f.time_ns - ns_date(f.time_ns)
+
+            mid = AnalysisService._nearest_mid(mid_lookup, t_midnight)
+
+            cp_type = cp_map.get((f.time_ns, f.price_cents, f.quantity, f.agent_id))
+
+            records.append(
+                FillRecord(
+                    timestamp_ns=t_midnight,
+                    side=f.side,
+                    price=f.price_cents,
+                    qty=f.quantity,
+                    mid_at_fill=mid,
+                    slippage_bps=float(f.slippage_bps) if f.slippage_bps is not None else None,
                     counterparty_type=cp_type,
                 )
             )
@@ -952,6 +1146,10 @@ class AnalysisService:
 
         Returns an empty list when there are no fills or no two-sided book.
         """
+        # ----- HasufelOutput fast path: use EquityCurve -----
+        if isinstance(result, HasufelOutput):
+            return AnalysisService._get_pnl_curve_hasufel(result, agent_id)
+
         agent_fills = AnalysisService._get_agent_fills(result, agent_id)
         if agent_fills is None:
             return []
@@ -982,6 +1180,33 @@ class AnalysisService:
         return points
 
     @staticmethod
+    def _get_pnl_curve_hasufel(
+        result: HasufelOutput,
+        agent_id: int,
+    ) -> list[PnLPoint]:
+        """Build PnL curve from hasufel's EquityCurve."""
+        # Find matching AgentData for this agent
+        agent_data = None
+        for ad in result.hasufel_result.agents:
+            if ad.agent_id == agent_id:
+                agent_data = ad
+                break
+
+        if agent_data is None or agent_data.equity_curve is None:
+            return []
+
+        ec = agent_data.equity_curve
+        initial_nav = ec.nav_cents[0] if len(ec.nav_cents) > 0 else 0
+
+        points: list[PnLPoint] = []
+        for i in range(len(ec.times_ns)):
+            t_midnight = ec.times_ns[i] - ns_date(ec.times_ns[i])
+            pnl = float(ec.nav_cents[i] - initial_nav)
+            points.append(PnLPoint(timestamp_ns=int(t_midnight), mark_to_market_pnl=pnl))
+
+        return points
+
+    @staticmethod
     def get_inventory_trajectory(
         result: SimulationOutput,
         agent_id: int,
@@ -992,6 +1217,10 @@ class AnalysisService:
         after each fill.  Includes an initial point at timestamp 0 with
         position 0.
         """
+        # ----- HasufelOutput fast path: use rich_metrics fills -----
+        if isinstance(result, HasufelOutput):
+            return AnalysisService._get_inventory_trajectory_hasufel(result, agent_id)
+
         agent_fills = AnalysisService._get_agent_fills(result, agent_id)
         if agent_fills is None:
             return []
@@ -1002,6 +1231,32 @@ class AnalysisService:
         for fill in parsed:
             cumulative += fill["signed_qty"]
             points.append(InventoryPoint(timestamp_ns=fill["time"], position=cumulative))
+        return points
+
+    @staticmethod
+    def _get_inventory_trajectory_hasufel(
+        result: HasufelOutput,
+        agent_id: int,
+    ) -> list[InventoryPoint]:
+        """Build inventory trajectory from hasufel fills."""
+        rich = result.rich_metrics
+        if rich.fills is None:
+            return []
+
+        agent_fills = [f for f in rich.fills if f.agent_id == agent_id]
+        if not agent_fills:
+            return []
+
+        # Sort by time
+        agent_fills.sort(key=lambda f: f.time_ns)
+
+        points: list[InventoryPoint] = [InventoryPoint(timestamp_ns=0, position=0)]
+        cumulative = 0
+        for f in agent_fills:
+            signed_qty = f.quantity if f.side == "BUY" else -f.quantity
+            cumulative += signed_qty
+            t_midnight = f.time_ns - ns_date(f.time_ns)
+            points.append(InventoryPoint(timestamp_ns=int(t_midnight), position=cumulative))
         return points
 
     @staticmethod
@@ -1020,6 +1275,14 @@ class AnalysisService:
         Returns the average adverse move in basis points (positive = adverse).
         Returns ``None`` if there are no fills or insufficient L1 data.
         """
+        # ----- HasufelOutput fast path -----
+        if isinstance(result, HasufelOutput):
+            return AnalysisService._get_adverse_selection_hasufel(
+                result,
+                agent_id,
+                window_ns,
+            )
+
         agent_fills = AnalysisService._get_agent_fills(result, agent_id)
         if agent_fills is None:
             return None
@@ -1062,6 +1325,74 @@ class AnalysisService:
         if not adverse_moves:
             return None
 
+        return float(np.mean(adverse_moves))
+
+    @staticmethod
+    def _get_adverse_selection_hasufel(
+        result: HasufelOutput,
+        agent_id: int,
+        window_ns: int,
+    ) -> float | None:
+        """Average adverse selection from hasufel's per-fill records."""
+        rich = result.rich_metrics
+        if rich.fills is None:
+            return None
+
+        # Map window_ns to the closest label in hasufel's adverse_selection_bps
+        window_labels = {
+            100_000_000: "100ms",
+            500_000_000: "500ms",
+            1_000_000_000: "1s",
+            5_000_000_000: "5s",
+        }
+        label = window_labels.get(window_ns)
+
+        agent_fills = [f for f in rich.fills if f.agent_id == agent_id]
+        if not agent_fills:
+            return None
+
+        if label is not None:
+            # Use pre-computed adverse selection from hasufel
+            values = [float(f.adverse_selection_bps[label]) for f in agent_fills if label in f.adverse_selection_bps and f.adverse_selection_bps[label] is not None]  # pyright: ignore[reportArgumentType]
+            if not values:
+                return None
+            # Hasufel convention: negative = adverse. Rohan convention: positive = adverse.
+            return float(-np.mean(values))
+
+        # Non-standard window: fall back to local computation using L1
+        two_sided = AnalysisService._get_two_sided_l1(result)
+        if two_sided.empty:
+            return None
+
+        mid_lookup = AnalysisService._build_mid_lookup(two_sided)
+        mid_times = mid_lookup.index.values
+        mid_values = mid_lookup.values
+
+        adverse_moves: list[float] = []
+        for f in agent_fills:
+            t_midnight = f.time_ns - ns_date(f.time_ns)
+            mid_at_fill = AnalysisService._nearest_mid(mid_lookup, t_midnight)
+            if mid_at_fill is None or mid_at_fill <= 0:
+                continue
+
+            target_time = t_midnight + window_ns
+            idx = int(mid_times.searchsorted(target_time))
+            if idx >= len(mid_times):
+                idx = len(mid_times) - 1
+            if idx < 0:
+                continue
+
+            raw_mid = mid_values[idx]
+            if pd.isna(raw_mid):
+                continue
+            future_mid = float(raw_mid)
+
+            side_sign = 1.0 if f.side == "BUY" else -1.0
+            move_bps = -side_sign * (future_mid - mid_at_fill) / mid_at_fill * 10_000
+            adverse_moves.append(move_bps)
+
+        if not adverse_moves:
+            return None
         return float(np.mean(adverse_moves))
 
     @staticmethod
@@ -1170,6 +1501,13 @@ class AnalysisService:
         Builds a mapping from ``end_state["agents"]`` and matches fills
         by ``(timestamp, fill_price, qty, opposite side)``.
         """
+        # ----- HasufelOutput fast path -----
+        if isinstance(result, HasufelOutput):
+            return AnalysisService._get_counterparty_breakdown_hasufel(
+                result,
+                agent_id,
+            )
+
         cp_map = AnalysisService._build_counterparty_map(result, agent_id)
 
         if not cp_map:
@@ -1191,6 +1529,45 @@ class AnalysisService:
                 type_stats[cp_type] = {"count": 0, "total_qty": 0}
             type_stats[cp_type]["count"] += 1
             type_stats[cp_type]["total_qty"] += fill["qty"]
+
+        return [
+            CounterpartySummary(
+                agent_type=at,
+                trade_count=stats["count"],
+                avg_size=stats["total_qty"] / stats["count"] if stats["count"] > 0 else 0.0,
+                total_volume=stats["total_qty"],
+            )
+            for at, stats in sorted(type_stats.items())
+        ]
+
+    @staticmethod
+    def _get_counterparty_breakdown_hasufel(
+        result: HasufelOutput,
+        agent_id: int,
+    ) -> list[CounterpartySummary]:
+        """Counterparty breakdown from hasufel's TradeAttribution data."""
+        agent_type_map: dict[int, str] = {a.agent_id: a.agent_type for a in result.hasufel_result.agents}
+
+        ticker = result._ticker  # noqa: SLF001
+        market = result.hasufel_result.markets.get(ticker)
+        if market is None or market.trades is None:
+            return []
+
+        type_stats: dict[str, dict] = {}
+        for t in market.trades:
+            # Determine if this agent is involved and who the counterparty is
+            if t.passive_agent_id == agent_id:
+                cp_id = t.aggressive_agent_id
+            elif t.aggressive_agent_id == agent_id:
+                cp_id = t.passive_agent_id
+            else:
+                continue
+
+            cp_type = agent_type_map.get(cp_id, "Unknown")
+            if cp_type not in type_stats:
+                type_stats[cp_type] = {"count": 0, "total_qty": 0}
+            type_stats[cp_type]["count"] += 1
+            type_stats[cp_type]["total_qty"] += t.quantity
 
         return [
             CounterpartySummary(
