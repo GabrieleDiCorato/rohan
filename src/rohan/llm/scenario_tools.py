@@ -36,12 +36,37 @@ def _truncate(text: str, limit: int = _MAX_RESPONSE_CHARS) -> str:
 def make_scenario_tools() -> list[Any]:
     """Return LangChain tools for scenario generation, validation, and explanation.
 
-    Returns three tools:
+    Returns four tools:
 
+    - ``list_scenarios``: enumerate available templates with regime tags
     - ``build_scenario``: template-based scenario assembly from regime tags
     - ``validate_scenario``: structural + cross-agent config validation
     - ``explain_metrics``: rule-based diagnostic interpretation of comparison results
     """
+
+    # ── Tool 0: Template discovery ────────────────────────────────
+
+    @tool
+    def list_scenarios() -> str:
+        """List all available simulation scenario templates with their regime tags and descriptions.
+
+        Use this to discover templates before calling ``build_scenario``.
+        """
+        from abides_markets.config_system import list_templates
+
+        templates = list_templates()
+        entries = []
+        for t in templates:
+            entries.append(
+                {
+                    "name": t["name"],
+                    "is_overlay": t.get("is_overlay", False),
+                    "regime_tags": t.get("regime_tags", []),
+                    "agent_types": t.get("agent_types", []),
+                    "description": t.get("scenario_description", t.get("description", "")),
+                }
+            )
+        return _truncate(json.dumps(entries, indent=2))
 
     # ── Tool 1: Template-based scenario generation (R11) ──────────
 
@@ -113,10 +138,14 @@ def make_scenario_tools() -> list[Any]:
 
             # Summarise selected template
             tmpl_info = next((t for t in templates if t["name"] == selected), {})
+            overlays = [t["name"] for t in templates if t.get("is_overlay", False)]
             summary = {
                 "template": selected,
                 "regime_tags": tmpl_info.get("regime_tags", []),
                 "scenario_description": tmpl_info.get("scenario_description", ""),
+                "default_risk_guards": tmpl_info.get("default_risk_guards", {}),
+                "agent_types": tmpl_info.get("agent_types", []),
+                "available_overlays": overlays,
                 "config": config_dict,
             }
             return _truncate(json.dumps(summary, indent=2, default=str))
@@ -270,4 +299,4 @@ def make_scenario_tools() -> list[Any]:
 
         return "\n".join(lines)
 
-    return [build_scenario, validate_scenario, explain_metrics]
+    return [list_scenarios, build_scenario, validate_scenario, explain_metrics]
