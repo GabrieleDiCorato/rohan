@@ -27,7 +27,7 @@ Total PnL decomposes into realized and unrealized components.
   $$PnL_{\text{total}} = PnL_{\text{realized}} + PnL_{\text{unrealized}}$$
 
 > `compute_agent_metrics()` auto-detects the strategic agent via
-> `AbidesOutput.get_strategic_agent_id()` (matching `agent.type == "StrategicAgent"`)
+> `HasufelOutput` discovers the strategic agent via `SimulationResult.get_agents_by_category("strategy")` (first-class hasufel API).
 > and reads `starting_cash` from the agent object.
 
 **Fields:** `total_pnl`, `initial_cash`, `ending_cash`.

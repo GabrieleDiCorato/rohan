@@ -73,7 +73,7 @@ To balance type safety within the Agent Logic and performance for Simulation Dat
         *   `OrderBookL1Schema`: `time`, `bid_price`, `bid_qty`, `ask_price`, `ask_qty`, `timestamp`. `strict=False` to allow downstream-computed columns (e.g. `mid_price`).
         *   `OrderBookL2Schema`: `time`, `level`, `side`, `price`, `qty`, `timestamp`. `side` is constrained to `{"bid", "ask"}`, `level >= 1`.
         *   `AgentLogsSchema`: `AgentID`, `AgentType`, `EventType`. `strict=False` because upstream `parse_logs_df` may add extra columns.
-    *   **Validation Strategy:** Schemas are validated at the *production boundary* — i.e. in `AbidesOutput` (concrete `SimulationOutput`) right after data is computed and before it is cached. Consumers (e.g. `AnalysisService`) rely on annotations for documentation without re-validating.
+    *   **Validation Strategy:** Schemas are validated at the *production boundary* — i.e. in `HasufelOutput` (concrete `SimulationOutput`) right after data is computed and before it is cached. Consumers (e.g. `AnalysisService`) rely on annotations for documentation without re-validating.
     *   **Transport:** Internally passed as `pd.DataFrame`. Over network/API, served as **Parquet** or **Arrow** streams, referenced by `RunID`.
 
 ### 3.3 Database Schema (PostgreSQL/SQLite)
@@ -308,7 +308,7 @@ The UI displays charts in a 2×3 grid: Market row (Price, Spread, Volume) + Stra
 
 #### 5.3.6 Code Quality & Hardening
 *   **Strategy Execution Timeout:** Enforced via `concurrent.futures.ThreadPoolExecutor` to prevent infinite loops.
-*   **Caching:** Uses `@functools.cached_property` for computed properties in `AbidesOutput`.
+*   **Caching:** Uses `@functools.cached_property` for computed properties in `HasufelOutput`.
 *   **Pandera Schema Strictness:** Explicitly set `strict=True` or `coerce=False` depending on intent.
 *   **Domain-Specific Exception Hierarchy:** `RohanError`, `StrategyValidationError`, `SimulationTimeoutError`, `BaselineComparisonError`, `StrategyExecutionError`.
 *   **Database Factory:** Uses a module-level factory function `get_database_connector()` with `@lru_cache(maxsize=1)`.

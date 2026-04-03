@@ -5,6 +5,21 @@ All notable changes to ROHAN are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-04-03
+
+### Changed
+
+- **Upgraded abides-hasufel to v2.5.6** — Unlocks `run_simulation(oracle_instance=...)` for historical oracle mode; all simulation paths now use the high-level API.
+- **Migrated `SimulationRunnerAbides` to `run_simulation()`** — Replaced the low-level `build_and_compile()` → `abides_run()` pipeline with a single `run_simulation(config, profile=ResultProfile.FULL, oracle_instance=..., runtime_agents=...)` call. Returns typed `SimulationResult`.
+- **Added `strategy_spec` support to `run_batch()`** — Parallel batch path now accepts a `StrategySpec`, registers the `rohan_strategy` agent type in worker processes via `worker_initializer`, and discovers strategic agent IDs from results.
+- **Unified output architecture** — All simulation paths (single-run, batch, historical) now return `HasufelOutput`. The dual `AbidesOutput` / `HasufelOutput` architecture is eliminated.
+
+### Removed
+
+- **`AbidesOutput`** (308 lines) — Replaced by `HasufelOutput` for all execution paths. Raw `end_state` dict parsing eliminated.
+- **`test_abides_output.py`** (350 lines) and **`test_abides_integration.py`** (205 lines) — Tests for deleted `AbidesOutput` class.
+- **`ABIDES_INTERFACE_REVIEW.md`** — All Rohan-side recommendations implemented; review completed and archived.
+
 ## [0.3.0] — 2026-03-31
 
 ### Changed
