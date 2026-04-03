@@ -419,12 +419,13 @@ def render_sidebar_config():
             min_value=0,
             step=1000000,
         )
+        _log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
         stdout_log_level = compact_input(
             "Log Level",
             "selectbox",
             "cfg_log_level",
-            options=["DEBUG", "INFO", "WARNING", "ERROR"],
-            index=1,
+            options=_log_levels,
+            index=_log_levels.index(config.stdout_log_level),
         )
         log_orders = compact_input("Log Orders", "checkbox", "cfg_log_orders", value=config.log_orders)
         computation_delay_ns = compact_input(
@@ -852,12 +853,13 @@ def render_sidebar_config():
 
     # Latency Model
     with st.expander("⏱️ LATENCY"):
+        _latency_options = [lt.value for lt in LatencyType]
         latency_type = compact_input(
             "Type",
             "selectbox",
             "cfg_latency_type",
-            options=[lt.value for lt in LatencyType],
-            index=1,
+            options=_latency_options,
+            index=_latency_options.index(str(config.latency.type)),
         )
         if latency_type == LatencyType.CUBIC.value:
             latency_jitter = compact_input(
@@ -974,6 +976,7 @@ def render_sidebar_config():
             )
 
             new_config = SimulationSettings(
+                template=config.template,
                 date=str(date),
                 start_time=str(start_time),
                 end_time=str(end_time),
