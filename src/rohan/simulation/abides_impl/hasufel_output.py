@@ -24,8 +24,12 @@ import numpy as np
 import pandas as pd
 from abides_core.utils import ns_date
 from abides_markets.simulation import compute_rich_metrics  # pyright: ignore[reportAttributeAccessIssue]
-from abides_markets.simulation.metrics import RichSimulationMetrics  # pyright: ignore[reportAttributeAccessIssue]
-from abides_markets.simulation.result import SimulationResult as HasufelResult
+from abides_markets.simulation.result import (
+    RichSimulationMetrics,
+)
+from abides_markets.simulation.result import (
+    SimulationResult as HasufelResult,
+)
 from pandera.typing.pandas import DataFrame
 
 from rohan.simulation.models import SimulationOutput
