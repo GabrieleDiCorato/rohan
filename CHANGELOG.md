@@ -5,39 +5,39 @@ All notable changes to ROHAN are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] — 2026-04-03
+## [0.3.0] — 2026-04-03
 
 ### Changed
 
-- **Upgraded abides-hasufel to v2.5.6** — Unlocks `run_simulation(oracle_instance=...)` for historical oracle mode; all simulation paths now use the high-level API.
+- **Migrated from legacy ABIDES to abides-hasufel v2.5.6** — Replaced the 504-line `AbidesConfigMapper` and manual agent instantiation with a thin `config_builder.py` (~145 lines) that maps `SimulationSettings` onto hasufel's declarative `SimulationBuilder` API. Agent instantiation, seed derivation, and latency model construction are now handled by hasufel's `compile()` step.
 - **Migrated `SimulationRunnerAbides` to `run_simulation()`** — Replaced the low-level `build_and_compile()` → `abides_run()` pipeline with a single `run_simulation(config, profile=ResultProfile.FULL, oracle_instance=..., runtime_agents=...)` call. Returns typed `SimulationResult`.
+- **Dependency source** — `abides-hasufel` now sourced from GitHub (`GabrieleDiCorato/abides-hasufel@v2.5.6`) instead of local editable install.
 - **Added `strategy_spec` support to `run_batch()`** — Parallel batch path now accepts a `StrategySpec`, registers the `rohan_strategy` agent type in worker processes via `worker_initializer`, and discovers strategic agent IDs from results.
 - **Unified output architecture** — All simulation paths (single-run, batch, historical) now return `HasufelOutput`. The dual `AbidesOutput` / `HasufelOutput` architecture is eliminated.
-
-### Removed
-
-- **`AbidesOutput`** (308 lines) — Replaced by `HasufelOutput` for all execution paths. Raw `end_state` dict parsing eliminated.
-- **`test_abides_output.py`** (350 lines) and **`test_abides_integration.py`** (205 lines) — Tests for deleted `AbidesOutput` class.
-- **`ABIDES_INTERFACE_REVIEW.md`** — All Rohan-side recommendations implemented; review completed and archived.
-
-## [0.3.0] — 2026-03-31
-
-### Changed
-
-- **Migrated from legacy ABIDES to abides-hasufel v2.5.1** — Replaced the 504-line `AbidesConfigMapper` and manual agent instantiation with a thin `config_builder.py` (~145 lines) that maps `SimulationSettings` onto hasufel's declarative `SimulationBuilder` API. Agent instantiation, seed derivation, and latency model construction are now handled by hasufel's `compile()` step.
-- **`SimulationRunnerAbides` rewritten** — Uses `build_simulation_config()` → `compile()` → `config_add_agents()` → `abides_run()` pipeline. Strategic agent injected post-compilation via `config_add_agents()`.
-- **Dependency source** — `abides-hasufel` now sourced from GitHub (`GabrieleDiCorato/abides-hasufel@v2.5.1`) instead of local editable install.
 - **Value agent sigma_s auto-inheritance** — For synthetic oracle, value agents auto-inherit `sigma_s = fund_vol²` from hasufel's oracle context. For historical oracle (ExternalDataOracle), `sigma_s` is computed explicitly using the same `fund_vol²` convention.
 - **Noise agent wakeup window** — `noise_mkt_close_time` set to `settings.end_time` instead of default `"16:00:00"` to ensure agents wake during short simulations.
 - **Log level mapping** — `"OFF"` mapped to `"CRITICAL"` (hasufel only accepts `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`).
 - **Test assertion relaxed** — `market_ott_ratio` assertion changed from `>= 1.0` to `> 0.0` since partial fills can produce ratio < 1.
-- **Historical integration test** — Updated assertions to use `AbidesOutput` API (`get_order_book_l1()`, `get_logs_df()`) instead of removed `exchange_messages`/`agent_logs` attributes.
+- **Consolidated `MarketMetrics`** — `MarketMetrics` is now an alias for `SimulationMetrics`, eliminating 11 duplicated fields.
+- **Added VWAP to `AgentMetrics`** — `vwap_cents` field from hasufel's `LiquidityMetrics`.
+
+### Added
+
+- **`StrategySpec` model** — Frozen, serializable strategy representation for the config pipeline.
+- **`@register_agent("rohan_strategy")`** — `StrategicAgentConfig` registers the adapter via hasufel's agent registry, enabling `run_simulation()` and `run_batch()` compilation.
+- **Parallel `run_batch()`** — `SimulationService.run_batch()` delegates to hasufel's multi-process `run_batch()` for non-historical oracle modes.
+- **Agentic tools** — 11 LangChain tools: 3 scenario tools (`build_scenario`, `validate_scenario`, `explain_metrics`) and 8 investigation tools for the explainer agent.
+- **6-axis deterministic scoring** — Profitability, Risk-Adjusted, Volatility Impact, Spread Impact, Liquidity Impact, Execution Quality with goal-adaptive weights.
 
 ### Removed
 
-- **`AbidesConfigMapper`** — Replaced by `config_builder.build_simulation_config()`.
-- **`RandomStateHandler`** — Replaced by direct `np.random.RandomState` usage and hasufel's identity-based SHA-256 seed derivation.
-- **`test_random_state_handler.py`** — Tests for deleted module.
+- **`AbidesConfigMapper`** — Replaced by `config_builder.create_simulation_builder()`.
+- **`RandomStateHandler`** — Replaced by hasufel's identity-based SHA-256 seed derivation.
+- **`AbidesOutput`** (308 lines) — Replaced by `HasufelOutput` for all execution paths. Raw `end_state` dict parsing eliminated.
+- **`build_simulation_config()` wrapper** — Dead backward-compatibility function removed.
+- **Unit-conversion helpers** (`_kappa_to_half_life`, `_lambda_to_interval`) — Eliminated by hasufel accepting raw parameters.
+- **`test_abides_output.py`** (350 lines), **`test_abides_integration.py`** (205 lines), **`test_random_state_handler.py`** — Tests for deleted modules.
+- **`ABIDES_INTERFACE_REVIEW.md`** — All Rohan-side recommendations implemented; review completed.
 
 ## [0.2.1] — 2026-03-09
 
