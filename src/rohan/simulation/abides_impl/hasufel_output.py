@@ -146,3 +146,15 @@ class HasufelOutput(SimulationOutput):
     @override
     def get_logs_by_agent(self) -> dict[int, Any]:
         raise NotImplementedError("get_logs_by_agent() is not supported by HasufelOutput. Use get_logs_df() and group by agent_id instead.")
+
+    # ------------------------------------------------------------------
+    # Hasufel-native summaries
+    # ------------------------------------------------------------------
+
+    def summary(self) -> str:
+        """Return a concise human/LLM-readable narrative from hasufel's SimulationResult."""
+        return self._result.summary()
+
+    def summary_dict(self) -> dict[str, Any]:
+        """Return structured summary data (markets, agent leaderboard, warnings) from hasufel."""
+        return self._result.summary_dict()
