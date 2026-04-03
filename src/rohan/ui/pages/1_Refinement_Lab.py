@@ -17,7 +17,6 @@ import time
 import traceback
 from typing import Any
 
-import plotly.graph_objects as go
 import streamlit as st
 
 from rohan.config import SimulationSettings
@@ -34,6 +33,7 @@ from rohan.llm.graph import (
     build_refinement_graph,
 )
 from rohan.llm.state import RefinementState, ScenarioConfig
+from rohan.ui.charts import score_progression_chart, scoring_radar_chart
 from rohan.ui.utils.metric_display import get_help, get_scoring_help
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.startup import ensure_db_initialized
@@ -1006,79 +1006,7 @@ if final_state is not None:
             scores = [it.judge_score for it in iterations if it.judge_score is not None]
             scored_iterations = [it for it in iterations if it.judge_score is not None]
             if scores:
-                fig = go.Figure()
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=list(range(1, len(scores) + 1)),
-                        y=scores,
-                        mode="lines+markers",
-                        name="Composite",
-                        line={"color": COLORS["primary"], "width": 3},
-                        marker={"size": 12, "color": COLORS["primary"]},
-                    )
-                )
-
-                # Sub-score traces
-                _sub_cfg = [
-                    ("profitability_score", "Profitability", COLORS["success"]),
-                    ("risk_score", "Risk", COLORS["danger"]),
-                    ("volatility_impact_score", "Vol Impact", COLORS["secondary"]),
-                    ("spread_impact_score", "Spread Impact", "#E67E22"),
-                    ("liquidity_impact_score", "Liq Impact", "#1ABC9C"),
-                    ("execution_score", "Execution", "#9B59B6"),
-                ]
-                for attr, label, color in _sub_cfg:
-                    vals = [getattr(it, attr, None) for it in scored_iterations]
-                    if any(v is not None for v in vals):
-                        fig.add_trace(
-                            go.Scatter(
-                                x=list(range(1, len(vals) + 1)),
-                                y=vals,
-                                mode="lines+markers",
-                                name=label,
-                                line={"color": color, "width": 1.5, "dash": "dot"},
-                                marker={"size": 6, "color": color},
-                                opacity=0.7,
-                            )
-                        )
-
-                # Convergence threshold line
-                fig.add_hline(
-                    y=DEFAULT_CONVERGENCE_THRESHOLD,
-                    line_dash="dash",
-                    line_color=COLORS["success"],
-                    annotation_text=f"Convergence ({DEFAULT_CONVERGENCE_THRESHOLD:.0f}/10)",
-                    annotation_position="top right",
-                    annotation_font_color=COLORS["success"],
-                )
-
-                fig.update_layout(
-                    height=400,
-                    plot_bgcolor=COLORS["background"],
-                    paper_bgcolor=COLORS["background"],
-                    font={
-                        "color": COLORS["text"],
-                        "family": "Courier New",
-                    },
-                    xaxis={
-                        "title": "Iteration",
-                        "gridcolor": COLORS["border"],
-                        "dtick": 1,
-                    },
-                    yaxis={
-                        "title": "Score",
-                        "gridcolor": COLORS["border"],
-                        "range": [0, 10.5],
-                    },
-                    showlegend=True,
-                    legend={
-                        "font": {"color": COLORS["text"], "size": 10},
-                        "bgcolor": "rgba(0,0,0,0)",
-                    },
-                    margin={"l": 60, "r": 30, "t": 30, "b": 50},
-                )
-
+                fig = score_progression_chart(scores, scored_iterations, DEFAULT_CONVERGENCE_THRESHOLD)
                 st.plotly_chart(fig, width="stretch")
             else:
                 st.info("No scores recorded.")
@@ -1101,43 +1029,8 @@ if final_state is not None:
                     latest.liquidity_impact_score or 0,
                     latest.execution_score or 0,
                 ]
-                # Close the polygon
-                axis_labels_closed = axis_labels + [axis_labels[0]]
-                axis_values_closed = axis_values + [axis_values[0]]
 
-                radar_fig = go.Figure()
-                radar_fig.add_trace(
-                    go.Scatterpolar(
-                        r=axis_values_closed,
-                        theta=axis_labels_closed,
-                        fill="toself",
-                        fillcolor="rgba(0,217,255,0.15)",
-                        line={"color": COLORS["primary"], "width": 2},
-                        marker={"size": 8, "color": COLORS["primary"]},
-                        name="Latest",
-                    )
-                )
-                radar_fig.update_layout(
-                    height=400,
-                    polar={
-                        "bgcolor": COLORS["card_bg"],
-                        "radialaxis": {
-                            "visible": True,
-                            "range": [0, 10],
-                            "gridcolor": COLORS["border"],
-                            "color": COLORS["text_muted"],
-                        },
-                        "angularaxis": {
-                            "gridcolor": COLORS["border"],
-                            "color": COLORS["text"],
-                        },
-                    },
-                    plot_bgcolor=COLORS["background"],
-                    paper_bgcolor=COLORS["background"],
-                    font={"color": COLORS["text"], "family": "Courier New"},
-                    showlegend=False,
-                    margin={"l": 60, "r": 60, "t": 30, "b": 30},
-                )
+                radar_fig = scoring_radar_chart(axis_labels, axis_values)
                 st.plotly_chart(radar_fig, width="stretch")
 
                 # Sub-score metric cards

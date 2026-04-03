@@ -16,9 +16,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
 from rohan.config import SimulationSettings
 from rohan.config.agent_settings import (
@@ -43,6 +41,7 @@ from rohan.exceptions import BaselineComparisonError
 from rohan.framework.analysis_service import AnalysisService
 from rohan.framework.scenario_repository import ScenarioRepository
 from rohan.simulation.simulation_service import SimulationService
+from rohan.ui.charts import csv_preview_chart, price_returns_chart, spread_analysis_chart, volume_imbalance_chart
 from rohan.ui.utils.baseline_comparison import (
     build_baseline_context_table,
     ensure_baseline_comparable,
@@ -830,37 +829,8 @@ def render_sidebar_config():
                     preview_df = preview_df.set_index("timestamp")
 
                     st.markdown("**Preview**")
-                    preview_series = preview_df[price_col] / 100 if price_col == "price_cents" else preview_df[price_col]
-                    preview_label = "Price ($)" if price_col == "price_cents" else "Price"
 
-                    preview_fig = go.Figure(
-                        data=[
-                            go.Scatter(
-                                x=preview_df.index,
-                                y=preview_series,
-                                mode="lines",
-                                name="Historical",
-                                line={"color": COLORS["primary"], "width": 1.4},
-                            )
-                        ]
-                    )
-                    preview_fig.update_layout(
-                        height=220,
-                        margin={"l": 8, "r": 8, "t": 8, "b": 8},
-                        plot_bgcolor=COLORS["background"],
-                        paper_bgcolor=COLORS["background"],
-                        font={"color": COLORS["text"], "family": "Courier New", "size": 11},
-                        showlegend=False,
-                    )
-                    preview_fig.update_xaxes(showgrid=False, showticklabels=False)
-                    preview_fig.update_yaxes(
-                        title_text=preview_label,
-                        gridcolor=COLORS["border"],
-                        showgrid=True,
-                        autorange=True,
-                        rangemode="normal",
-                        fixedrange=False,
-                    )
+                    preview_fig = csv_preview_chart(preview_df, price_col)
                     st.plotly_chart(preview_fig, width="stretch", config={"displayModeBar": False})
 
                     if total_rows > len(preview_df):
@@ -1735,112 +1705,7 @@ with tab2:
                         except Exception as hist_err:
                             st.warning(f"Could not load historical series for overlay: {hist_err}")
 
-                    fig = make_subplots(
-                        rows=2,
-                        cols=1,
-                        shared_xaxes=True,
-                        vertical_spacing=0.1,
-                        subplot_titles=("Bid, Ask, and Mid Prices", "Price Returns"),
-                        row_heights=[0.7, 0.3],
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=price_df.index,
-                            y=price_df["bid_price"],
-                            name="Bid",
-                            line={"color": COLORS["success"], "width": 1},
-                            opacity=0.7,
-                        ),
-                        row=1,
-                        col=1,
-                    )
-
-                    if historical_df is not None and not historical_df.empty:
-                        fig.add_trace(
-                            go.Scatter(
-                                x=historical_df["timestamp"],
-                                y=historical_df["historical_price_cents"],
-                                name="Historical",
-                                line={"color": "#F59E0B", "width": 2, "dash": "dot"},
-                            ),
-                            row=1,
-                            col=1,
-                        )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=price_df.index,
-                            y=price_df["ask_price"],
-                            name="Ask",
-                            line={"color": COLORS["danger"], "width": 1},
-                            opacity=0.7,
-                        ),
-                        row=1,
-                        col=1,
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=price_df.index,
-                            y=price_df["mid_price"],
-                            name="Mid",
-                            line={"color": COLORS["primary"], "width": 2},
-                        ),
-                        row=1,
-                        col=1,
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=price_df.index,
-                            y=price_df["returns"],
-                            name="Returns",
-                            line={"color": COLORS["secondary"], "width": 1},
-                            fill="tozeroy",
-                            opacity=0.6,
-                        ),
-                        row=2,
-                        col=1,
-                    )
-
-                    fig.update_layout(
-                        height=700,
-                        plot_bgcolor=COLORS["background"],
-                        paper_bgcolor=COLORS["background"],
-                        font={"color": COLORS["text"], "family": "Courier New"},
-                        hovermode="x unified",
-                        showlegend=True,
-                        legend={
-                            "bgcolor": COLORS["card_bg"],
-                            "bordercolor": COLORS["border"],
-                            "borderwidth": 1,
-                        },
-                    )
-
-                    fig.update_xaxes(
-                        gridcolor=COLORS["border"],
-                        showgrid=True,
-                        title_text="Time Index",
-                        row=2,
-                        col=1,
-                    )
-
-                    fig.update_yaxes(
-                        gridcolor=COLORS["border"],
-                        showgrid=True,
-                        title_text="Price",
-                        row=1,
-                        col=1,
-                    )
-
-                    fig.update_yaxes(
-                        gridcolor=COLORS["border"],
-                        showgrid=True,
-                        title_text="Returns",
-                        row=2,
-                        col=1,
-                    )
+                    fig = price_returns_chart(price_df, historical_df=historical_df if historical_df is not None and not historical_df.empty else None)
 
                     chart_col, data_col = st.columns([3, 2])
 
@@ -1900,99 +1765,7 @@ with tab2:
                 if not l1_df.empty:
                     volume_df = compute_volume_data(l1_df)
 
-                    fig = make_subplots(
-                        rows=2,
-                        cols=1,
-                        shared_xaxes=True,
-                        vertical_spacing=0.1,
-                        subplot_titles=("Bid and Ask Volume", "Volume Imbalance"),
-                        row_heights=[0.6, 0.4],
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=volume_df.index,
-                            y=volume_df["bid_qty"],
-                            name="Bid Volume",
-                            line={"color": COLORS["success"], "width": 1.5},
-                            fill="tozeroy",
-                            opacity=0.6,
-                        ),
-                        row=1,
-                        col=1,
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=volume_df.index,
-                            y=volume_df["ask_qty"],
-                            name="Ask Volume",
-                            line={"color": COLORS["danger"], "width": 1.5},
-                            fill="tozeroy",
-                            opacity=0.6,
-                        ),
-                        row=1,
-                        col=1,
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=volume_df.index,
-                            y=volume_df["volume_imbalance"],
-                            name="Volume Imbalance",
-                            line={"color": COLORS["primary"], "width": 2},
-                            fill="tozeroy",
-                            opacity=0.7,
-                        ),
-                        row=2,
-                        col=1,
-                    )
-
-                    fig.add_hline(
-                        y=0,
-                        line_dash="dash",
-                        line_color=COLORS["text_muted"],
-                        row=2,  # pyright: ignore[reportArgumentType]
-                        col=1,  # pyright: ignore[reportArgumentType]
-                    )
-
-                    fig.update_layout(
-                        height=700,
-                        plot_bgcolor=COLORS["background"],
-                        paper_bgcolor=COLORS["background"],
-                        font={"color": COLORS["text"], "family": "Courier New"},
-                        hovermode="x unified",
-                        showlegend=True,
-                        legend={
-                            "bgcolor": COLORS["card_bg"],
-                            "bordercolor": COLORS["border"],
-                            "borderwidth": 1,
-                        },
-                    )
-
-                    fig.update_xaxes(
-                        gridcolor=COLORS["border"],
-                        showgrid=True,
-                        title_text="Time Index",
-                        row=2,
-                        col=1,
-                    )
-
-                    fig.update_yaxes(
-                        gridcolor=COLORS["border"],
-                        showgrid=True,
-                        title_text="Quantity",
-                        row=1,
-                        col=1,
-                    )
-
-                    fig.update_yaxes(
-                        gridcolor=COLORS["border"],
-                        showgrid=True,
-                        title_text="Imbalance",
-                        row=2,
-                        col=1,
-                    )
+                    fig = volume_imbalance_chart(volume_df)
 
                     st.plotly_chart(fig, width="stretch")
 
@@ -2043,87 +1816,7 @@ with tab2:
                 if not l1_df.empty:
                     spread_df = compute_spread_data(l1_df)
 
-                    fig = make_subplots(
-                        rows=2,
-                        cols=2,
-                        subplot_titles=(
-                            "Spread Over Time",
-                            "Spread Distribution",
-                            "Spread (Basis Points)",
-                            "Spread vs Mid Price",
-                        ),
-                        specs=[
-                            [{"type": "scatter"}, {"type": "histogram"}],
-                            [{"type": "scatter"}, {"type": "scatter"}],
-                        ],
-                        vertical_spacing=0.12,
-                        horizontal_spacing=0.1,
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=spread_df.index,
-                            y=spread_df["spread"],
-                            name="Spread",
-                            line={"color": COLORS["primary"], "width": 1.5},
-                            fill="tozeroy",
-                            opacity=0.7,
-                        ),
-                        row=1,
-                        col=1,
-                    )
-
-                    fig.add_trace(
-                        go.Histogram(
-                            x=spread_df["spread"],
-                            name="Distribution",
-                            marker={"color": COLORS["secondary"]},
-                            opacity=0.7,
-                            nbinsx=50,
-                        ),
-                        row=1,
-                        col=2,
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=spread_df.index,
-                            y=spread_df["spread_bps"],
-                            name="Spread (bps)",
-                            line={"color": COLORS["success"], "width": 1.5},
-                            fill="tozeroy",
-                            opacity=0.7,
-                        ),
-                        row=2,
-                        col=1,
-                    )
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=spread_df["mid_price"],
-                            y=spread_df["spread"],
-                            mode="markers",
-                            name="Spread vs Price",
-                            marker={
-                                "color": COLORS["danger"],
-                                "size": 3,
-                                "opacity": 0.5,
-                            },
-                        ),
-                        row=2,
-                        col=2,
-                    )
-
-                    fig.update_layout(
-                        height=800,
-                        plot_bgcolor=COLORS["background"],
-                        paper_bgcolor=COLORS["background"],
-                        font={"color": COLORS["text"], "family": "Courier New"},
-                        showlegend=False,
-                    )
-
-                    fig.update_xaxes(gridcolor=COLORS["border"], showgrid=True)
-                    fig.update_yaxes(gridcolor=COLORS["border"], showgrid=True)
+                    fig = spread_analysis_chart(spread_df)
 
                     st.plotly_chart(fig, width="stretch")
 
