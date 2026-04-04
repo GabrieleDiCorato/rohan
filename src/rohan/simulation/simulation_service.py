@@ -234,6 +234,8 @@ class SimulationService:
             hasufel_results = hasufel_run_batch(
                 configs,
                 n_workers=n_workers,
+                # FULL = QUANT | AGENT_LOGS.  Scoring requires fill_rate
+                # and order_to_trade_ratio which are derived from raw logs.
                 profile=ResultProfile.FULL,
                 worker_initializer=worker_init,
             )
