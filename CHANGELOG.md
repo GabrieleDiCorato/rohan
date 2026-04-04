@@ -5,6 +5,18 @@ All notable changes to ROHAN are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-04-04
+
+### Fixed
+
+- **PnL curve density** — `get_pnl_curve()` now uses hasufel v2.5.8's `compute_equity_curve(fill_events, l1=L1Snapshots)` to produce a dense L1-sampled curve (one point per two-sided tick). Previously returned only sparse fill-only points (~4 per sim), producing misleadingly flat PnL charts.
+- **`initial_cash` contract** — `compute_agent_metrics()` now returns the caller-provided `initial_cash` in `AgentMetrics`. Previously the hasufel path silently replaced it with hasufel's `starting_cash_cents`, violating the method's contract.
+- **Order lifecycle populated** — `get_order_lifecycle()` now returns populated `OrderLifecycleRecord` list for `HasufelOutput` using hasufel v2.5.8's `RichAgentMetrics.order_lifecycles`. Previously returned `[]` because hasufel output lacks the legacy `end_state` dict.
+
+### Changed
+
+- **Dependency** — `abides-hasufel` upgraded from v2.5.7 to v2.5.8.
+
 ## [0.3.0] — 2026-04-03
 
 ### Changed

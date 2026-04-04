@@ -243,12 +243,12 @@ ScenarioExplanation (structured output)
 | Field | Type | Purpose |
 |-------|------|---------|
 | `fills` | `list[FillRecord]` | Per-fill execution data (timestamp, side, price, qty, slippage, counterparty) |
-| `pnl_curve` | `list[PnLPoint]` | Mark-to-market PnL trajectory |
+| `pnl_curve` | `list[PnLPoint]` | Mark-to-market PnL trajectory (dense L1-sampled via hasufel `compute_equity_curve`) |
 | `inventory_trajectory` | `list[InventoryPoint]` | Position buildup/unwinding over time |
 | `adverse_selection_bps` | `float | None` | Avg mid-price move against fill direction (default window) |
 | `adverse_selection_by_window` | `dict[str, float]` | Multi-window adverse selection (100ms, 500ms, 1s, 5s) |
 | `counterparty_breakdown` | `list[CounterpartySummary]` | Who the strategy traded against |
-| `order_lifecycle` | `list[OrderLifecycleRecord]` | Order submission/fill/cancel statistics |
+| `order_lifecycle` | `list[OrderLifecycleRecord]` | Order submission/fill/cancel statistics (from hasufel `OrderLifecycle` model) |
 | `mid_price_series` | `list[MidPricePoint]` | Full L1 mid-price time-series (tool recomputation) |
 | `l2_snapshots` | `list[L2Snapshot]` | Sampled L2 snapshots at fills, PnL turning points, ~5s intervals (capped at 200) |
 
