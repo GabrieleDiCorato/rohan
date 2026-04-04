@@ -55,7 +55,7 @@ class TestNormalization:
 
     def test_negative_prices_validation(self):
         raw = pd.Series([-100, 50], index=pd.date_range("2026-01-30", periods=2, freq="S"))
-        with pytest.raises(ValueError, match="zero or negative"):
+        with pytest.raises(ValueError, match="greater_than"):
             normalize_fundamental_series(raw, validate=True)
 
 
