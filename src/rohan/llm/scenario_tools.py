@@ -74,6 +74,7 @@ def make_scenario_tools() -> list[Any]:
     def build_scenario(
         regime_tags: list[str] | None = None,
         template_name: str | None = None,
+        overlays: list[str] | None = None,
         ticker: str = "ABM",
         seed: int = 42,
         start_time: str = "09:30:00",
@@ -83,8 +84,10 @@ def make_scenario_tools() -> list[Any]:
         """Build a simulation scenario from template and/or regime tags.
 
         Selects a base template by matching *regime_tags* against the
-        template metadata, or uses *template_name* directly.  Returns a
-        JSON config dict ready for simulation.
+        template metadata, or uses *template_name* directly.  Optionally
+        stacks overlay templates (e.g. ``with_momentum``, ``with_execution``)
+        on top of the base via deep-merge.  Returns a JSON config dict
+        ready for simulation.
 
         Parameters
         ----------
@@ -94,6 +97,10 @@ def make_scenario_tools() -> list[Any]:
         template_name : optional
             Specific template name (e.g. "rmsc04", "stress_test").
             Takes priority over *regime_tags*.
+        overlays : optional
+            List of overlay template names to stack on top of the base
+            template (e.g. ["with_momentum", "with_execution"]).
+            Later overlays override earlier ones.
         ticker : str
             Ticker symbol (default "ABM").
         seed : int
@@ -124,6 +131,18 @@ def make_scenario_tools() -> list[Any]:
         try:
             builder = SimulationBuilder()
             builder.from_template(selected)
+
+            # Stack overlay templates (deep-merged on top of the base)
+            applied_overlays: list[str] = []
+            if overlays:
+                overlay_names = {t["name"] for t in templates if t.get("is_overlay", False)}
+                for ov in overlays:
+                    if ov in overlay_names:
+                        builder.from_template(ov)
+                        applied_overlays.append(ov)
+                    else:
+                        logger.warning("Overlay %r not found — skipping", ov)
+
             builder.seed(seed)
             builder.market(ticker=ticker, start_time=start_time, end_time=end_time)
 
@@ -138,14 +157,15 @@ def make_scenario_tools() -> list[Any]:
 
             # Summarise selected template
             tmpl_info = next((t for t in templates if t["name"] == selected), {})
-            overlays = [t["name"] for t in templates if t.get("is_overlay", False)]
+            available_overlays = [t["name"] for t in templates if t.get("is_overlay", False)]
             summary = {
                 "template": selected,
+                "applied_overlays": applied_overlays,
                 "regime_tags": tmpl_info.get("regime_tags", []),
                 "scenario_description": tmpl_info.get("scenario_description", ""),
                 "default_risk_guards": tmpl_info.get("default_risk_guards", {}),
                 "agent_types": tmpl_info.get("agent_types", []),
-                "available_overlays": overlays,
+                "available_overlays": available_overlays,
                 "config": config_dict,
             }
             return _truncate(json.dumps(summary, indent=2, default=str))

@@ -47,6 +47,10 @@ may not have considered.
 ## Guidelines
 - Use ``list_scenarios`` to discover available templates and their regime tags.
 - Use ``build_scenario`` to assemble a concrete config for each proposed scenario.
+- **Overlay composition**: ``build_scenario`` accepts an ``overlays`` parameter
+  (list of overlay template names) that stack additional agent populations on top
+  of the base template.  Use overlays like ``with_momentum`` or ``with_execution``
+  to create richer adversarial environments without replacing the base config.
 - Each adversarial scenario should target a different weakness axis
   (e.g. volatility, thin liquidity, wide spreads, informed flow).
 - Give each scenario a short descriptive ``name`` slug and a ``rationale``
@@ -107,8 +111,8 @@ _GOAL_ADVERSARIAL_MAP: dict[str, PlannedScenario] = {
         name="fast_moving",
         template_name="rmsc04",
         regime_tags=["volatile", "fast"],
-        config_override={},
-        rationale="Execution quality degrades in fast-moving markets",
+        config_override={"overlays": ["with_execution"]},
+        rationale="Execution quality degrades in fast-moving markets with competing execution agents",
     ),
 }
 
