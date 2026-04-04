@@ -6,8 +6,10 @@ integer price values in cents.
 """
 
 import pandas as pd
+from pandera.errors import SchemaError
 
 from rohan.config import PriceUnit
+from rohan.simulation.models.schemas import FundamentalSeriesSchema
 
 
 def normalize_fundamental_series(
@@ -80,8 +82,10 @@ def normalize_fundamental_series(
 
     # 6. Validate
     if validate:
-        if (series <= 0).any():
-            raise ValueError("Series contains zero or negative prices after normalization.")
+        try:
+            series = FundamentalSeriesSchema.validate(series)
+        except SchemaError as e:
+            raise ValueError(str(e)) from e
         if not series.index.is_monotonic_increasing:
             raise ValueError("Series index is not monotonically increasing.")
 

@@ -32,6 +32,7 @@ Usage:
 
 from __future__ import annotations
 
+import pandera
 import pandera.pandas as pa
 from pandera.typing.pandas import Series
 
@@ -155,4 +156,89 @@ class AgentLogsSchema(pa.DataFrameModel):
         # These are not guaranteed and vary across simulation configurations.
         strict = False
         # coerce=True: agent IDs can be float after JSON/CSV round-trips.
+        coerce = True
+
+
+# ---------------------------------------------------------------------------
+# Fundamental value series (data providers)
+# ---------------------------------------------------------------------------
+FundamentalSeriesSchema = pandera.SeriesSchema(
+    dtype=int,
+    checks=[pandera.Check.gt(0, description="Prices must be positive (integer cents)")],
+    nullable=False,
+    coerce=True,
+)
+"""Schema for normalized fundamental value series returned by data providers.
+
+Values are integer prices in cents.  The ``DatetimeIndex`` and monotonic
+ordering are enforced by the normalization pipeline separately.
+"""
+
+
+# ---------------------------------------------------------------------------
+# UI metrics layer — Agent roster
+# ---------------------------------------------------------------------------
+class AgentRosterSchema(pa.DataFrameModel):
+    """Agent summary table produced by ``build_agent_dataframe()``.
+
+    Guaranteed columns capture per-agent identity and P&L.
+    Execution-metric columns (Fill Rate, VWAP Slippage, etc.)
+    are optional — they appear only for strategic/execution agents.
+    """
+
+    id_col: Series[int] = pa.Field(alias="ID", description="Agent identifier")
+    type_col: Series[str] = pa.Field(alias="Type", description="Agent class name")
+    category: Series[str] = pa.Field(alias="Category", description="Agent category")
+    name: Series[str] = pa.Field(alias="Name", description="Agent display name")
+    starting_cash: Series[float] = pa.Field(alias="Starting Cash ($)", description="Starting cash in dollars")
+    mark_to_market: Series[float] = pa.Field(alias="Mark-to-Market ($)", description="Mark-to-market in dollars")
+    pnl: Series[float] = pa.Field(alias="P&L ($)", description="Profit & loss in dollars")
+    pnl_pct: Series[float] = pa.Field(alias="P&L (%)", description="Profit & loss percentage")
+
+    class Config:
+        strict = False  # Optional execution-metric columns vary by agent type
+        coerce = True
+
+
+# ---------------------------------------------------------------------------
+# UI metrics layer — Trade attribution
+# ---------------------------------------------------------------------------
+class TradeAttributionSchema(pa.DataFrameModel):
+    """Per-trade attribution with maker/taker identification.
+
+    Produced by ``build_trade_attribution_df()``.
+    """
+
+    time: Series[pa.DateTime] = pa.Field(description="Trade timestamp")
+    price_dollars: Series[float] = pa.Field(alias="price ($)", gt=0, description="Trade price in dollars")
+    quantity: Series[int] = pa.Field(gt=0, description="Trade quantity")
+    side: Series[str] = pa.Field(description="Trade side")
+    maker_id: Series[int] = pa.Field(description="Passive (maker) agent ID")
+    taker_id: Series[int] = pa.Field(description="Aggressive (taker) agent ID")
+    maker_type: Series[str] = pa.Field(description="Maker agent type")
+    taker_type: Series[str] = pa.Field(description="Taker agent type")
+
+    class Config:
+        strict = True
+        coerce = True
+
+
+# ---------------------------------------------------------------------------
+# UI metrics layer — Fill records
+# ---------------------------------------------------------------------------
+class FillRecordsSchema(pa.DataFrameModel):
+    """Per-fill execution records with optional slippage metrics.
+
+    Produced by ``build_fill_records_df()``.  Slippage and adverse-selection
+    columns are appended dynamically and are not part of the guaranteed set.
+    """
+
+    time: Series[pa.DateTime] = pa.Field(description="Fill timestamp")
+    agent_id: Series[int] = pa.Field(description="Agent identifier")
+    side: Series[str] = pa.Field(description="Order side")
+    price_dollars: Series[float] = pa.Field(alias="price ($)", gt=0, description="Fill price in dollars")
+    quantity: Series[int] = pa.Field(gt=0, description="Fill quantity")
+
+    class Config:
+        strict = False  # slippage and AS columns vary by configuration
         coerce = True

@@ -1,4 +1,12 @@
-from .schemas import AgentLogsSchema, OrderBookL1Schema, OrderBookL2Schema
+from .schemas import (
+    AgentLogsSchema,
+    AgentRosterSchema,
+    FillRecordsSchema,
+    FundamentalSeriesSchema,
+    OrderBookL1Schema,
+    OrderBookL2Schema,
+    TradeAttributionSchema,
+)
 from .simulation_metrics import (
     AgentMetrics,
     ComparisonResult,
@@ -19,12 +27,16 @@ SimulationResult.model_rebuild()
 __all__ = [
     "AgentLogsSchema",
     "AgentMetrics",
+    "AgentRosterSchema",
     "ComparisonResult",
+    "FillRecordsSchema",
+    "FundamentalSeriesSchema",
     "MarketImpact",
     "MarketMetrics",
     "OrderBookL1Schema",
     "OrderBookL2Schema",
     "RunSummary",
+    "TradeAttributionSchema",
     "SimulationMetrics",
     "SimulationOutput",
     "SimulationContext",

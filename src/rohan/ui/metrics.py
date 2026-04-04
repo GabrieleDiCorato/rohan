@@ -43,6 +43,12 @@ from abides_markets.simulation.metrics import (
 )
 from abides_markets.simulation.result import AgentData, FillRecord, RichSimulationMetrics, TradeAttribution
 
+from rohan.simulation.models.schemas import (
+    AgentRosterSchema,
+    FillRecordsSchema,
+    TradeAttributionSchema,
+)
+
 # ── L1 series derivation ─────────────────────────────────────────────────────
 
 
@@ -256,7 +262,8 @@ def build_agent_dataframe(result: SimulationResult) -> pd.DataFrame:
             row["Participation (%)"] = round(em.participation_rate_pct, 2) if em.participation_rate_pct is not None else None
             row["Impl. Shortfall (bps)"] = round(em.implementation_shortfall_bps, 2) if em.implementation_shortfall_bps is not None else None
         rows.append(row)
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return AgentRosterSchema.validate(df) if not df.empty else df  # pyright: ignore[reportReturnType]
 
 
 def compute_agent_performance(agent_df: pd.DataFrame) -> pd.DataFrame:
@@ -401,7 +408,8 @@ def build_trade_attribution_df(trades: list[TradeAttribution], agents: list[Agen
         }
         for t in trades
     ]
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return TradeAttributionSchema.validate(df) if not df.empty else df  # pyright: ignore[reportReturnType]
 
 
 @dataclass
@@ -528,7 +536,8 @@ def build_fill_records_df(fills: list[FillRecord]) -> pd.DataFrame:
             for window, val in f.adverse_selection_bps.items():
                 row[f"AS {window} (bps)"] = val
         rows.append(row)
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return FillRecordsSchema.validate(df) if not df.empty else df  # pyright: ignore[reportReturnType]
 
 
 @dataclass
