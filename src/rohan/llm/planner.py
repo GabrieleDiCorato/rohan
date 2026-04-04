@@ -74,42 +74,42 @@ Return a JSON object with:
 _GOAL_ADVERSARIAL_MAP: dict[str, PlannedScenario] = {
     "market-mak": PlannedScenario(
         name="volatile_stress",
-        template_name="rmsc04",
+        template_name="volatile_day",
         regime_tags=["volatile"],
         config_override={},
         rationale="Market-making strategies must survive volatile regimes",
     ),
     "spread": PlannedScenario(
         name="wide_spread",
-        template_name="rmsc04",
+        template_name="thin_market",
         regime_tags=["wide_spread"],
         config_override={},
         rationale="Spread-focused strategies need testing under wide-spread conditions",
     ),
     "profit": PlannedScenario(
         name="thin_liquidity",
-        template_name="rmsc04",
+        template_name="low_liquidity",
         regime_tags=["thin"],
         config_override={},
         rationale="Profit-seeking strategies should be tested with thin order books",
     ),
     "risk": PlannedScenario(
         name="volatile_stress",
-        template_name="rmsc04",
+        template_name="stress_test",
         regime_tags=["volatile", "informed"],
         config_override={},
         rationale="Risk-focused strategies must handle volatility + informed flow",
     ),
     "vpin": PlannedScenario(
         name="informed_flow",
-        template_name="rmsc04",
+        template_name="trending_day",
         regime_tags=["informed"],
         config_override={},
         rationale="VPIN-sensitive goals need testing under high informed-trading pressure",
     ),
     "execution": PlannedScenario(
         name="fast_moving",
-        template_name="rmsc04",
+        template_name="volatile_day",
         regime_tags=["volatile", "fast"],
         config_override={"overlays": ["with_execution"]},
         rationale="Execution quality degrades in fast-moving markets with competing execution agents",
@@ -197,7 +197,7 @@ def _react_planner(
     """Full ReAct agent with scenario tools — the richest planning mode."""
     from langgraph.prebuilt import create_react_agent
 
-    from rohan.llm.factory import get_planner_model, get_structured_model
+    from rohan.llm.factory import get_planner_model
     from rohan.llm.scenario_tools import make_scenario_tools
 
     model = get_planner_model(settings)
@@ -207,25 +207,16 @@ def _react_planner(
         model,
         tools,
         prompt=PLANNER_SYSTEM.format(max_adversarial=max_adversarial),
+        response_format=ScenarioPlan,
     )
 
     user_msg = f"Goal: {goal}\nUser-selected scenarios: {user_scenario_names}\nPropose up to {max_adversarial} additional adversarial scenarios."
 
     result = agent.invoke({"messages": [("user", user_msg)]})
 
-    # Extract the final AI message content
-    messages = result.get("messages", [])
-    if not messages:
-        raise ValueError("ReAct agent returned no messages")
-
-    last_content = messages[-1].content if hasattr(messages[-1], "content") else str(messages[-1])
-
-    # Parse the agent output as ScenarioPlan using structured extraction
-    structured = get_structured_model(get_planner_model(settings), ScenarioPlan)
-    parsed_result = structured.invoke(f"Extract the scenario plan from this agent output:\n\n{last_content}")
-    parsed = parsed_result.get("parsed") if isinstance(parsed_result, dict) else parsed_result
+    parsed = result.get("structured_response")
     if parsed is None:
-        raise ValueError("Failed to parse agent output into ScenarioPlan")
+        raise ValueError("ReAct agent did not return a structured ScenarioPlan")
 
     return parsed
 
