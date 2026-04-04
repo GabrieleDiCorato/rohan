@@ -8,8 +8,8 @@ resolution-markers = [
 
 [[package]]
 name = "abides-hasufel"
-version = "2.5.7"
-source = { git = "https://github.com/GabrieleDiCorato/abides-hasufel.git?tag=v2.5.7#f0e9322b23911d1c752da849f6590a945b68981c" }
+version = "2.5.8"
+source = { git = "https://github.com/GabrieleDiCorato/abides-hasufel.git?tag=v2.5.8#3893831ac40e8f3eec4ccb8ebe8d2e7a8d092a3a" }
 dependencies = [
     { name = "coloredlogs" },
     { name = "gymnasium" },
@@ -2767,7 +2767,7 @@ ui = [
 
 [package.metadata]
 requires-dist = [
-    { name = "abides-hasufel", git = "https://github.com/GabrieleDiCorato/abides-hasufel.git?tag=v2.5.7" },
+    { name = "abides-hasufel", git = "https://github.com/GabrieleDiCorato/abides-hasufel.git?tag=v2.5.8" },
     { name = "langchain", specifier = ">=0.3" },
     { name = "langchain-google-genai", marker = "extra == 'llm'", specifier = ">=2.0" },
     { name = "langchain-openai", specifier = ">=0.2" },
