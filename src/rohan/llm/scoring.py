@@ -340,8 +340,9 @@ def _score_liquidity_impact(
 def _score_execution(
     fill_rate: float | None,
     order_to_trade_ratio: float | None,
+    avg_slippage_bps: float | None = None,
 ) -> float:
-    """Score execution quality from fill rate (primary) + OTT penalty.
+    """Score execution quality from fill rate (primary) + OTT penalty + slippage.
 
     Fill rate piecewise:
         < 5%          → 1–2
@@ -353,6 +354,11 @@ def _score_execution(
     OTT penalty:
         > 200  → −2
         > 100  → −1
+
+    Slippage bonus/penalty (avg_slippage_bps):
+        < 0 (negative = fills better than mid) → +0.5
+        > 5 bps                                → −1
+        > 10 bps                               → −2
     """
     if fill_rate is None:
         base = 1.0
@@ -371,6 +377,14 @@ def _score_execution(
         if order_to_trade_ratio > 200:
             base -= 2.0
         elif order_to_trade_ratio > 100:
+            base -= 1.0
+
+    if avg_slippage_bps is not None:
+        if avg_slippage_bps < 0:
+            base += 0.5
+        elif avg_slippage_bps > 10:
+            base -= 2.0
+        elif avg_slippage_bps > 5:
             base -= 1.0
 
     return _clamp(base)
@@ -395,6 +409,7 @@ def compute_axis_scores(
     baseline_mean_spread: float | None,
     baseline_traded_volume: float | None,
     pct_time_two_sided_delta: float | None = None,
+    avg_slippage_bps: float | None = None,
 ) -> AxisScores:
     """Compute all 6 deterministic axis scores from simulation metrics.
 
@@ -417,7 +432,7 @@ def compute_axis_scores(
         volatility_impact=_score_negative_impact(volatility_delta_pct),
         spread_impact=_score_negative_impact(spread_delta_pct),
         liquidity_impact=_score_liquidity_impact(liquidity_delta, pct_time_two_sided_delta),
-        execution_quality=_score_execution(fill_rate, order_to_trade_ratio),
+        execution_quality=_score_execution(fill_rate, order_to_trade_ratio, avg_slippage_bps),
     )
 
 

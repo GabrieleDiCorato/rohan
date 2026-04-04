@@ -104,6 +104,7 @@ class ScenarioMetrics(BaseModel):
     trade_count: int = 0
     volatility_delta_pct: float | None = None
     spread_delta_pct: float | None = None
+    avg_slippage_bps: float | None = None
 
     # Microstructure absolute values
     vpin: float | None = None

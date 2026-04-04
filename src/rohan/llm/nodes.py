@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import time
 import traceback
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import matplotlib.pyplot as plt
 from langchain_core.language_models import BaseChatModel
@@ -62,6 +62,10 @@ from rohan.simulation.strategy_validator import StrategyValidator, execute_strat
 from rohan.simulation.utils import _pct_change
 from rohan.utils.formatting import fmt_dollar, fmt_float, fmt_pct
 
+if TYPE_CHECKING:
+    from rohan.framework.analysis_models import RichAnalysisBundle
+    from rohan.llm.state import ScenarioConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,6 +87,50 @@ def _emit(state: RefinementState, event: str, **fields) -> None:
 _fmt_dollar = lambda cents: fmt_dollar(cents) if cents is not None else "N/A"  # noqa: E731
 _fmt_pct = fmt_pct
 _fmt_float = fmt_float
+
+
+def _compute_avg_slippage(rich_bundle: RichAnalysisBundle | None) -> float | None:
+    """Compute average fill slippage (bps) from a RichAnalysisBundle."""
+    if rich_bundle is None:
+        return None
+    slippages = [f.slippage_bps for f in rich_bundle.fills if f.slippage_bps is not None]
+    if not slippages:
+        return None
+    return sum(slippages) / len(slippages)
+
+
+def _build_scenario_context(state: RefinementState) -> str:
+    """Build a concise scenario description block for the writer."""
+    scenarios: list = state.get("scenarios", [])
+    if not scenarios:
+        return ""
+    lines = ["## Simulation Scenarios", "Your strategy will be tested against these market conditions:"]
+    for sc in scenarios:
+        overrides = sc.config_override if hasattr(sc, "config_override") else sc.get("config_override", {})
+        tags = overrides.get("regime_tags", []) if overrides else []
+        template = overrides.get("template", "") if overrides else ""
+        name = sc.name if hasattr(sc, "name") else sc.get("name", "unknown")
+        desc = template or ", ".join(tags) if tags else "default conditions"
+        lines.append(f"- **{name}**: {desc}")
+    plan_reasoning = state.get("scenario_plan_reasoning", "")
+    if plan_reasoning:
+        lines.append(f"\n**Planner rationale**: {plan_reasoning}")
+    return "\n".join(lines)
+
+
+def _build_regime_context(scenario: ScenarioConfig) -> str:
+    """Build a regime description string from a ScenarioConfig's overrides."""
+    overrides = scenario.config_override
+    if not overrides:
+        return ""
+    parts: list[str] = []
+    tags = overrides.get("regime_tags", [])
+    if tags:
+        parts.append(f"Regime: {', '.join(tags)}")
+    template = overrides.get("template", "")
+    if template:
+        parts.append(f"Template: {template}")
+    return "\n".join(parts)
 
 
 def _render_per_scenario_feedback(
@@ -175,6 +223,7 @@ def writer_node(state: RefinementState) -> dict:
 
     human_msg = WRITER_HUMAN.format(
         goal=state.get("goal", ""),
+        scenario_context=_build_scenario_context(state),
         feedback_section=feedback_section,
     )
 
@@ -229,6 +278,7 @@ def writer_node(state: RefinementState) -> dict:
                 HumanMessage(
                     content=WRITER_HUMAN.format(
                         goal=state.get("goal", ""),
+                        scenario_context=_build_scenario_context(state),
                         feedback_section=(feedback_section or "") + retry_note,
                     )
                 ),
@@ -546,6 +596,8 @@ def process_scenario_node(state: RefinementState) -> dict:
             max_drawdown=strategy_agent_metrics.max_drawdown,
             end_inventory=strategy_agent_metrics.end_inventory,
             inventory_std=strategy_agent_metrics.inventory_std,
+            vwap_cents=strategy_agent_metrics.vwap_cents,
+            avg_slippage_bps=_compute_avg_slippage(rich_bundle),
             starting_capital_cents=settings.starting_cash,
             baseline_mean_spread=base_market.mean_spread,
             baseline_traded_volume=base_market.traded_volume,
@@ -557,6 +609,7 @@ def process_scenario_node(state: RefinementState) -> dict:
             market_ott_ratio=strat_market.market_ott_ratio,
             pct_time_two_sided=strat_market.pct_time_two_sided,
             two_sided_delta_pct=impact.two_sided_delta_pct,
+            regime_context=_build_regime_context(scenario),
             price_chart_b64=price_chart_b64,
             spread_chart_b64=spread_chart_b64,
             volume_chart_b64=volume_chart_b64,
@@ -794,6 +847,7 @@ def _build_history_table(iterations: list[IterationSummary]) -> str:
                 pnl=_fmt_dollar(first_metrics.total_pnl) if first_metrics else "N/A",
                 trades=str(first_metrics.trade_count) if first_metrics else "N/A",
                 fill_rate=_fmt_pct(first_metrics.fill_rate) if first_metrics else "N/A",
+                slippage=f"{first_metrics.avg_slippage_bps:.1f}bps" if first_metrics and first_metrics.avg_slippage_bps is not None else "N/A",
                 vol_delta=_fmt_pct(first_metrics.volatility_delta_pct, signed=True) if first_metrics else "N/A",
                 spread_delta=_fmt_pct(first_metrics.spread_delta_pct, signed=True) if first_metrics else "N/A",
                 score=_fmt_float(it.judge_score, ".1f"),
@@ -902,6 +956,7 @@ def aggregator_node(state: RefinementState) -> dict:
             baseline_mean_spread=sr.baseline_mean_spread,
             baseline_traded_volume=sr.baseline_traded_volume,
             pct_time_two_sided_delta=sr.two_sided_delta_pct,
+            avg_slippage_bps=sr.avg_slippage_bps,
         )
         all_axis.append(axis)
 
@@ -1059,6 +1114,7 @@ def aggregator_node(state: RefinementState) -> dict:
             end_inventory=sr.end_inventory,
             volatility_delta_pct=sr.volatility_delta_pct,
             spread_delta_pct=sr.spread_delta_pct,
+            avg_slippage_bps=sr.avg_slippage_bps,
             trade_count=sr.trade_count,
             vpin=sr.vpin,
             lob_imbalance_mean=sr.lob_imbalance_mean,

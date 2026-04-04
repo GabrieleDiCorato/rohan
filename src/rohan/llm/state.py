@@ -80,6 +80,8 @@ class ScenarioResult(BaseModel):
     max_drawdown: float | None = None
     end_inventory: int = 0
     inventory_std: float | None = None
+    vwap_cents: int | None = None
+    avg_slippage_bps: float | None = None
     error: str | None = None
 
     # Simulation context (needed by deterministic scoring)
