@@ -22,16 +22,16 @@ def get_colors():
         # If streamlit is not installed, define expected COLORS
         # This allows tests to validate the expected structure
         return {
-            "background": "#0A0E27",
-            "secondary_bg": "#131829",
-            "card_bg": "#1A1F3A",
-            "primary": "#00D9FF",
-            "secondary": "#FFB800",
-            "success": "#00FF88",
-            "danger": "#FF3366",
-            "text": "#E8E8E8",
-            "text_muted": "#8B92A8",
-            "border": "#2A3150",
+            "background": "#05070A",
+            "secondary_bg": "#0B0E14",
+            "card_bg": "#111519",
+            "primary": "#0070FF",
+            "secondary": "#FFA500",
+            "success": "#00C805",
+            "danger": "#FF3B3F",
+            "text": "#E0E0E0",
+            "text_muted": "#6B7280",
+            "border": "#1C2128",
         }
 
 
@@ -87,11 +87,11 @@ class TestUITheme:
         # Bloomberg Terminal typically uses dark backgrounds
         assert COLORS["background"].startswith("#0")  # Dark background
 
-        # Primary color should be cyan/blue-ish (Bloomberg signature color)
-        assert COLORS["primary"] == "#00D9FF"  # Cyan
+        # Primary color should be blue (ABIDES signature color)
+        assert COLORS["primary"] == "#0070FF"  # Blue
 
         # Secondary should be amber/orange
-        assert COLORS["secondary"] == "#FFB800"  # Amber
+        assert COLORS["secondary"] == "#FFA500"  # Amber
 
     def test_background_colors_are_dark(self):
         """Test that background colors are dark (RGB values < 128)."""

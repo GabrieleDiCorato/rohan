@@ -1,19 +1,20 @@
-"""ABIDES Simulation Terminal - Optimized Single Page Application.
+"""ABIDES Simulation Terminal - Rohan Edition.
 
-Performance optimizations:
-- @st.cache_data for expensive data operations
-- @st.fragment for isolated component updates
-- Lazy loading of analysis components
-- Conditional rendering
+Visual design follows the abides-ui project (glassmorphism cards, Carbon Dark
+theme, 4-tab analytical layout).  Backend uses Rohan's config system,
+SimulationService, AnalysisService, saved scenarios and baseline comparison.
 """
 
-import html
+from __future__ import annotations
+
+import html as _html
 import logging
+import time
 import traceback
 from collections.abc import Hashable
 from datetime import datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -40,124 +41,83 @@ from rohan.config.latency_settings import LatencyModelSettings, LatencyType
 from rohan.exceptions import BaselineComparisonError
 from rohan.framework.analysis_service import AnalysisService
 from rohan.framework.scenario_repository import ScenarioRepository
+from rohan.simulation.abides_impl.hasufel_output import HasufelOutput
 from rohan.simulation.simulation_service import SimulationService
-from rohan.ui.charts import csv_preview_chart, price_returns_chart, spread_analysis_chart, volume_imbalance_chart
+from rohan.ui import charts, metrics
 from rohan.ui.utils.baseline_comparison import (
     build_baseline_context_table,
     ensure_baseline_comparable,
     get_baseline_compatibility_issues,
 )
-from rohan.ui.utils.metric_display import DeltaColor, build_comparison_table, get_delta_color, get_help, metric_delta
+from rohan.ui.utils.components import agent_recipe_bar, execution_console, metric_row
+from rohan.ui.utils.metric_display import build_comparison_table
 from rohan.ui.utils.presets import get_preset_config, get_preset_names
 from rohan.ui.utils.startup import ensure_db_initialized
-from rohan.ui.utils.theme import COLORS, apply_theme
-from rohan.utils.formatting import fmt_dollar
+from rohan.ui.utils.theme import CARBON_DARK_CSS
 
 _logger = logging.getLogger(__name__)
 
-# Ensure DB tables exist (once per session — avoids noisy re-creation
-# logs on every Streamlit rerun).
-ensure_db_initialized()
+# -- DB init & page config -----------------------------------------------------
 
+ensure_db_initialized()
 _scenario_repo = ScenarioRepository()
 
-# Page configuration
-st.set_page_config(
-    page_title="ABIDES Simulation Terminal",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
+st.set_page_config(page_title="ABIDES Terminal", page_icon="\u2b21", layout="wide")
+st.markdown(f"<style>{CARBON_DARK_CSS}</style>", unsafe_allow_html=True)
+
+# -- Header (abides-ui style) --------------------------------------------------
+
+st.markdown(
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">'
+    '<span style="font-size:1.6rem;opacity:0.25;line-height:1">\u2b21</span>'
+    "<span style=\"font-family:'JetBrains Mono',monospace;font-size:1.3rem;"
+    'font-weight:700;color:#E0E0E0;letter-spacing:0.08em">ABIDES TERMINAL</span>'
+    "<span style=\"font-family:'JetBrains Mono',monospace;font-size:0.6rem;"
+    "background:rgba(0,112,255,0.15);color:#0070FF;padding:2px 8px;"
+    'border-radius:4px;border:1px solid rgba(0,112,255,0.25)">rohan</span>'
+    "</div>"
+    "<div style=\"font-family:'Inter',sans-serif;font-size:0.78rem;"
+    'color:#6B7280;margin-bottom:12px">'
+    "Agent-Based Interactive Discrete Event Simulation"
+    "</div>",
+    unsafe_allow_html=True,
 )
 
-# Apply theme
-apply_theme()
+# -- Session state --------------------------------------------------------------
 
-# Initialize session state
 if "simulation_config" not in st.session_state:
-    st.session_state.simulation_config = None  # Applied configuration (shown in Execute tab)
-
+    st.session_state.simulation_config = None
 if "draft_config" not in st.session_state:
-    st.session_state.draft_config = SimulationSettings()  # Draft configuration (being edited in sidebar)
-
+    st.session_state.draft_config = SimulationSettings()
 if "simulation_result" not in st.session_state:
     st.session_state.simulation_result = None
-
 if "simulation_metrics" not in st.session_state:
     st.session_state.simulation_metrics = None
-
 if "simulation_running" not in st.session_state:
     st.session_state.simulation_running = False
-
 if "baseline_comparison" not in st.session_state:
     st.session_state.baseline_comparison = None
-
 if "baseline_scenario_id" not in st.session_state:
     st.session_state.baseline_scenario_id = None
-
 if "config_reset_counter" not in st.session_state:
     st.session_state.config_reset_counter = 0
 
-# ============================================================================
-# CACHED DATA FUNCTIONS
-# ============================================================================
+# -- Cached helpers -------------------------------------------------------------
 
 
 @st.cache_data
-def get_l1_data(_result):
-    """Cache L1 order book data retrieval."""
-    return _result.get_order_book_l1()
-
-
-@st.cache_data
-def get_logs_data(_result):
-    """Cache logs dataframe retrieval."""
-    return _result.get_logs_df()
-
-
-@st.cache_data
-def compute_price_data(_l1_df):
-    """Cache price calculations."""
-    df = _l1_df.copy()
-    df = df.dropna(subset=["bid_price", "ask_price"])
-    df["mid_price"] = (df["bid_price"] + df["ask_price"]) / 2
-    df["returns"] = df["mid_price"].pct_change().fillna(0)
-    return df
-
-
-@st.cache_data
-def compute_volume_data(_l1_df):
-    """Cache volume calculations."""
-    df = _l1_df.copy()
-    df = df.dropna(subset=["bid_price", "ask_price"])
-    df["volume_imbalance"] = (df["bid_qty"] - df["ask_qty"]) / (df["bid_qty"] + df["ask_qty"])
-    return df
-
-
-@st.cache_data
-def compute_spread_data(_l1_df):
-    """Cache spread calculations."""
-    df = _l1_df.copy()
-    df = df.dropna(subset=["bid_price", "ask_price"])
-    df["spread"] = df["ask_price"] - df["bid_price"]
-    df["mid_price"] = (df["bid_price"] + df["ask_price"]) / 2
-    df["spread_bps"] = (df["spread"] / df["mid_price"]) * 10000
-    return df
-
-
-@st.cache_data
-def load_historical_csv_preview(csv_path: str, file_mtime: float, file_size: int) -> tuple[pd.DataFrame, str, int]:
-    """Load historical CSV and downsample for responsive sidebar preview.
-
-    The mtime and size are part of the cache key so edits invalidate stale data.
-    """
-    _ = (file_mtime, file_size)  # Included for cache invalidation only.
-
+def load_historical_csv_preview(
+    csv_path: str,
+    file_mtime: float,
+    file_size: int,
+) -> tuple[pd.DataFrame, str, int]:
+    _ = (file_mtime, file_size)
     header = pd.read_csv(csv_path, nrows=0)
     columns = set(header.columns)
     price_col = "price_cents" if "price_cents" in columns else "price" if "price" in columns else ""
-
     if "timestamp" not in columns or not price_col:
-        raise ValueError("CSV must contain 'timestamp' and either 'price_cents' or 'price' columns")
+        msg = "CSV must contain 'timestamp' and either 'price_cents' or 'price' columns"
+        raise ValueError(msg)
 
     def should_load_column(column_name: Hashable) -> bool:
         return column_name in {"timestamp", price_col}
@@ -165,7 +125,6 @@ def load_historical_csv_preview(csv_path: str, file_mtime: float, file_size: int
     df = pd.read_csv(csv_path, usecols=should_load_column)
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
     df = df.dropna(subset=["timestamp", price_col]).sort_values("timestamp")
-
     total_rows = len(df)
     max_points = 2000
     if total_rows > max_points:
@@ -174,7 +133,6 @@ def load_historical_csv_preview(csv_path: str, file_mtime: float, file_size: int
         if sampled.index[-1] != df.index[-1]:
             sampled = pd.concat([sampled, df.iloc[[-1]]], ignore_index=False)
         df = sampled
-
     return df.reset_index(drop=True), price_col, total_rows
 
 
@@ -190,9 +148,7 @@ def load_historical_series_for_analysis(
     price_unit: str,
     source_timezone: str,
 ) -> pd.DataFrame:
-    """Load and downsample historical series for the analysis price chart."""
-    _ = (file_mtime, file_size)  # Included for cache invalidation only.
-
+    _ = (file_mtime, file_size)
     from rohan.simulation.data.csv_provider import CsvDataProvider
 
     provider = CsvDataProvider(
@@ -201,243 +157,215 @@ def load_historical_series_for_analysis(
         price_unit=PriceUnit(price_unit),
         source_timezone=source_timezone,
     )
-
     day_ns = int(pd.to_datetime(sim_date).value)
     start_ns = day_ns + int(pd.to_timedelta(start_time).value)
     end_ns = day_ns + int(pd.to_timedelta(end_time).value)
-
     series = provider.get_fundamental_series(symbol, start_ns, end_ns)
     if series.empty:
         return pd.DataFrame(columns=pd.Index(["timestamp", "historical_price_cents"]))
-
     historical_df = series.rename("historical_price_cents").reset_index()
     historical_df.columns = ["timestamp", "historical_price_cents"]
-
     max_points = 4000
     if len(historical_df) > max_points:
         step = max(1, len(historical_df) // max_points)
         historical_df = historical_df.iloc[::step].copy()
-
     return historical_df.reset_index(drop=True)
 
 
-class MetricItem(TypedDict):
-    label: str
-    value: str
-    delta: str | None
-    delta_color: DeltaColor
-    help: str | None
+# ==============================================================================
+# SIDEBAR -- PREPARATION DESK
+# ==============================================================================
 
 
-def _metric_item(
-    label: str,
-    value: str,
-    *,
-    delta: str | None,
-    field: str,
-) -> MetricItem:
-    """Create a metric payload for compact column rendering."""
-    return {
-        "label": label,
-        "value": value,
-        "delta": delta,
-        "delta_color": get_delta_color(field),
-        "help": get_help(field),
-    }
-
-
-def _render_metric_columns(metric_items: list[MetricItem], *, column_count: int = 2) -> None:
-    """Render metrics in balanced vertical columns for easier scanning."""
-    if not metric_items:
-        return
-
-    columns = st.columns(column_count)
-    chunk_size = (len(metric_items) + column_count - 1) // column_count
-
-    for index, column in enumerate(columns):
-        start = index * chunk_size
-        end = start + chunk_size
-        with column:
-            for metric in metric_items[start:end]:
-                st.metric(
-                    metric["label"],
-                    metric["value"],
-                    delta=metric["delta"],
-                    delta_color=metric["delta_color"],
-                    help=metric["help"],
-                )
-
-
-def _render_comparison_context(current_config: SimulationSettings, baseline_config: SimulationSettings) -> None:
-    """Render fairness-critical comparison metadata."""
-    context_df = build_baseline_context_table(current_config, baseline_config)
-    st.caption("Fair comparison check: date, time window, duration, and seed should align before comparing market metrics.")
-    st.dataframe(context_df, width="stretch", hide_index=True)
-
-
-# ============================================================================
-# SIDEBAR: CONFIGURATION
-# ============================================================================
-
-
-def compact_input(label, widget_type, key, **kwargs):
-    """Create a compact key-value input with label and widget on the same line."""
-    # Append reset counter to key to force widget recreation when loading presets
+def compact_input(label: str, widget_type: str, key: str, **kwargs: Any) -> Any:
+    """Render a label+input pair in a compact two-column layout."""
     actual_key = f"{key}_{st.session_state.config_reset_counter}"
-
     col1, col2 = st.columns([1.2, 1])
     with col1:
         st.markdown(f"**{label}:**")
     with col2:
         if widget_type == "text":
-            return st.text_input(label, key=actual_key, label_visibility="collapsed", **kwargs)
+            return st.text_input(
+                label,
+                key=actual_key,
+                label_visibility="collapsed",
+                **kwargs,
+            )
         if widget_type == "number":
-            return st.number_input(label, key=actual_key, label_visibility="collapsed", **kwargs)
+            return st.number_input(
+                label,
+                key=actual_key,
+                label_visibility="collapsed",
+                **kwargs,
+            )
         if widget_type == "selectbox":
-            return st.selectbox(label, key=actual_key, label_visibility="collapsed", **kwargs)
+            return st.selectbox(
+                label,
+                key=actual_key,
+                label_visibility="collapsed",
+                **kwargs,
+            )
         if widget_type == "checkbox":
-            return st.checkbox(label, key=actual_key, label_visibility="collapsed", **kwargs)
-        raise ValueError(f"Unknown widget type: {widget_type}")
+            return st.checkbox(
+                label,
+                key=actual_key,
+                label_visibility="collapsed",
+                **kwargs,
+            )
+        msg = f"Unknown widget type: {widget_type}"
+        raise ValueError(msg)
 
 
-def _clear_config_widget_keys():
-    """Clear all config widget keys from session state so they re-initialize from draft_config."""
+def _clear_config_widget_keys() -> None:
     st.session_state.config_reset_counter += 1
 
 
-@st.fragment
-def render_sidebar_config():
-    """Render configuration sidebar as a fragment for isolated updates."""
+with st.sidebar:
     st.markdown(
-        f"""
-        <div style='text-align: center; padding: 20px 0;'>
-            <h1 style='color: {COLORS["primary"]}; font-size: 1.8rem; margin: 0;'>
-                ABIDES-ROHAN
-            </h1>
-            <p style='color: {COLORS["secondary"]}; font-size: 1.2rem; margin: 5px 0 0 0; letter-spacing: 2px;'>
-                TERMINAL
-            </p>
-            <hr style='border-color: {COLORS["border"]}; margin: 15px 0;'>
-        </div>
-        """,
+        "<div style=\"font-family:'JetBrains Mono',monospace;font-size:0.75rem;font-weight:600;color:#8A919B;letter-spacing:0.1em;margin-bottom:12px\">PREPARATION DESK</div>",
         unsafe_allow_html=True,
     )
 
-    st.markdown("## ⚙️ Configuration")
-
-    # Preset selection
-    st.markdown("### 📋 Presets")
+    # -- Presets ----------------------------------------------------------------
+    st.subheader("Template")
     preset_name = st.selectbox(
-        "Select preset",
+        "Preset",
         options=["Custom"] + get_preset_names(),
-        help="Choose a preset configuration",
+        help="Load a preset configuration from the library.",
         key="preset_selector",
     )
-
-    if st.button("Load Preset", type="primary", width="stretch") and preset_name != "Custom":
+    if st.button("Load Preset", type="primary", use_container_width=True) and preset_name != "Custom":
         new_config = get_preset_config(preset_name)
         st.session_state.draft_config = new_config.model_copy(deep=True)
         _clear_config_widget_keys()
-
-        st.success(f"✅ Loaded preset into draft: {preset_name}")
+        st.success("\u2705 Loaded: " + str(preset_name))
         st.rerun()
 
-    st.markdown("---")
-
-    # ── Saved scenarios from DB ────────────────────────────────────
-    st.markdown("### 💾 Saved Scenarios")
+    # -- Saved scenarios --------------------------------------------------------
+    st.divider()
 
     @st.dialog("Load Saved Scenario", width="large")
-    def load_scenario_dialog():
+    def load_scenario_dialog() -> None:
         try:
             _saved_list = _scenario_repo.list_scenarios()
         except Exception:
             _saved_list = []
-
         if not _saved_list:
-            st.info("No saved scenarios yet. Save one from the Execute tab.")
+            st.info("No saved scenarios yet.")
             return
-
         st.markdown(f"**{len(_saved_list)} saved scenario(s)**")
         st.markdown("---")
-
         for _sc in _saved_list:
             _cfg = _sc.full_config or {}
-            _agents = _cfg.get("agents", {})
-            _noise_n = _agents.get("noise", {}).get("num_agents", "?")
-            _value_n = _agents.get("value", {}).get("num_agents", "?")
-            _mm_n = _agents.get("adaptive_market_maker", {}).get("num_agents", "?")
-            _mom_n = _agents.get("momentum", {}).get("num_agents", "?")
-
             _sc_col1, _sc_col2, _sc_col3 = st.columns([5, 1, 1])
             with _sc_col1:
                 st.markdown(f"**{_sc.name}**")
                 if _sc.description:
                     st.caption(_sc.description)
-                _detail_parts = [
-                    f"📅 {_cfg.get('date', '?')}",
-                    f"🕐 {_cfg.get('start_time', '?')} – {_cfg.get('end_time', '?')}",
-                    f"🏷️ {_cfg.get('ticker', '?')}",
-                ]
-                st.caption(" · ".join(_detail_parts))
-                st.caption(f"👥 Noise: {_noise_n} · Value: {_value_n} · MM: {_mm_n} · Momentum: {_mom_n}   | Created: {_sc.created_at:%Y-%m-%d %H:%M}")
+                st.caption(
+                    "\U0001f4c5 "
+                    + str(_cfg.get("date", "?"))
+                    + " \u00b7 "
+                    + str(_cfg.get("start_time", "?"))
+                    + "\u2013"
+                    + str(_cfg.get("end_time", "?"))
+                    + " \u00b7 \U0001f3f7\ufe0f "
+                    + str(_cfg.get("ticker", "?"))
+                    + " \u00b7 Created: "
+                    + _sc.created_at.strftime("%Y-%m-%d %H:%M"),
+                )
             with _sc_col2:
-                if st.button("Load", key=f"load_sc_{_sc.scenario_id}", width="stretch", type="primary"):
-                    from rohan.config import SimulationSettings as _SimSettings
-
-                    st.session_state.draft_config = _SimSettings.model_validate(_sc.full_config)
+                if st.button(
+                    "Load",
+                    key=f"load_sc_{_sc.scenario_id}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    st.session_state.draft_config = SimulationSettings.model_validate(_sc.full_config)
                     _clear_config_widget_keys()
-
-                    st.toast(f"✅ Loaded into draft: {_sc.name}")
+                    st.toast("\u2705 Loaded: " + str(_sc.name))
                     st.rerun()
             with _sc_col3:
-                if st.button("🗑️", key=f"del_sc_{_sc.scenario_id}", width="stretch", help=f"Delete '{_sc.name}'"):
+                if st.button(
+                    "\U0001f5d1\ufe0f",
+                    key=f"del_sc_{_sc.scenario_id}",
+                    use_container_width=True,
+                    help="Delete '" + str(_sc.name) + "'",
+                ):
                     _scenario_repo.delete_scenario(_sc.scenario_id)
                     st.rerun()
             st.divider()
 
-    if st.button("Load Configuration", width="stretch"):
+    if st.button("Load Saved Scenario", use_container_width=True):
         load_scenario_dialog()
 
-    st.markdown("---")
+    st.divider()
 
-    # Use draft config for sidebar inputs (being edited)
+    # -- Market settings --------------------------------------------------------
     config = st.session_state.draft_config
 
-    # Simulation Parameters
-    with st.expander("🎯 SIMULATION", expanded=True):
-        date = compact_input("Date (YYYYMMDD)", "text", "cfg_date", value=config.date)
-        start_time = compact_input("Start Time", "text", "cfg_start_time", value=config.start_time)
-        end_time = compact_input("End Time", "text", "cfg_end_time", value=config.end_time)
-        seed = compact_input("Random Seed", "number", "cfg_seed", value=config.seed, min_value=0)
-        ticker = compact_input("Ticker", "text", "cfg_ticker", value=config.ticker)
-        starting_cash = compact_input(
-            "Starting Cash",
-            "number",
-            "cfg_starting_cash",
-            value=config.starting_cash,
-            min_value=0,
-            step=1000000,
+    st.subheader("Market")
+    ticker = compact_input("Ticker", "text", "cfg_ticker", value=config.ticker)
+    date = compact_input("Date", "text", "cfg_date", value=config.date)
+
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        start_time = st.text_input(
+            "Open",
+            value=config.start_time,
+            key=f"cfg_start_time_{st.session_state.config_reset_counter}",
+            label_visibility="collapsed",
         )
-        _log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-        stdout_log_level = compact_input(
-            "Log Level",
-            "selectbox",
-            "cfg_log_level",
-            options=_log_levels,
-            index=_log_levels.index(config.stdout_log_level),
-        )
-        log_orders = compact_input("Log Orders", "checkbox", "cfg_log_orders", value=config.log_orders)
-        computation_delay_ns = compact_input(
-            "Comp Delay (ns)",
-            "number",
-            "cfg_computation_delay_ns",
-            value=config.computation_delay_ns,
-            min_value=0,
+    with col_t2:
+        end_time = st.text_input(
+            "Close",
+            value=config.end_time,
+            key=f"cfg_end_time_{st.session_state.config_reset_counter}",
+            label_visibility="collapsed",
         )
 
-    # Exchange Agent
-    with st.expander("🏦 EXCHANGE"):
+    seed = compact_input(
+        "Seed",
+        "number",
+        "cfg_seed",
+        value=config.seed,
+        min_value=0,
+    )
+    starting_cash = compact_input(
+        "Starting Cash",
+        "number",
+        "cfg_starting_cash",
+        value=config.starting_cash,
+        min_value=0,
+        step=1000000,
+    )
+
+    _log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+    stdout_log_level = compact_input(
+        "Log Level",
+        "selectbox",
+        "cfg_log_level",
+        options=_log_levels,
+        index=_log_levels.index(config.stdout_log_level),
+    )
+    log_orders = compact_input(
+        "Log Orders",
+        "checkbox",
+        "cfg_log_orders",
+        value=config.log_orders,
+    )
+    computation_delay_ns = compact_input(
+        "Comp Delay (ns)",
+        "number",
+        "cfg_computation_delay_ns",
+        value=config.computation_delay_ns,
+        min_value=0,
+    )
+
+    st.divider()
+
+    # -- Exchange ---------------------------------------------------------------
+    with st.expander("\U0001f3e6 Exchange"):
         exchange_book_logging = compact_input(
             "Book Logging",
             "checkbox",
@@ -479,20 +407,20 @@ def render_sidebar_config():
             min_value=0,
         )
 
-    # Noise Agents
-    with st.expander("📢 NOISE AGENTS"):
+    # -- Noise ------------------------------------------------------------------
+    with st.expander("\U0001f4e2 Noise Agents"):
         noise_num_agents = compact_input(
-            "Number of Agents",
+            "Count",
             "number",
             "cfg_noise_num_agents",
             value=config.agents.noise.num_agents,
             min_value=0,
         )
 
-    # Value Agents
-    with st.expander("💎 VALUE AGENTS"):
+    # -- Value ------------------------------------------------------------------
+    with st.expander("\U0001f48e Value Agents"):
         value_num_agents = compact_input(
-            "Number of Agents",
+            "Count",
             "number",
             "cfg_value_num_agents",
             value=config.agents.value.num_agents,
@@ -520,10 +448,10 @@ def render_sidebar_config():
             format="%.2e",
         )
 
-    # Adaptive Market Makers
-    with st.expander("🎯 MARKET MAKERS"):
+    # -- Market Makers ----------------------------------------------------------
+    with st.expander("\U0001f3af Market Makers"):
         amm_num_agents = compact_input(
-            "Number of Agents",
+            "Count",
             "number",
             "cfg_amm_num_agents",
             value=config.agents.adaptive_market_maker.num_agents,
@@ -606,10 +534,10 @@ def render_sidebar_config():
             min_value=0,
         )
 
-    # Momentum Agents
-    with st.expander("📈 MOMENTUM AGENTS"):
+    # -- Momentum ---------------------------------------------------------------
+    with st.expander("\U0001f4c8 Momentum Agents"):
         momentum_num_agents = compact_input(
-            "Number of Agents",
+            "Count",
             "number",
             "cfg_momentum_num_agents",
             value=config.agents.momentum.num_agents,
@@ -642,8 +570,8 @@ def render_sidebar_config():
             value=config.agents.momentum.poisson_arrival,
         )
 
-    # Oracle Settings
-    with st.expander("🔮 ORACLE"):
+    # -- Oracle -----------------------------------------------------------------
+    with st.expander("\U0001f52e Oracle"):
         oracle_type_str = st.radio(
             "Oracle Type",
             options=[OracleType.SYNTHETIC.value, OracleType.HISTORICAL.value],
@@ -713,16 +641,16 @@ def render_sidebar_config():
                 "selectbox",
                 "cfg_oracle_historical_provider",
                 options=[pt.value for pt in ProviderType],
-                index=[pt.value for pt in ProviderType].index(config.agents.oracle.historical.provider_type.value),
+                index=[pt.value for pt in ProviderType].index(
+                    config.agents.oracle.historical.provider_type.value,
+                ),
             )
             historical_provider_type = ProviderType(provider_type_str)
-
             datasets_dir = Path("hist_data")
             datasets_dir.mkdir(parents=True, exist_ok=True)
 
             if historical_provider_type == ProviderType.CSV:
                 available_csvs = CsvDataProvider.list_available(datasets_dir)
-
                 if not available_csvs:
                     st.warning("No CSV datasets found in hist_data/")
                     historical_csv = None
@@ -730,12 +658,13 @@ def render_sidebar_config():
                     historical_csv = st.selectbox(
                         "Historical Dataset",
                         options=available_csvs,
-                        help="Select a CSV dataset. Look inside hist_data/",
+                        help="Select a CSV dataset.",
                         key=f"cfg_oracle_historical_csv_{st.session_state.config_reset_counter}",
                     )
                     if historical_csv:
-                        historical_csv_path = str(datasets_dir / f"{historical_csv}.csv")
-
+                        historical_csv_path = str(
+                            datasets_dir / f"{historical_csv}.csv",
+                        )
                 csv_unit_str = compact_input(
                     "CSV Price Unit",
                     "selectbox",
@@ -751,18 +680,16 @@ def render_sidebar_config():
                     value=historical_source_timezone,
                 )
                 historical_source_timezone = str(historical_source_timezone)
-
             elif historical_provider_type == ProviderType.DATABASE:
                 available_datasets = DatabaseDataProvider.list_available()
                 if not available_datasets:
-                    st.warning("No historical datasets found in database table fundamental_datasets")
+                    st.warning("No datasets found in database")
                 else:
                     historical_db_dataset_id = st.selectbox(
-                        "Database Dataset ID",
+                        "Database Dataset",
                         options=available_datasets,
                         key=f"cfg_oracle_historical_db_dataset_{st.session_state.config_reset_counter}",
                     )
-
             else:
                 historical_api_provider = str(
                     compact_input(
@@ -771,7 +698,7 @@ def render_sidebar_config():
                         "cfg_oracle_historical_api_provider",
                         options=["alpaca", "polygon"],
                         index=0 if historical_api_provider == "alpaca" else 1,
-                    )
+                    ),
                 )
                 historical_api_symbol_value = compact_input(
                     "API Symbol",
@@ -797,11 +724,11 @@ def render_sidebar_config():
                 historical_price_unit = PriceUnit(api_unit_str)
                 historical_source_timezone = str(
                     compact_input(
-                        "API Source Timezone",
+                        "API Timezone",
                         "text",
                         "cfg_oracle_historical_api_timezone",
                         value=historical_source_timezone,
-                    )
+                    ),
                 )
 
             historical_interpolation = compact_input(
@@ -809,9 +736,10 @@ def render_sidebar_config():
                 "selectbox",
                 "cfg_oracle_historical_interp",
                 options=[m.value for m in InterpolationMode],
-                index=([m.value for m in InterpolationMode].index(config.agents.oracle.historical.interpolation.value)),
+                index=[m.value for m in InterpolationMode].index(
+                    config.agents.oracle.historical.interpolation.value,
+                ),
             )
-
             historical_recenter = compact_input(
                 "Recenter to R_Bar",
                 "checkbox",
@@ -820,39 +748,30 @@ def render_sidebar_config():
             )
 
             if historical_provider_type == ProviderType.CSV and historical_csv_path:
-                csv_path = Path(historical_csv_path)
+                csv_path_obj = Path(historical_csv_path)
                 try:
                     preview_df, price_col, total_rows = load_historical_csv_preview(
-                        str(csv_path),
-                        csv_path.stat().st_mtime,
-                        csv_path.stat().st_size,
+                        str(csv_path_obj),
+                        csv_path_obj.stat().st_mtime,
+                        csv_path_obj.stat().st_size,
                     )
                     preview_df = preview_df.set_index("timestamp")
-
                     st.markdown("**Preview**")
-
-                    preview_fig = csv_preview_chart(preview_df, price_col)
-                    st.plotly_chart(preview_fig, width="stretch", config={"displayModeBar": False})
-
+                    preview_fig = charts.csv_preview_chart(preview_df, price_col)
+                    st.plotly_chart(
+                        preview_fig,
+                        use_container_width=True,
+                        config={"displayModeBar": False},
+                    )
                     if total_rows > len(preview_df):
-                        st.caption(f"Previewing {len(preview_df):,} sampled points from {total_rows:,} rows for UI responsiveness.")
-
-                    # Inform the user if the CSV date differs from the simulation
-                    # date. The provider rebases the series automatically, so the
-                    # simulation will still run correctly.
-                    csv_first_ts = preview_df["timestamp"].iloc[0]
-                    if not pd.isna(csv_first_ts):
-                        csv_first_timestamp = pd.to_datetime(csv_first_ts, errors="coerce")
-                        if isinstance(csv_first_timestamp, pd.Timestamp):
-                            csv_date_str = csv_first_timestamp.strftime("%Y%m%d")
-                            sim_date_str = str(config.date)
-                            if csv_date_str != sim_date_str:
-                                st.info(f"ℹ️ CSV date ({csv_date_str}) differs from simulation date ({sim_date_str}). The intraday price pattern will be rebased to the simulation date automatically.")
+                        st.caption(
+                            f"Showing {len(preview_df):,} of {total_rows:,} rows.",
+                        )
                 except Exception as e:
                     st.error(f"Cannot preview dataset: {e}")
 
-    # Latency Model
-    with st.expander("⏱️ LATENCY"):
+    # -- Latency ----------------------------------------------------------------
+    with st.expander("\u23f1\ufe0f Latency"):
         _latency_options = [lt.value for lt in LatencyType]
         latency_type = compact_input(
             "Type",
@@ -888,65 +807,70 @@ def render_sidebar_config():
             latency_jitter_clip = config.latency.jitter_clip
             latency_jitter_unit = config.latency.jitter_unit
 
-    st.markdown("---")
+    st.divider()
 
-    # Save configuration button
-    if st.button("🚀 Apply Configuration", type="primary", width="stretch"):
+    # -- Apply Configuration ----------------------------------------------------
+    if st.button(
+        "\U0001f680 Apply Configuration",
+        type="primary",
+        use_container_width=True,
+    ):
         try:
-            # Build configuration
             agents = AgentSettings(
                 exchange=ExchangeAgentSettings(
                     book_logging=bool(exchange_book_logging),
-                    book_log_depth=int(exchange_book_log_depth),  # pyright: ignore[reportArgumentType]
-                    stream_history_length=int(exchange_stream_history),  # pyright: ignore[reportArgumentType]
+                    book_log_depth=int(exchange_book_log_depth),
+                    stream_history_length=int(exchange_stream_history),
                     exchange_log_orders=bool(exchange_log_orders),
-                    pipeline_delay_ns=int(exchange_pipeline_delay),  # pyright: ignore[reportArgumentType]
-                    computation_delay_ns=int(exchange_computation_delay),  # pyright: ignore[reportArgumentType]
+                    pipeline_delay_ns=int(exchange_pipeline_delay),
+                    computation_delay_ns=int(exchange_computation_delay),
                 ),
-                noise=NoiseAgentSettings(num_agents=int(noise_num_agents)),  # pyright: ignore[reportArgumentType]
+                noise=NoiseAgentSettings(num_agents=int(noise_num_agents)),
                 value=ValueAgentSettings(
-                    num_agents=int(value_num_agents),  # pyright: ignore[reportArgumentType]
-                    r_bar=int(value_r_bar),  # pyright: ignore[reportArgumentType]
-                    kappa=float(value_kappa),  # pyright: ignore[reportArgumentType]
-                    lambda_a=float(value_lambda_a),  # pyright: ignore[reportArgumentType]
+                    num_agents=int(value_num_agents),
+                    r_bar=int(value_r_bar),
+                    kappa=float(value_kappa),
+                    lambda_a=float(value_lambda_a),
                 ),
                 adaptive_market_maker=AdaptiveMarketMakerSettings(
-                    num_agents=int(amm_num_agents),  # pyright: ignore[reportArgumentType]
-                    window_size=(amm_window_size if amm_window_size == "adaptive" else int(amm_window_size)),  # pyright: ignore[reportArgumentType]
-                    pov=float(amm_pov),  # pyright: ignore[reportArgumentType]
-                    num_ticks=int(amm_num_ticks),  # pyright: ignore[reportArgumentType]
+                    num_agents=int(amm_num_agents),
+                    window_size=(amm_window_size if amm_window_size == "adaptive" else int(amm_window_size)),
+                    pov=float(amm_pov),
+                    num_ticks=int(amm_num_ticks),
                     wake_up_freq=str(amm_wake_up_freq),
                     poisson_arrival=bool(amm_poisson),
-                    min_order_size=int(amm_min_order_size),  # pyright: ignore[reportArgumentType]
-                    skew_beta=int(amm_skew_beta),  # pyright: ignore[reportArgumentType]
-                    price_skew=int(amm_price_skew),  # pyright: ignore[reportArgumentType]
-                    level_spacing=int(amm_level_spacing),  # pyright: ignore[reportArgumentType]
-                    spread_alpha=float(amm_spread_alpha),  # pyright: ignore[reportArgumentType]
-                    backstop_quantity=int(amm_backstop_qty),  # pyright: ignore[reportArgumentType]
+                    min_order_size=int(amm_min_order_size),
+                    skew_beta=int(amm_skew_beta),
+                    price_skew=int(amm_price_skew),
+                    level_spacing=int(amm_level_spacing),
+                    spread_alpha=float(amm_spread_alpha),
+                    backstop_quantity=int(amm_backstop_qty),
                 ),
                 momentum=MomentumAgentSettings(
-                    num_agents=int(momentum_num_agents),  # pyright: ignore[reportArgumentType]
-                    min_size=int(momentum_min_size),  # pyright: ignore[reportArgumentType]
-                    max_size=int(momentum_max_size),  # pyright: ignore[reportArgumentType]
+                    num_agents=int(momentum_num_agents),
+                    min_size=int(momentum_min_size),
+                    max_size=int(momentum_max_size),
                     wake_up_freq=str(momentum_wake_up_freq),
                     poisson_arrival=bool(momentum_poisson),
                 ),
                 oracle=(
                     OracleSettings(
                         oracle_type=OracleType.SYNTHETIC,
-                        kappa=float(oracle_kappa),  # pyright: ignore[reportArgumentType]
-                        sigma_s=float(oracle_sigma_s),  # pyright: ignore[reportArgumentType]
-                        fund_vol=float(oracle_fund_vol),  # pyright: ignore[reportArgumentType]
-                        megashock_lambda_a=float(oracle_megashock_lambda),  # pyright: ignore[reportArgumentType]
-                        megashock_mean=int(oracle_megashock_mean),  # pyright: ignore[reportArgumentType]
-                        megashock_var=int(oracle_megashock_var),  # pyright: ignore[reportArgumentType]
+                        kappa=float(oracle_kappa),
+                        sigma_s=float(oracle_sigma_s),
+                        fund_vol=float(oracle_fund_vol),
+                        megashock_lambda_a=float(oracle_megashock_lambda),
+                        megashock_mean=int(oracle_megashock_mean),
+                        megashock_var=int(oracle_megashock_var),
                     )
                     if oracle_type == OracleType.SYNTHETIC
                     else OracleSettings(
                         oracle_type=OracleType.HISTORICAL,
                         historical=HistoricalOracleSettings(
                             provider_type=historical_provider_type,
-                            interpolation=InterpolationMode(str(historical_interpolation)),
+                            interpolation=InterpolationMode(
+                                str(historical_interpolation),
+                            ),
                             recenter_r_bar=bool(historical_recenter),
                             csv=CsvHistoricalProviderSettings(
                                 csv_path=historical_csv_path,
@@ -967,985 +891,1095 @@ def render_sidebar_config():
                     )
                 ),
             )
-
             latency = LatencyModelSettings(
                 type=LatencyType(latency_type),
-                jitter=float(latency_jitter),  # pyright: ignore[reportArgumentType]
-                jitter_clip=float(latency_jitter_clip),  # pyright: ignore[reportArgumentType]
-                jitter_unit=float(latency_jitter_unit),  # pyright: ignore[reportArgumentType]
+                jitter=float(latency_jitter),
+                jitter_clip=float(latency_jitter_clip),
+                jitter_unit=float(latency_jitter_unit),
             )
-
             new_config = SimulationSettings(
                 template=config.template,
                 date=str(date),
                 start_time=str(start_time),
                 end_time=str(end_time),
-                seed=int(seed),  # pyright: ignore[reportArgumentType]
+                seed=int(seed),
                 ticker=str(ticker),
-                starting_cash=int(starting_cash),  # pyright: ignore[reportArgumentType]
+                starting_cash=int(starting_cash),
                 stdout_log_level=str(stdout_log_level),
                 log_orders=bool(log_orders),
-                computation_delay_ns=int(computation_delay_ns),  # pyright: ignore[reportArgumentType]
+                computation_delay_ns=int(computation_delay_ns),
                 agents=agents,
                 latency=latency,
             )
-
             st.session_state.simulation_config = new_config
             st.session_state.draft_config = new_config.model_copy(deep=True)
-            # Clear stale results — the config has changed
             st.session_state.simulation_result = None
             st.session_state.simulation_metrics = None
             st.session_state.baseline_comparison = None
             st.session_state.pop("simulation_timestamp", None)
             st.session_state.pop("simulation_duration", None)
             st.session_state.pop("simulation_seed", None)
-            st.success("✅ Configuration applied!")
-            st.rerun()  # Force full page refresh to update Execute tab
-
+            st.success("\u2705 Configuration applied!")
+            st.rerun()
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+            st.error("\u274c Error: " + str(e))
 
-    # Reset button
-    if st.button("🔄 Reset to Default", width="stretch"):
+    if st.button("\U0001f504 Reset to Default", use_container_width=True):
         st.session_state.draft_config = SimulationSettings()
         _clear_config_widget_keys()
-        st.success("✅ Draft reset to defaults!")
+        st.success("\u2705 Reset to defaults!")
         st.rerun()
 
+    # -- Session status indicator -----------------------------------------------
+    st.divider()
+    _has_result = st.session_state.simulation_result is not None
+    _result_ticker = st.session_state.simulation_config.ticker if st.session_state.simulation_config else ""
+    if _has_result:
+        st.markdown(
+            "<div style=\"font-family:'JetBrains Mono',monospace;font-size:0.68rem;"
+            "background:rgba(0,200,5,0.08);color:#00C805;padding:6px 10px;"
+            "border-radius:4px;border:1px solid rgba(0,200,5,0.2);"
+            'margin-bottom:8px">'
+            "\u25cf Results loaded \u2014 " + _html.escape(str(_result_ticker)) + "</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div style=\"font-family:'JetBrains Mono',monospace;font-size:0.68rem;"
+            "color:#6B7280;padding:6px 10px;border-radius:4px;"
+            "border:1px solid rgba(255,255,255,0.06);"
+            'margin-bottom:8px">'
+            "\u25cb No results yet</div>",
+            unsafe_allow_html=True,
+        )
 
-# Render sidebar
-with st.sidebar:
-    render_sidebar_config()
-
-    # 2.7.9 — Show the seed used by the last completed run so results are
-    # reproducible: the user can copy the seed back into the seed field to
-    # replay an exact scenario.
     if "simulation_seed" in st.session_state:
-        st.markdown("---")
-        st.markdown("**🎲 Last Run Seed**")
+        st.markdown("**\U0001f3b2 Last Run Seed**")
         st.code(str(st.session_state.simulation_seed), language=None)
-        st.caption("Set this seed in Configuration to reproduce results.")
+        st.caption("Set this seed to reproduce results.")
 
-# ============================================================================
-# MAIN PANEL: HEADER
-# ============================================================================
+    # -- About ------------------------------------------------------------------
+    with st.expander("\u2139\ufe0f About", expanded=False):
+        st.markdown(
+            "**ABIDES Terminal** \u2014 Rohan Edition\n\n"
+            "Interactive agent-based market simulation dashboard.\n\n"
+            "**Quick start:** pick a template, customize parameters, "
+            "hit **Run Simulation**.\n\n"
+            "**Tips**\n"
+            "- Press **R** to re-run the app\n"
+            "- Use presets for fast experiments\n"
+            "- Enable *Log Orders* for the Order Book tab",
+        )
+
+
+# ==============================================================================
+# MAIN AREA -- Agent Summary + Run + Results
+# ==============================================================================
+
+if st.session_state.simulation_config is None:
+    st.markdown(
+        '<div style="text-align:center;padding:60px 20px;color:#6B7280;'
+        "font-family:'Inter',sans-serif\">"
+        '<div style="font-size:2.5rem;margin-bottom:12px;opacity:0.2">'
+        "\u2b21</div>"
+        '<div style="font-size:1rem;color:#A0A8B4;margin-bottom:20px">'
+        "No configuration applied yet</div>"
+        '<div style="display:flex;justify-content:center;gap:32px;'
+        'flex-wrap:wrap;margin-top:8px">'
+        '<div style="text-align:center;max-width:160px">'
+        '<div style="font-size:1.3rem;margin-bottom:4px">1</div>'
+        '<div style="font-size:0.78rem">Pick a <b>template</b> in the '
+        "Preparation Desk</div></div>"
+        '<div style="text-align:center;max-width:160px">'
+        '<div style="font-size:1.3rem;margin-bottom:4px">2</div>'
+        '<div style="font-size:0.78rem">Customize <b>agents</b> and '
+        "parameters</div></div>"
+        '<div style="text-align:center;max-width:160px">'
+        '<div style="font-size:1.3rem;margin-bottom:4px">3</div>'
+        '<div style="font-size:0.78rem">Hit <b style="color:#0070FF">'
+        "Apply Configuration</b></div></div>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
+sim_config = st.session_state.simulation_config
+
+# -- Agent composition summary + Recipe bar ------------------------------------
+
+agent_counts = {
+    "Noise": sim_config.agents.noise.num_agents,
+    "Value": sim_config.agents.value.num_agents,
+    "Market Maker": sim_config.agents.adaptive_market_maker.num_agents,
+    "Momentum": sim_config.agents.momentum.num_agents,
+}
+total_agents = sum(agent_counts.values()) + 1  # +1 for exchange
 
 st.markdown(
-    f"""
-    <div style='text-align: center; padding: 20px 0;'>
-        <h1 style='color: {COLORS["primary"]}; font-size: 2.5rem; margin: 0;'>
-            ABIDES-Markets Simulation Terminal
-        </h1>
-        <p style='color: {COLORS["text_muted"]}; font-size: 1.1rem; margin: 10px 0 0 0;'>
-            Agent-Based Interactive Discrete Event Simulation
-        </p>
-    </div>
-    """,
+    metric_row(
+        [
+            {"label": "Ticker", "value": sim_config.ticker},
+            {"label": "Date", "value": sim_config.date},
+            {
+                "label": "Window",
+                "value": sim_config.start_time + " \u2013 " + sim_config.end_time,
+            },
+            {"label": "Seed", "value": str(sim_config.seed)},
+            {"label": "Total Agents", "value": str(total_agents)},
+        ]
+    ),
     unsafe_allow_html=True,
 )
 
-st.markdown("---")
+_recipe_configs = {name: {"count": cnt} for name, cnt in agent_counts.items() if cnt > 0}
+if _recipe_configs:
+    st.markdown(agent_recipe_bar(_recipe_configs), unsafe_allow_html=True)
 
-# ============================================================================
-# MAIN PANEL: TABS
-# ============================================================================
+# -- Save scenario + Baseline + Run -------------------------------------------
 
-tab1, tab2 = st.tabs(["▶️ Execute", "📊 Analyze"])
+st.divider()
 
-# ============================================================================
-# TAB 1: EXECUTE
-# ============================================================================
-
-
-def render_execute_tab():
-    """Render execute tab as a fragment for isolated updates."""
-    # Check if configuration exists
-    if st.session_state.simulation_config is None:
-        st.warning("⚠️ No configuration applied. Please configure the simulation in the sidebar first.")
-        return
-
-    config = st.session_state.simulation_config
-
-    # ── Save Scenario ──────────────────────────────────────────────
-    st.markdown("### 💾 Save as Scenario")
-    save_sc_col1, save_sc_col2 = st.columns([3, 1])
-    with save_sc_col1:
-        _save_name = st.text_input(
-            "Scenario name",
-            placeholder="e.g. High-Vol Stress Test",
-            key="save_scenario_name",
-            label_visibility="collapsed",
-        )
-    with save_sc_col2:
-        st.markdown("<div style='height: 2px'></div>", unsafe_allow_html=True)
-        _save_clicked = st.button("💾 Save", width="stretch", disabled=not bool(_save_name and _save_name.strip()))
-    if _save_clicked and _save_name and _save_name.strip():
-        try:
-            _scenario_repo.save_scenario(
-                name=_save_name.strip(),
-                full_config=config.model_dump(),
-            )
-            st.toast(f"✅ Scenario '{_save_name.strip()}' saved!")
-        except Exception as _save_err:
-            st.error(f"Could not save scenario: {_save_err}")
-
-    st.markdown("---")
-
-    # Configuration Summary
-    st.markdown("### 📋 Applied Configuration")
-    st.info("ℹ️ This is the configuration that will be used for simulation runs. Modify settings in the sidebar and click 'Apply Configuration' to update.")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.markdown(
-            f"""
-            <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["primary"]};'>
-                <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>DATE</p>
-                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{html.escape(str(config.date))}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        st.markdown(
-            f"""
-            <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["secondary"]};'>
-                <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>TIME RANGE</p>
-                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{html.escape(str(config.start_time))} - {html.escape(str(config.end_time))}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            f"""
-            <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["success"]};'>
-                <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>TICKER</p>
-                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{html.escape(str(config.ticker))}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with col4:
-        st.markdown(
-            f"""
-            <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px; border-left: 4px solid {COLORS["danger"]};'>
-                <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>SEED</p>
-                <p style='color: {COLORS["text"]}; margin: 5px 0 0 0; font-size: 1.2rem; font-weight: bold;'>{html.escape(str(config.seed))}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-
-    # Agent Summary
-    st.markdown("### 🤖 Agent Configuration")
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    with col1:
-        st.metric("Exchange", config.agents.exchange.num_agents)
-
-    with col2:
-        st.metric("Noise", config.agents.noise.num_agents)
-
-    with col3:
-        st.metric("Value", config.agents.value.num_agents)
-
-    with col4:
-        st.metric("Market Makers", config.agents.adaptive_market_maker.num_agents)
-
-    with col5:
-        st.metric("Momentum", config.agents.momentum.num_agents)
-
-    total_agents = (
-        config.agents.exchange.num_agents + config.agents.noise.num_agents + config.agents.value.num_agents + config.agents.adaptive_market_maker.num_agents + config.agents.momentum.num_agents
+# Save scenario
+_save_col1, _save_col2 = st.columns([3, 1])
+with _save_col1:
+    _save_name = st.text_input(
+        "Scenario name",
+        placeholder="e.g. High-Vol Stress Test",
+        key="save_scenario_name",
+        label_visibility="collapsed",
     )
-
-    st.info(f"ℹ️ Total agents: **{total_agents}**")
-
-    # Detailed configuration in expander
-    with st.expander("🔍 View Full Configuration Details", expanded=False):
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown("**Simulation Settings**")
-            st.markdown(f"- **Starting Cash:** ${config.starting_cash:,}")
-            st.markdown(f"- **Log Level:** {config.stdout_log_level}")
-            st.markdown(f"- **Log Orders:** {config.log_orders}")
-            st.markdown(f"- **Computation Delay:** {config.computation_delay_ns} ns")
-            st.markdown("")
-
-            st.markdown("**Exchange Settings**")
-            st.markdown(f"- **Book Logging:** {config.agents.exchange.book_logging}")
-            st.markdown(f"- **Book Log Depth:** {config.agents.exchange.book_log_depth}")
-            st.markdown(f"- **Stream History:** {config.agents.exchange.stream_history_length}")
-            st.markdown(f"- **Pipeline Delay:** {config.agents.exchange.pipeline_delay_ns} ns")
-            st.markdown("")
-
-            st.markdown("**Latency Model**")
-            st.markdown(f"- **Type:** {config.latency.type.value}")
-            if config.latency.type.value == "cubic":
-                st.markdown(f"- **Jitter:** {config.latency.jitter}")
-                st.markdown(f"- **Jitter Clip:** {config.latency.jitter_clip}")
-
-        with col2:
-            st.markdown("**Oracle Settings**")
-            st.markdown(f"- **Type:** {config.agents.oracle.oracle_type.value}")
-            if config.agents.oracle.oracle_type == OracleType.SYNTHETIC:
-                st.markdown(f"- **Kappa:** {config.agents.oracle.kappa:.2e}")
-                st.markdown(f"- **Sigma S:** {config.agents.oracle.sigma_s:.2e}")
-                st.markdown(f"- **Fund Vol:** {config.agents.oracle.fund_vol:.2e}")
-                st.markdown(f"- **Megashock Lambda:** {config.agents.oracle.megashock_lambda_a:.2e}")
-            else:
-                historical = config.agents.oracle.historical
-                st.markdown(f"- **Provider:** {historical.provider_type.value}")
-                if historical.provider_type == ProviderType.CSV:
-                    path_str = Path(historical.csv.csv_path).stem if historical.csv.csv_path else "None"
-                    st.markdown(f"- **Dataset:** {path_str}")
-                elif historical.provider_type == ProviderType.DATABASE:
-                    st.markdown(f"- **Dataset ID:** {historical.database.dataset_id}")
-                else:
-                    st.markdown(f"- **API Provider:** {historical.api.provider_name}")
-                    st.markdown(f"- **API Symbol:** {historical.api.symbol}")
-                st.markdown(f"- **Interpolation:** {historical.interpolation.value}")
-                st.markdown(f"- **Recenter:** {historical.recenter_r_bar}")
-            st.markdown("")
-
-            st.markdown("**Value Agents**")
-            st.markdown(f"- **Count:** {config.agents.value.num_agents}")
-            st.markdown(f"- **R Bar:** {config.agents.value.r_bar}")
-            st.markdown(f"- **Kappa:** {config.agents.value.kappa:.2e}")
-            st.markdown("")
-
-            st.markdown("**Market Makers**")
-            st.markdown(f"- **Count:** {config.agents.adaptive_market_maker.num_agents}")
-            st.markdown(f"- **Window Size:** {config.agents.adaptive_market_maker.window_size}")
-            st.markdown(f"- **POV:** {config.agents.adaptive_market_maker.pov:.4f}")
-
-    st.markdown("---")
-
-    # ── Comparison Options ──────────────────────────────────────────
-    st.markdown("### ⚖️ Comparison Options")
-
-    # Baseline scenario selector
+with _save_col2:
+    _save_clicked = st.button(
+        "\U0001f4be Save",
+        use_container_width=True,
+        disabled=not bool(_save_name and _save_name.strip()),
+    )
+if _save_clicked and _save_name and _save_name.strip():
     try:
-        _saved_scenarios = _scenario_repo.list_scenarios()
-    except Exception:
-        _saved_scenarios = []
+        _scenario_repo.save_scenario(
+            name=_save_name.strip(),
+            full_config=sim_config.model_dump(),
+        )
+        st.toast("\u2705 Scenario '" + _save_name.strip() + "' saved!")
+    except Exception as _save_err:
+        st.error("Could not save: " + str(_save_err))
 
-    _baseline_options: list[str] = ["None"]
-    _baseline_id_map: dict[str, str] = {}  # display label → scenario_id
-    _baseline_scenario_map = {}
-    for _sc in _saved_scenarios:
-        _label = _sc.name
-        _baseline_options.append(_label)
-        _baseline_id_map[_label] = str(_sc.scenario_id)
-        _baseline_scenario_map[_label] = _sc
+# Baseline comparison selector
+try:
+    _saved_scenarios = _scenario_repo.list_scenarios()
+except Exception:
+    _saved_scenarios = []
 
-    _baseline_choice = st.selectbox(
-        "Baseline scenario",
-        options=_baseline_options,
-        index=0,
-        help="Pick a saved scenario to run alongside your config. Metrics will be compared automatically.",
-        key="baseline_selector",
-    )
-    st.session_state.baseline_scenario_id = _baseline_id_map.get(_baseline_choice)  # None when "None"
+_baseline_options: list[str] = ["None"]
+_baseline_id_map: dict[str, str] = {}
+_baseline_scenario_map: dict[str, Any] = {}
+for _sc in _saved_scenarios:
+    _baseline_options.append(_sc.name)
+    _baseline_id_map[_sc.name] = str(_sc.scenario_id)
+    _baseline_scenario_map[_sc.name] = _sc
 
-    _selected_baseline = _baseline_scenario_map.get(_baseline_choice)
-    _baseline_preview_config: SimulationSettings | None = None
-    _baseline_preview_error: str | None = None
-    _baseline_issues: list[str] = []
+_baseline_choice = st.selectbox(
+    "Baseline scenario",
+    options=_baseline_options,
+    index=0,
+    help="Pick a saved scenario to run as baseline.",
+    key="baseline_selector",
+)
+st.session_state.baseline_scenario_id = _baseline_id_map.get(_baseline_choice)
 
-    if _selected_baseline is None:
-        st.caption("Optional: pick a saved scenario to run as a baseline against the current applied configuration.")
-    elif _selected_baseline.full_config is None:
-        _baseline_preview_error = "Selected baseline has no saved configuration snapshot."
+_selected_baseline = _baseline_scenario_map.get(_baseline_choice)
+_baseline_preview_config: SimulationSettings | None = None
+_baseline_preview_error: str | None = None
+_baseline_issues: list[str] = []
+
+if _selected_baseline is not None:
+    if _selected_baseline.full_config is None:
+        _baseline_preview_error = "Baseline has no saved configuration."
     else:
         try:
-            _baseline_preview_config = SimulationSettings.model_validate(_selected_baseline.full_config)
-            _baseline_issues = get_baseline_compatibility_issues(config, _baseline_preview_config)
+            _baseline_preview_config = SimulationSettings.model_validate(
+                _selected_baseline.full_config,
+            )
+            _baseline_issues = get_baseline_compatibility_issues(
+                sim_config,
+                _baseline_preview_config,
+            )
         except Exception as _preview_err:
-            _baseline_preview_error = f"Could not load selected baseline: {_preview_err}"
+            _baseline_preview_error = "Could not load baseline: " + str(_preview_err)
 
-    if _selected_baseline is not None:
-        if _baseline_preview_error is not None:
-            st.error(_baseline_preview_error)
-        elif _baseline_preview_config is not None:
-            st.caption(f"Selected baseline: **{_selected_baseline.name}** · Created: {_selected_baseline.created_at:%Y-%m-%d %H:%M}")
-            _render_comparison_context(config, _baseline_preview_config)
+    if _baseline_preview_error is not None:
+        st.error(_baseline_preview_error)
+    elif _baseline_preview_config is not None:
+        context_df = build_baseline_context_table(
+            sim_config,
+            _baseline_preview_config,
+        )
+        st.dataframe(context_df, use_container_width=True, hide_index=True)
+        if _baseline_issues:
+            st.warning(
+                "Comparison skipped until checks match:\n" + "\n".join("- " + i for i in _baseline_issues),
+            )
+        else:
+            st.success("Baseline eligible for comparison.")
 
-            if _baseline_issues:
-                st.warning("Comparison will be skipped until these fairness checks match:\n" + "\n".join(f"- {issue}" for issue in _baseline_issues))
-            else:
-                st.success("Baseline is eligible for comparison. The Terminal will run it after the current simulation completes.")
+st.divider()
 
-    st.markdown("---")
+# Run Simulation
+run_clicked = st.button(
+    "\U0001f680 Run Simulation",
+    type="primary",
+    use_container_width=True,
+    disabled=st.session_state.simulation_running,
+)
+st.caption("\U0001f4a1 Tip: press **R** to re-run the app at any time.")
 
-    # Run Simulation
-    st.markdown("### 🚀 Run Simulation")
+if run_clicked:
+    st.session_state.simulation_running = True
+    _log_lines: list[str] = []
 
-    run_button = st.button(
-        "▶️ RUN SIMULATION",
-        type="primary",
-        width="stretch",
-        disabled=st.session_state.simulation_running,
-    )
-
-    if run_button:
-        st.session_state.simulation_running = True
-
-        # Create status container
-        status_container = st.status("🔄 Running Simulation...", expanded=True)
-
+    with st.status("Executing simulation...", expanded=True) as _status:
         try:
-            with status_container:
-                # Step 1: Validate configuration
-                st.write("✓ Configuration validated")
+            st.markdown(
+                "<div style=\"font-family:'JetBrains Mono',monospace;"
+                'font-size:0.72rem;color:#00C805;opacity:0.8">'
+                "Agents: " + str(total_agents) + " | Seed: " + str(sim_config.seed) + "<br>Kernel boot sequence initiated..."
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
-                # Step 2: Initialize simulation service
-                st.write("⏳ Initializing simulation engine...")
-                service = SimulationService()
-                st.write("✓ Simulation engine initialized")
+            _log_lines.append("Seed: " + str(sim_config.seed))
+            _log_lines.append("Agents: " + str(total_agents))
+            _log_lines.append("Kernel started")
 
-                # Step 3: Run simulation
-                st.write("⏳ Running simulation (this may take a few minutes)...")
-                start_time = datetime.now()
+            t0 = time.perf_counter()
+            service = SimulationService()
+            sim_result = service.run_simulation(sim_config)
 
-                sim_result = service.run_simulation(config)
+            if sim_result.error is not None:
+                raise sim_result.error
 
-                # Check if simulation succeeded
-                if sim_result.error is not None:
-                    raise sim_result.error
+            result = sim_result.result
+            assert result is not None  # noqa: S101
 
-                result = sim_result.result
-                assert result is not None, "Result must not be None when error is None"
+            wall_time = time.perf_counter() - t0
+            _log_lines.append(f"Simulation finished in {wall_time:.2f}s")
 
-                end_time = datetime.now()
-                duration = (end_time - start_time).total_seconds()
+            rohan_metrics = AnalysisService.compute_metrics(result)
+            _log_lines.append("Metrics computed")
+            _log_lines.append("Results ready.")
 
-                st.write(f"✓ Simulation completed in {duration:.2f} seconds")
+            st.session_state.previous_metrics = st.session_state.get(
+                "last_run_metrics",
+            )
+            st.session_state.simulation_result = result
+            st.session_state.simulation_metrics = rohan_metrics
+            st.session_state.last_run_metrics = rohan_metrics
+            st.session_state.simulation_duration = wall_time
+            st.session_state.wall_time = wall_time
+            st.session_state.simulation_timestamp = datetime.now()  # noqa: DTZ005
+            st.session_state.simulation_seed = sim_config.seed
 
-                # Step 4: Process results
-                st.write("⏳ Processing results...")
-
-                # Compute metrics
-                metrics = AnalysisService.compute_metrics(result)
-
-                st.write("✓ Results processed successfully")
-
-                # Always track previous run for delta display
-                st.session_state.previous_metrics = st.session_state.get("last_run_metrics")
-
-                # Save to session state
-                st.session_state.simulation_result = result
-                st.session_state.simulation_metrics = metrics
-                st.session_state.last_run_metrics = metrics
-                st.session_state.simulation_duration = duration
-                st.session_state.simulation_timestamp = datetime.now()
-                st.session_state.simulation_seed = config.seed  # 2.7.9 reproducibility
-
-                # Clear caches to force fresh data
-                get_l1_data.clear()
-                get_logs_data.clear()
-                compute_price_data.clear()
-                compute_volume_data.clear()
-                compute_spread_data.clear()
-
-            status_container.update(label="✅ Simulation Complete!", state="complete", expanded=False)
-
-            st.success(f"🎉 Simulation completed successfully in {duration:.2f} seconds!")
-
-            # ── Baseline run (if a saved scenario was selected) ─────
-            if _selected_baseline is not None:
-                if _baseline_preview_error is not None:
-                    st.warning(f"Baseline comparison skipped: {_baseline_preview_error}")
-                    st.session_state.baseline_comparison = None
-                elif _baseline_preview_config is None:
-                    st.warning("Baseline comparison skipped: baseline configuration is unavailable.")
-                    st.session_state.baseline_comparison = None
-                elif _baseline_issues:
-                    st.warning("Baseline comparison skipped because the selected scenario is not comparable with the current run:\n" + "\n".join(f"- {issue}" for issue in _baseline_issues))
-                    st.session_state.baseline_comparison = None
-                else:
-                    bl_status = st.status(f"🔄 Running baseline: {_selected_baseline.name}…", expanded=True)
-                    try:
-                        with bl_status:
-                            st.write(f"⏳ Running baseline scenario **{_selected_baseline.name}**…")
-
-                            baseline_config = _baseline_preview_config
-                            ensure_baseline_comparable(config, baseline_config)
-                            bl_service = SimulationService()
-                            bl_start = datetime.now()
-                            bl_result = bl_service.run_simulation(baseline_config)
-
-                            if bl_result.error is not None:
-                                raise bl_result.error
-
-                            bl_output = bl_result.result
-                            assert bl_output is not None
-
-                            bl_duration = (datetime.now() - bl_start).total_seconds()
-                            st.write(f"✓ Baseline completed in {bl_duration:.2f}s")
-
-                            st.write("⏳ Computing comparison…")
-                            bl_metrics = AnalysisService.compute_metrics(bl_output)
-
-                            st.session_state.baseline_comparison = {
-                                "name": _selected_baseline.name,
-                                "metrics": bl_metrics,
-                                "timestamp": datetime.now(),
-                                "config_snapshot": {
-                                    "current": config.model_dump(),
-                                    "baseline": baseline_config.model_dump(),
-                                },
-                            }
-                            st.write("✓ Comparison ready.")
-
-                        bl_status.update(label="✅ Baseline Complete!", state="complete", expanded=False)
-
-                    except BaselineComparisonError as bl_err:
-                        bl_status.update(label="⚠️ Baseline Comparison Skipped", state="error", expanded=True)
-                        st.warning(f"Baseline comparison skipped: {bl_err}")
-                        st.session_state.baseline_comparison = None
-                    except Exception as bl_err:
-                        bl_status.update(label="❌ Baseline Failed", state="error", expanded=True)
-                        st.error(f"Baseline comparison failed: {bl_err}")
-            else:
-                st.session_state.baseline_comparison = None
-
-            # Show quick metrics
-            st.markdown("### 📊 Quick Metrics")
-
-            prev = st.session_state.get("previous_metrics")
-
-            def _m(v: float | None, fmt: str = ".6f") -> str:
-                return f"{v:{fmt}}" if v is not None else "N/A"
-
-            quick_metrics: list[MetricItem] = []
-
-            d = metric_delta(metrics.volatility, prev.volatility if prev else None)
-            quick_metrics.append(_metric_item("Volatility", _m(metrics.volatility, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="volatility"))
-
-            mean_spread_val = fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A"
-            d = metric_delta(metrics.mean_spread, prev.mean_spread if prev else None)
-            mean_spread_delta = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
-            quick_metrics.append(_metric_item("Mean Spread", mean_spread_val, delta=mean_spread_delta, field="mean_spread"))
-
-            d = metric_delta(metrics.avg_bid_liquidity, prev.avg_bid_liquidity if prev else None)
-            quick_metrics.append(_metric_item("Avg Bid Liquidity", _m(metrics.avg_bid_liquidity, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="avg_bid_liquidity"))
-
-            d = metric_delta(metrics.avg_ask_liquidity, prev.avg_ask_liquidity if prev else None)
-            quick_metrics.append(_metric_item("Avg Ask Liquidity", _m(metrics.avg_ask_liquidity, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="avg_ask_liquidity"))
-
-            # Add microstructure metrics when available.
-            if any(v is not None for v in [metrics.vpin, metrics.lob_imbalance_mean, metrics.market_ott_ratio]):
-                d = metric_delta(metrics.vpin, prev.vpin if prev else None)
-                quick_metrics.append(_metric_item("VPIN", _m(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="vpin"))
-
-                d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
-                quick_metrics.append(_metric_item("LOB Imbalance", _m(metrics.lob_imbalance_mean, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="lob_imbalance_mean"))
-
-                volume_val = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
-                d = metric_delta(metrics.traded_volume, prev.traded_volume if prev else None)
-                quick_metrics.append(_metric_item("Traded Volume", volume_val, delta=f"{d:+,}" if d is not None else None, field="traded_volume"))
-
-                d = metric_delta(metrics.market_ott_ratio, prev.market_ott_ratio if prev else None)
-                quick_metrics.append(_metric_item("Market OTT", _m(metrics.market_ott_ratio, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="market_ott_ratio"))
-
-                availability_val = f"{metrics.pct_time_two_sided:.1%}" if metrics.pct_time_two_sided is not None else "N/A"
-                d = metric_delta(metrics.pct_time_two_sided, prev.pct_time_two_sided if prev else None)
-                quick_metrics.append(_metric_item("Availability", availability_val, delta=f"{d:+.1%}" if d is not None else None, field="pct_time_two_sided"))
-
-            _render_metric_columns(quick_metrics, column_count=2)
+            _status.update(
+                label=f"Simulation complete \u2014 {wall_time:.2f}s",
+                state="complete",
+                expanded=False,
+            )
 
         except Exception as e:
-            status_container.update(label="❌ Simulation Failed", state="error", expanded=True)
-            st.error(f"❌ Simulation failed: {str(e)}")
-
-            with st.expander("🔍 Error Details"):
-                st.code(traceback.format_exc())
-
-            st.warning("💡 **Troubleshooting Tips:**")
-            st.markdown(
-                """
-                - Check that all agent counts are valid (non-negative)
-                - Ensure time range is at least 5 minutes
-                - Verify that wake-up frequencies are in correct format (e.g., '60s')
-                - Check that all numeric values are within reasonable ranges
-                """
+            _log_lines.append("[ERROR] " + str(e))
+            _status.update(
+                label="\u274c Simulation Failed",
+                state="error",
+                expanded=True,
             )
+            st.error("Simulation failed: " + str(e))
+            with st.expander("Error Details"):
+                st.code(traceback.format_exc())
 
         finally:
             st.session_state.simulation_running = False
 
-    # ── Baseline summary (compact, shown outside the run block) ────
-    bl_data = st.session_state.baseline_comparison
-    if bl_data is not None and st.session_state.simulation_metrics is not None:
-        st.markdown("---")
-        bl_name = bl_data.get("name", "baseline")
-        st.markdown(f"### ⚖️ Current Run  vs  Baseline: *{bl_name}*")
-        st.caption(f"Side-by-side comparison of your **current run** against the saved baseline scenario **{bl_name}**. A positive Δ% means the current value is higher.")
+    st.markdown(
+        execution_console(_log_lines, st.session_state.get("wall_time")),
+        unsafe_allow_html=True,
+    )
 
-        bm = bl_data["metrics"]
-        cur = st.session_state.simulation_metrics
-        snapshots = bl_data.get("config_snapshot")
+    # -- Baseline run -----------------------------------------------------------
+    if _selected_baseline is not None and _baseline_preview_error is None and _baseline_preview_config is not None and not _baseline_issues and st.session_state.simulation_result is not None:
+        bl_status = st.status(
+            "Running baseline: " + str(_selected_baseline.name) + "\u2026",
+            expanded=True,
+        )
+        try:
+            with bl_status:
+                ensure_baseline_comparable(sim_config, _baseline_preview_config)
+                bl_service = SimulationService()
+                bl_result = bl_service.run_simulation(_baseline_preview_config)
+                if bl_result.error is not None:
+                    raise bl_result.error
+                bl_output = bl_result.result
+                assert bl_output is not None  # noqa: S101
+                bl_metrics = AnalysisService.compute_metrics(bl_output)
+                st.session_state.baseline_comparison = {
+                    "name": _selected_baseline.name,
+                    "metrics": bl_metrics,
+                    "timestamp": datetime.now(),  # noqa: DTZ005
+                    "config_snapshot": {
+                        "current": sim_config.model_dump(),
+                        "baseline": _baseline_preview_config.model_dump(),
+                    },
+                }
+            bl_status.update(
+                label="\u2705 Baseline Complete!",
+                state="complete",
+                expanded=False,
+            )
+        except BaselineComparisonError as bl_err:
+            bl_status.update(
+                label="\u26a0\ufe0f Baseline Skipped",
+                state="error",
+                expanded=True,
+            )
+            st.warning("Baseline skipped: " + str(bl_err))
+            st.session_state.baseline_comparison = None
+        except Exception as bl_err:
+            bl_status.update(
+                label="\u274c Baseline Failed",
+                state="error",
+                expanded=True,
+            )
+            st.error("Baseline failed: " + str(bl_err))
+    elif _selected_baseline is None:
+        st.session_state.baseline_comparison = None
 
-        if snapshots is not None:
-            current_config = SimulationSettings.model_validate(snapshots["current"])
-            baseline_config = SimulationSettings.model_validate(snapshots["baseline"])
-            _render_comparison_context(current_config, baseline_config)
 
-        cmp_df = build_comparison_table(cur, bm)
-        st.dataframe(cmp_df.set_index("Metric"), width="stretch")
+# ==============================================================================
+# RESULTS -- Summary KPI + 4-Tab Analytics
+# ==============================================================================
 
-    # Execution History
-    if "simulation_timestamp" in st.session_state:
-        st.markdown("---")
-        st.markdown("### 📜 Last Execution")
+output = st.session_state.simulation_result
+if output is None:
+    st.stop()
 
-        col1, col2 = st.columns(2)
+rohan_metrics = st.session_state.simulation_metrics
+wall_time_val: float = st.session_state.get("wall_time", 0.0)
 
-        with col1:
+# Access hasufel result for rich analytics
+hasufel_result = None
+hasufel_market = None
+l1 = None
+order_df = None
+
+if isinstance(output, HasufelOutput):
+    hasufel_result = output.hasufel_result
+    hasufel_market = hasufel_result.markets.get(sim_config.ticker)
+    if hasufel_market and hasufel_market.l1_series:
+        l1 = metrics.derive_l1(hasufel_market.l1_series.as_dataframe())
+    order_df = metrics.extract_order_log(hasufel_result)
+
+# -- Summary KPI cards ---------------------------------------------------------
+
+if l1 is not None and hasufel_market is not None:
+    sm = metrics.compute_summary(hasufel_market, l1)
+    _mid_str = f"${sm.mid_close:,.2f}" if sm.mid_close is not None else "N/A"
+    _spread_str = f"${sm.spread_close:,.2f}" if sm.spread_close is not None else "N/A"
+    _vwap_str = f"${sm.vwap:,.2f}" if sm.vwap is not None else "N/A"
+    _rv_str = f"{sm.realized_vol:.6f}" if sm.realized_vol is not None else "N/A"
+    _range_str = f"${sm.price_range:,.2f}" if sm.price_range is not None else "N/A"
+    st.markdown(
+        metric_row(
+            [
+                {"label": "Mid Price", "value": _mid_str},
+                {"label": "Bid-Ask Spread", "value": _spread_str},
+                {"label": "VWAP", "value": _vwap_str},
+                {"label": "Volume", "value": f"{sm.volume:,}"},
+                {"label": "Realized Vol (\u03c3)", "value": _rv_str},
+                {"label": "Price Range", "value": _range_str},
+                {"label": "Wall-Clock", "value": f"{wall_time_val:.1f}s"},
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+
+# -- Tabbed analytics ----------------------------------------------------------
+
+tab_micro, tab_alpha, tab_book, tab_config = st.tabs(
+    [
+        "Market Microstructure",
+        "Agent Alpha",
+        "Order Book Dynamics",
+        "Configuration",
+    ]
+)
+st.caption(
+    "**Microstructure** \u2014 prices, spreads, volatility \u00b7 "
+    "**Alpha** \u2014 agent P&L, equity curves \u00b7 "
+    "**Order Book** \u2014 flow stats, trade attribution \u00b7 "
+    "**Config** \u2014 JSON export",
+)
+
+# ==============================================================================
+# TAB 1: MARKET MICROSTRUCTURE
+# ==============================================================================
+
+with tab_micro:
+    if l1 is not None:
+        st.plotly_chart(
+            charts.price_series(l1.time, l1.bid, l1.ask, l1.mid),
+            use_container_width=True,
+        )
+
+        _mean = l1.spread.mean()
+        avg_spread = float(_mean) if pd.notna(_mean) else 0.0
+        rv = metrics.compute_rolling_vol(l1.log_returns)
+
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            st.plotly_chart(
+                charts.spread_over_time(l1.time, l1.spread, avg_spread),
+                use_container_width=True,
+            )
+        with mc2:
+            if rv is not None:
+                rolling_vol_series, window = rv
+                ret_time = l1.time.iloc[l1.log_returns.index]
+                st.plotly_chart(
+                    charts.rolling_volatility(ret_time, rolling_vol_series, window),
+                    use_container_width=True,
+                )
+
+        pressure = metrics.compute_book_pressure(l1.l1_df)
+        rs = metrics.compute_return_stats(l1.log_returns)
+
+        mc3, mc4 = st.columns(2)
+        with mc3:
+            st.plotly_chart(
+                charts.book_pressure(l1.time, pressure),
+                use_container_width=True,
+            )
+        with mc4:
+            if rs is not None:
+                st.plotly_chart(
+                    charts.returns_histogram(l1.log_returns),
+                    use_container_width=True,
+                )
+
+        # Spread statistics
+        ss = metrics.compute_spread_stats(l1.spread, l1.mid)
+        _ss_cards: list[dict[str, str]] = []
+        if ss.mean is not None:
+            _ss_cards.append({"label": "Mean Spread", "value": f"${ss.mean:.4f}"})
+        if ss.median is not None:
+            _ss_cards.append(
+                {"label": "Median Spread", "value": f"${ss.median:.4f}"},
+            )
+        if ss.max is not None:
+            _ss_cards.append({"label": "Max Spread", "value": f"${ss.max:.4f}"})
+        if ss.std is not None:
+            _ss_cards.append({"label": "Spread Std", "value": f"${ss.std:.4f}"})
+        if ss.mean_pct is not None:
+            _ss_cards.append(
+                {"label": "Mean Spread %", "value": f"{ss.mean_pct:.4f}%"},
+            )
+        if ss.median_pct is not None:
+            _ss_cards.append(
+                {"label": "Median Spread %", "value": f"{ss.median_pct:.4f}%"},
+            )
+        if _ss_cards:
+            st.markdown(metric_row(_ss_cards), unsafe_allow_html=True)
+        if ss.n_one_sided > 0:
+            pct_one_sided = ss.n_one_sided / ss.n_total * 100
+            st.caption(
+                f"\u26a0 {ss.n_one_sided} of {ss.n_total} ticks ({pct_one_sided:.1f}%) had a one-sided book.",
+            )
+
+        # Market quality
+        if hasufel_market is not None:
+            both_sides = 100 - max(
+                hasufel_market.liquidity.pct_time_no_bid,
+                hasufel_market.liquidity.pct_time_no_ask,
+            )
+            last_trade = hasufel_market.liquidity.last_trade_cents
+            _lt_str = f"${last_trade / 100:.2f}" if last_trade is not None else "N/A"
             st.markdown(
-                f"""
-                <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px;'>
-                    <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>TIMESTAMP</p>
-                    <p style='color: {COLORS["text"]}; margin: 5px 0 0 0;'>{st.session_state.simulation_timestamp.strftime("%Y-%m-%d %H:%M:%S")}</p>
-                </div>
-                """,
+                metric_row(
+                    [
+                        {
+                            "label": "% Time No Bid",
+                            "value": f"{hasufel_market.liquidity.pct_time_no_bid:.1f}%",
+                        },
+                        {
+                            "label": "% Time No Ask",
+                            "value": f"{hasufel_market.liquidity.pct_time_no_ask:.1f}%",
+                        },
+                        {"label": "% Time Two-Sided", "value": f"{both_sides:.1f}%"},
+                        {"label": "Last Trade", "value": _lt_str},
+                    ]
+                ),
                 unsafe_allow_html=True,
             )
 
-        with col2:
+        # Returns distribution
+        if rs is not None:
             st.markdown(
-                f"""
-                <div style='background-color: {COLORS["card_bg"]}; padding: 15px; border-radius: 8px;'>
-                    <p style='color: {COLORS["text_muted"]}; margin: 0; font-size: 0.8rem;'>DURATION</p>
-                    <p style='color: {COLORS["text"]}; margin: 5px 0 0 0;'>{st.session_state.simulation_duration:.2f} seconds</p>
-                </div>
-                """,
+                metric_row(
+                    [
+                        {"label": "Mean Return", "value": f"{rs.mean:.8f}"},
+                        {"label": "Std Dev", "value": f"{rs.std:.6f}"},
+                        {"label": "Skewness", "value": f"{rs.skewness:.4f}"},
+                        {"label": "Excess Kurtosis", "value": f"{rs.kurtosis:.4f}"},
+                    ]
+                ),
                 unsafe_allow_html=True,
             )
 
+        # Advanced microstructure
+        if hasufel_result is not None:
+            micro = metrics.compute_microstructure_metrics(
+                hasufel_result,
+                sim_config.ticker,
+            )
+            if micro is not None:
+                _micro_cards: list[dict[str, str]] = []
+                if micro.mean_spread_cents is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "Mean Spread (\u00a2)",
+                            "value": f"{micro.mean_spread_cents:.2f}",
+                        }
+                    )
+                if micro.volatility_ann is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "Ann. Volatility",
+                            "value": f"{micro.volatility_ann:.4f}",
+                        }
+                    )
+                if micro.sharpe_ratio is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "Sharpe Ratio",
+                            "value": f"{micro.sharpe_ratio:.2f}",
+                        }
+                    )
+                if micro.avg_bid_liquidity is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "Avg Bid Depth",
+                            "value": f"{micro.avg_bid_liquidity:,.0f}",
+                        }
+                    )
+                if micro.avg_ask_liquidity is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "Avg Ask Depth",
+                            "value": f"{micro.avg_ask_liquidity:,.0f}",
+                        }
+                    )
+                if micro.lob_imbalance_mean is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "LOB Imbalance \u03bc",
+                            "value": f"{micro.lob_imbalance_mean:+.4f}",
+                        }
+                    )
+                if micro.lob_imbalance_std is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "LOB Imbalance \u03c3",
+                            "value": f"{micro.lob_imbalance_std:.4f}",
+                        }
+                    )
+                if micro.vpin is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "VPIN",
+                            "value": f"{micro.vpin:.4f}",
+                        }
+                    )
+                if micro.resilience_ns is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "Resilience (ms)",
+                            "value": f"{micro.resilience_ns / 1e6:,.1f}",
+                        }
+                    )
+                if micro.effective_spread_cents is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "Effective Spread (\u00a2)",
+                            "value": f"{micro.effective_spread_cents:.2f}",
+                        }
+                    )
+                if micro.market_ott_ratio is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "Market OTT",
+                            "value": f"{micro.market_ott_ratio:.2f}",
+                        }
+                    )
+                if micro.pct_time_two_sided is not None:
+                    _micro_cards.append(
+                        {
+                            "label": "% Two-Sided",
+                            "value": f"{micro.pct_time_two_sided:.1f}%",
+                        }
+                    )
+                if _micro_cards:
+                    st.markdown(
+                        "<div style=\"font-family:'Inter',sans-serif;"
+                        "font-size:0.72rem;color:#6B7280;margin:12px 0 4px 0;"
+                        'text-transform:uppercase;letter-spacing:0.06em">'
+                        "Advanced Microstructure</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        metric_row(_micro_cards),
+                        unsafe_allow_html=True,
+                    )
 
-with tab1:
-    render_execute_tab()
+        # Baseline comparison in microstructure tab
+        bl_data = st.session_state.get("baseline_comparison")
+        if bl_data is not None and rohan_metrics is not None:
+            st.markdown("---")
+            st.markdown(
+                "### \u2696\ufe0f Current vs Baseline: *" + str(bl_data.get("name", "baseline")) + "*",
+            )
+            snapshots = bl_data.get("config_snapshot")
+            if snapshots is not None:
+                cur_cfg = SimulationSettings.model_validate(snapshots["current"])
+                bl_cfg = SimulationSettings.model_validate(snapshots["baseline"])
+                ctx_df = build_baseline_context_table(cur_cfg, bl_cfg)
+                st.dataframe(
+                    ctx_df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            cmp_df = build_comparison_table(rohan_metrics, bl_data["metrics"])
+            st.dataframe(
+                cmp_df.set_index("Metric"),
+                use_container_width=True,
+            )
 
-# ============================================================================
-# TAB 2: ANALYZE (with lazy loading and fragments)
-# ============================================================================
-
-with tab2:
-    # Check if results exist
-    if st.session_state.simulation_result is None:
-        st.warning("⚠️ No simulation results found. Please run a simulation first.")
+        with st.expander("Raw L1 data"):
+            st.dataframe(l1.l1_df, use_container_width=True)
     else:
-        result = st.session_state.simulation_result
-        metrics = st.session_state.simulation_metrics
+        st.warning("L1 price series not available.")
 
-        # Sub-tabs for different analysis views
-        (
-            analysis_tab1,
-            analysis_tab2,
-            analysis_tab3,
-            analysis_tab4,
-            analysis_tab5,
-        ) = st.tabs(["📈 Metrics", "💹 Price Charts", "📊 Volume", "📉 Spread", "📋 Logs"])
 
-        # Metrics Dashboard
-        def render_metrics_tab():
-            """Render metrics tab as a fragment."""
-            st.markdown("### 📊 Key Metrics")
+# ==============================================================================
+# TAB 2: AGENT ALPHA
+# ==============================================================================
 
-            prev = st.session_state.get("previous_metrics")
+with tab_alpha:
+    if hasufel_result is not None and hasufel_result.agents:
+        agent_df = metrics.build_agent_dataframe(hasufel_result)
+        exec_agents = metrics.get_execution_agents(hasufel_result)
 
-            def _mv(v: float | None, fmt: str = ".6f") -> str:
-                return f"{v:{fmt}}" if v is not None else "N/A"
+        _cat_counts = agent_df["Category"].value_counts()
+        if len(_cat_counts) > 0:
+            _cat_cards = [{"label": cat.title(), "value": str(count)} for cat, count in _cat_counts.items() if cat]
+            if _cat_cards:
+                st.markdown(metric_row(_cat_cards), unsafe_allow_html=True)
 
-            if metrics is None:
-                st.warning("Metrics not available.")
-                return
+        if exec_agents:
+            exec_summary = metrics.compute_execution_summary(exec_agents)
+            if exec_summary is not None:
+                _dd = f"${exec_summary.max_drawdown_cents / 100:,.2f}" if exec_summary.max_drawdown_cents is not None else "N/A"
+                st.markdown(
+                    metric_row(
+                        [
+                            {
+                                "label": "Exec Agents",
+                                "value": str(len(exec_agents)),
+                            },
+                            {
+                                "label": "Total Filled",
+                                "value": (f"{exec_summary.total_filled:,} / {exec_summary.total_target:,}"),
+                            },
+                            {
+                                "label": "Avg Fill Rate",
+                                "value": f"{exec_summary.avg_fill_rate:.1f}%",
+                            },
+                            {
+                                "label": "Avg VWAP Slippage",
+                                "value": (f"{exec_summary.avg_vwap_slippage_bps:.2f} bps"),
+                            },
+                            {"label": "Max Drawdown", "value": _dd},
+                        ]
+                    ),
+                    unsafe_allow_html=True,
+                )
 
-            key_metrics: list[MetricItem] = []
+        agg = metrics.compute_agent_performance(agent_df)
+        st.dataframe(agg, use_container_width=True, hide_index=True)
 
-            d = metric_delta(metrics.volatility, prev.volatility if prev else None)
-            key_metrics.append(_metric_item("Volatility", _mv(metrics.volatility, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="volatility"))
-
-            val = fmt_dollar(metrics.mean_spread, precision=4) if metrics.mean_spread is not None else "N/A"
-            d = metric_delta(metrics.mean_spread, prev.mean_spread if prev else None)
-            d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
-            key_metrics.append(_metric_item("Mean Spread", val, delta=d_str, field="mean_spread"))
-
-            val = fmt_dollar(metrics.effective_spread, precision=4) if metrics.effective_spread is not None else "N/A"
-            d = metric_delta(metrics.effective_spread, prev.effective_spread if prev else None)
-            d_str = (("+" if d > 0 else "") + fmt_dollar(d, precision=4)) if d is not None else None
-            key_metrics.append(_metric_item("Effective Spread", val, delta=d_str, field="effective_spread"))
-
-            d = metric_delta(metrics.avg_bid_liquidity, prev.avg_bid_liquidity if prev else None)
-            key_metrics.append(_metric_item("Avg Bid Liquidity", _mv(metrics.avg_bid_liquidity, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="avg_bid_liquidity"))
-
-            d = metric_delta(metrics.avg_ask_liquidity, prev.avg_ask_liquidity if prev else None)
-            key_metrics.append(_metric_item("Avg Ask Liquidity", _mv(metrics.avg_ask_liquidity, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="avg_ask_liquidity"))
-
-            vol_str = f"{metrics.traded_volume:,}" if metrics.traded_volume is not None else "N/A"
-            d = metric_delta(metrics.traded_volume, prev.traded_volume if prev else None)
-            key_metrics.append(_metric_item("Traded Volume", vol_str, delta=f"{d:+,}" if d is not None else None, field="traded_volume"))
-
-            _render_metric_columns(key_metrics, column_count=2)
-
-            st.markdown("---")
-
-            # Microstructure metrics
-            st.markdown("### 🔬 Microstructure")
-            microstructure_metrics: list[MetricItem] = []
-            d = metric_delta(metrics.lob_imbalance_mean, prev.lob_imbalance_mean if prev else None)
-            microstructure_metrics.append(_metric_item("LOB Imbalance", _mv(metrics.lob_imbalance_mean, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="lob_imbalance_mean"))
-
-            d = metric_delta(metrics.lob_imbalance_std, prev.lob_imbalance_std if prev else None)
-            microstructure_metrics.append(_metric_item("LOB Imb. σ", _mv(metrics.lob_imbalance_std, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="lob_imbalance_std"))
-
-            d = metric_delta(metrics.vpin, prev.vpin if prev else None)
-            microstructure_metrics.append(_metric_item("VPIN", _mv(metrics.vpin, ".4f"), delta=f"{d:+.4f}" if d is not None else None, field="vpin"))
-
-            if metrics.resilience_mean_ns is not None:
-                res_ms = metrics.resilience_mean_ns / 1e6
-                d_ns = metric_delta(metrics.resilience_mean_ns, prev.resilience_mean_ns if prev else None)
-                d_str = f"{d_ns / 1e6:+.1f}ms" if d_ns is not None else None
-                microstructure_metrics.append(_metric_item("Resilience", f"{res_ms:.1f}ms", delta=d_str, field="resilience_mean_ns"))
-            else:
-                microstructure_metrics.append(_metric_item("Resilience", "N/A", delta=None, field="resilience_mean_ns"))
-
-            d = metric_delta(metrics.market_ott_ratio, prev.market_ott_ratio if prev else None)
-            microstructure_metrics.append(_metric_item("Market OTT", _mv(metrics.market_ott_ratio, ".2f"), delta=f"{d:+.2f}" if d is not None else None, field="market_ott_ratio"))
-
-            avail_val = f"{metrics.pct_time_two_sided:.1%}" if metrics.pct_time_two_sided is not None else "N/A"
-            d = metric_delta(metrics.pct_time_two_sided, prev.pct_time_two_sided if prev else None)
-            microstructure_metrics.append(_metric_item("Availability", avail_val, delta=f"{d:+.1%}" if d is not None else None, field="pct_time_two_sided"))
-
-            _render_metric_columns(microstructure_metrics, column_count=2)
-
-            # ── Baseline Comparison (if available) ──────────────────
-            bl_data = st.session_state.get("baseline_comparison")
-            if bl_data is not None:
-                bl_name = bl_data.get("name", "baseline")
-                st.markdown("---")
-                st.markdown(f"### ⚖️ Current Run  vs  Baseline: *{bl_name}*")
-                st.caption(f"Side-by-side comparison of your **current run** against the saved baseline scenario **{bl_name}**. A positive Δ% means the current value is higher.")
-
-                bm = bl_data["metrics"]
-                snapshots = bl_data.get("config_snapshot")
-                if snapshots is not None:
-                    current_config = SimulationSettings.model_validate(snapshots["current"])
-                    baseline_config = SimulationSettings.model_validate(snapshots["baseline"])
-                    _render_comparison_context(current_config, baseline_config)
-                cmp_df = build_comparison_table(metrics, bm)
-                st.dataframe(cmp_df.set_index("Metric"), width="stretch")
-
-            st.markdown("---")
-
-            # Order book L1 summary
-            st.markdown("### 📖 Order Book Summary (L1)")
-
+        # Rich agent metrics
+        if isinstance(output, HasufelOutput):
             try:
-                l1_df = get_l1_data(result)
-
-                if not l1_df.empty:
-                    st.dataframe(l1_df.head(20), width="stretch")
-
-                    csv = l1_df.to_csv(index=True)
-                    st.download_button(
-                        label="⬇️ Download L1 Data (CSV)",
-                        data=csv,
-                        file_name="order_book_l1.csv",
-                        mime="text/csv",
+                rich = output.rich_metrics
+                rs_rich = metrics.compute_rich_summary(rich)
+                _rich_cards: list[dict[str, str]] = []
+                if rs_rich.avg_sharpe is not None:
+                    _rich_cards.append(
+                        {
+                            "label": "Avg Sharpe",
+                            "value": f"{rs_rich.avg_sharpe:.4f}",
+                        }
                     )
-                else:
-                    st.info("No L1 order book data available")
-            except Exception as e:
-                st.error(f"Error loading L1 data: {str(e)}")
-
-        with analysis_tab1:
-            render_metrics_tab()
-
-        # Price Charts
-        def render_price_charts():
-            """Render price charts as a fragment."""
-            st.markdown("### 💹 Price Evolution")
-
-            try:
-                l1_df = get_l1_data(result)
-                config = st.session_state.simulation_config
-
-                if not l1_df.empty:
-                    price_df = compute_price_data(l1_df)
-                    historical_df: pd.DataFrame | None = None
-
-                    if (
-                        config is not None
-                        and config.agents.oracle.oracle_type == OracleType.HISTORICAL
-                        and config.agents.oracle.historical.provider_type == ProviderType.CSV
-                        and config.agents.oracle.historical.csv.csv_path
-                    ):
-                        try:
-                            csv_path = Path(config.agents.oracle.historical.csv.csv_path)
-                            historical_df = load_historical_series_for_analysis(
-                                csv_path=str(csv_path),
-                                file_mtime=csv_path.stat().st_mtime,
-                                file_size=csv_path.stat().st_size,
-                                symbol=config.ticker,
-                                sim_date=str(config.date),
-                                start_time=str(config.start_time),
-                                end_time=str(config.end_time),
-                                price_unit=config.agents.oracle.historical.csv.price_unit.value,
-                                source_timezone=config.agents.oracle.historical.csv.source_timezone,
-                            )
-                        except Exception as hist_err:
-                            st.warning(f"Could not load historical series for overlay: {hist_err}")
-
-                    fig = price_returns_chart(price_df, historical_df=historical_df if historical_df is not None and not historical_df.empty else None)
-
-                    chart_col, data_col = st.columns([3, 2])
-
-                    with chart_col:
-                        st.plotly_chart(fig, width="stretch")
-
-                    with data_col:
-                        st.markdown("#### Historical Series")
-                        if historical_df is not None and not historical_df.empty:
-                            st.dataframe(
-                                historical_df.rename(columns={"historical_price_cents": "historical_price"}).head(120),
-                                width="stretch",
-                                hide_index=True,
-                            )
-                            st.caption("Showing sampled historical points used for chart overlay.")
-                        else:
-                            st.caption("Historical series overlay is available when Oracle Type is Historical + CSV provider.")
-
-                    # Price statistics
-                    st.markdown("### 📊 Price Statistics")
-
-                    col1, col2, col3, col4 = st.columns(4)
-
-                    with col1:
-                        st.metric("Min Bid", f"{price_df['bid_price'].min():.2f}")
-                        st.metric("Max Bid", f"{price_df['bid_price'].max():.2f}")
-
-                    with col2:
-                        st.metric("Min Ask", f"{price_df['ask_price'].min():.2f}")
-                        st.metric("Max Ask", f"{price_df['ask_price'].max():.2f}")
-
-                    with col3:
-                        st.metric("Min Mid", f"{price_df['mid_price'].min():.2f}")
-                        st.metric("Max Mid", f"{price_df['mid_price'].max():.2f}")
-
-                    with col4:
-                        st.metric("Mean Mid", f"{price_df['mid_price'].mean():.2f}")
-                        st.metric("Std Mid", f"{price_df['mid_price'].std():.2f}")
-
-                else:
-                    st.info("No price data available")
-
-            except Exception as e:
-                st.error(f"Error creating price charts: {str(e)}")
-
-        with analysis_tab2:
-            render_price_charts()
-
-        # Volume Analysis
-        def render_volume_analysis():
-            """Render volume analysis as a fragment."""
-            st.markdown("### 📊 Volume Analysis")
-
-            try:
-                l1_df = get_l1_data(result)
-
-                if not l1_df.empty:
-                    volume_df = compute_volume_data(l1_df)
-
-                    fig = volume_imbalance_chart(volume_df)
-
-                    st.plotly_chart(fig, width="stretch")
-
-                    # Volume statistics
-                    st.markdown("### 📊 Volume Statistics")
-
-                    col1, col2, col3, col4 = st.columns(4)
-
-                    with col1:
-                        st.metric("Mean Bid Volume", f"{volume_df['bid_qty'].mean():.2f}")
-                        st.metric("Std Bid Volume", f"{volume_df['bid_qty'].std():.2f}")
-
-                    with col2:
-                        st.metric("Mean Ask Volume", f"{volume_df['ask_qty'].mean():.2f}")
-                        st.metric("Std Ask Volume", f"{volume_df['ask_qty'].std():.2f}")
-
-                    with col3:
-                        st.metric("Max Bid Volume", f"{volume_df['bid_qty'].max():.2f}")
-                        st.metric("Max Ask Volume", f"{volume_df['ask_qty'].max():.2f}")
-
-                    with col4:
-                        st.metric(
-                            "Mean Imbalance",
-                            f"{volume_df['volume_imbalance'].mean():.4f}",
-                        )
-                        st.metric(
-                            "Std Imbalance",
-                            f"{volume_df['volume_imbalance'].std():.4f}",
-                        )
-
-                else:
-                    st.info("No volume data available")
-
-            except Exception as e:
-                st.error(f"Error creating volume charts: {str(e)}")
-
-        with analysis_tab3:
-            render_volume_analysis()
-
-        # Spread Analysis
-        def render_spread_analysis():
-            """Render spread analysis as a fragment."""
-            st.markdown("### 📉 Spread Analysis")
-
-            try:
-                l1_df = get_l1_data(result)
-
-                if not l1_df.empty:
-                    spread_df = compute_spread_data(l1_df)
-
-                    fig = spread_analysis_chart(spread_df)
-
-                    st.plotly_chart(fig, width="stretch")
-
-                    # Spread statistics
-                    st.markdown("### 📊 Spread Statistics")
-
-                    col1, col2, col3, col4 = st.columns(4)
-
-                    with col1:
-                        st.metric("Mean Spread", f"{spread_df['spread'].mean():.4f}")
-                        st.metric("Median Spread", f"{spread_df['spread'].median():.4f}")
-
-                    with col2:
-                        st.metric("Std Spread", f"{spread_df['spread'].std():.4f}")
-                        st.metric("Min Spread", f"{spread_df['spread'].min():.4f}")
-
-                    with col3:
-                        st.metric("Max Spread", f"{spread_df['spread'].max():.4f}")
-                        st.metric("Mean Spread (bps)", f"{spread_df['spread_bps'].mean():.2f}")
-
-                    with col4:
-                        p25 = spread_df["spread"].quantile(0.25)
-                        p75 = spread_df["spread"].quantile(0.75)
-                        st.metric("25th Percentile", f"{p25:.4f}")
-                        st.metric("75th Percentile", f"{p75:.4f}")
-
-                else:
-                    st.info("No spread data available")
-
-            except Exception as e:
-                st.error(f"Error creating spread charts: {str(e)}")
-
-        with analysis_tab4:
-            render_spread_analysis()
-
-        # Execution Logs
-        def render_logs():
-            """Render logs as a fragment."""
-            st.markdown("### 📋 Execution Logs")
-
-            try:
-                logs_df = get_logs_data(result)
-
-                if not logs_df.empty:
-                    # Filter controls
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        if "agent_id" in logs_df.columns:
-                            agent_ids = ["All"] + sorted(logs_df["agent_id"].unique().tolist())
-                            selected_agent = st.selectbox("Filter by Agent", agent_ids, key="analyze_agent_filter")
-                        else:
-                            selected_agent = "All"
-
-                    with col2:
-                        if "EventType" in logs_df.columns or "event_type" in logs_df.columns:
-                            event_col = "EventType" if "EventType" in logs_df.columns else "event_type"
-                            event_types = ["All"] + sorted(logs_df[event_col].unique().tolist())
-                            selected_event = st.selectbox(
-                                "Filter by Event Type",
-                                event_types,
-                                key="analyze_event_filter",
-                            )
-                        else:
-                            selected_event = "All"
-
-                    with col3:
-                        max_rows = st.number_input(
-                            "Max Rows to Display",
-                            min_value=10,
-                            max_value=10000,
-                            value=100,
-                            step=10,
-                            key="analyze_max_rows_logs",
-                        )
-
-                    # Apply filters
-                    filtered_df = logs_df.copy()
-
-                    if selected_agent != "All" and "agent_id" in logs_df.columns:
-                        filtered_df = filtered_df[filtered_df["agent_id"] == selected_agent]
-
-                    if selected_event != "All":
-                        event_col = "EventType" if "EventType" in logs_df.columns else "event_type"
-                        if event_col in logs_df.columns:
-                            filtered_df = filtered_df[filtered_df[event_col] == selected_event]
-
-                    # Display logs - convert object columns to strings to avoid Arrow errors
-                    display_df = filtered_df.head(max_rows).copy()
-
-                    # Convert object columns to strings for display
-                    for col in display_df.columns:
-                        if display_df[col].dtype == "object":
-                            display_df[col] = display_df[col].astype(str)
-
-                    st.dataframe(display_df, width="stretch", height=500)
-
-                    # Log statistics
-                    st.markdown("### 📊 Log Statistics")
-
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        st.metric("Total Log Entries", f"{len(logs_df):,}")
-
-                    with col2:
-                        st.metric("Filtered Entries", f"{len(filtered_df):,}")
-
-                    with col3:
-                        if "agent_id" in logs_df.columns:
-                            st.metric("Unique Agents", f"{logs_df['agent_id'].nunique():,}")
-
-                    # Download button
-                    csv = filtered_df.to_csv(index=True)
-                    st.download_button(
-                        label="⬇️ Download Filtered Logs (CSV)",
-                        data=csv,
-                        file_name="execution_logs.csv",
-                        mime="text/csv",
+                if rs_rich.avg_ott_ratio is not None:
+                    _rich_cards.append(
+                        {
+                            "label": "Avg OTT Ratio",
+                            "value": f"{rs_rich.avg_ott_ratio:.2f}",
+                        }
+                    )
+                if rs_rich.avg_inventory_std is not None:
+                    _rich_cards.append(
+                        {
+                            "label": "Avg Inventory \u03c3",
+                            "value": f"{rs_rich.avg_inventory_std:.2f}",
+                        }
+                    )
+                _rich_cards.append(
+                    {
+                        "label": "Total Trades (Rich)",
+                        "value": f"{rs_rich.total_trade_count:,}",
+                    }
+                )
+                if rs_rich.avg_fill_slippage_bps is not None:
+                    _rich_cards.append(
+                        {
+                            "label": "Avg Fill Slippage",
+                            "value": f"{rs_rich.avg_fill_slippage_bps:.1f} bps",
+                        }
+                    )
+                if _rich_cards:
+                    st.markdown(
+                        "<div style=\"font-family:'Inter',sans-serif;font-size:0.72rem;color:#6B7280;margin:12px 0 4px 0;text-transform:uppercase;letter-spacing:0.06em\">Rich Agent Analytics</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        metric_row(_rich_cards),
+                        unsafe_allow_html=True,
                     )
 
-                else:
-                    st.info("No execution logs available")
+                rich_df = metrics.build_rich_agent_dataframe(rich)
+                if not rich_df.empty:
+                    _ra1, _ra2 = st.columns(2)
+                    with _ra1:
+                        st.plotly_chart(
+                            charts.rich_agent_comparison(rich_df),
+                            use_container_width=True,
+                        )
+                    with _ra2:
+                        if rich.fills:
+                            fill_df = metrics.build_fill_records_df(rich.fills)
+                            st.plotly_chart(
+                                charts.fill_slippage_histogram(fill_df),
+                                use_container_width=True,
+                            )
+                    with st.expander("Rich agent detail table"):
+                        st.dataframe(
+                            rich_df,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+            except Exception:
+                pass  # rich metrics may not be available
 
-            except Exception as e:
-                st.error(f"Error loading logs: {str(e)}")
+        # P&L box plot + equity curves
+        if exec_agents:
+            aa1, aa2 = st.columns(2)
+            with aa1:
+                st.plotly_chart(
+                    charts.pnl_box_plot(agent_df),
+                    use_container_width=True,
+                )
+            with aa2:
+                for agent in exec_agents[:1]:
+                    ec_df = metrics.build_equity_curve_df(agent)
+                    if ec_df is not None:
+                        st.plotly_chart(
+                            charts.equity_curve(ec_df, agent.agent_name),
+                            use_container_width=True,
+                        )
+                    else:
+                        st.caption("No equity curve data.")
+        else:
+            st.plotly_chart(
+                charts.pnl_box_plot(agent_df),
+                use_container_width=True,
+            )
 
-        with analysis_tab5:
-            render_logs()
+        hold_agg = metrics.build_holdings_table(hasufel_result)
+        if hold_agg is not None:
+            st.dataframe(hold_agg, use_container_width=True, hide_index=True)
+
+        if len(exec_agents) > 1:
+            slip_data = [
+                {
+                    "name": a.agent_name,
+                    "vwap_slippage_bps": (a.execution_metrics.vwap_slippage_bps or 0.0),
+                }
+                for a in exec_agents
+            ]
+            st.plotly_chart(
+                charts.slippage_comparison(slip_data),
+                use_container_width=True,
+            )
+
+        if exec_agents:
+            with st.expander(
+                "Execution agent details (" + str(len(exec_agents)) + ")",
+            ):
+                for agent in exec_agents:
+                    detail_df = metrics.build_execution_detail_df(agent)
+                    if len(detail_df) > 0:
+                        st.caption(
+                            "**" + str(agent.agent_name) + "** (" + str(agent.agent_type) + ")",
+                        )
+                        st.dataframe(
+                            detail_df,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    ec_df = metrics.build_equity_curve_df(agent)
+                    if ec_df is not None:
+                        st.plotly_chart(
+                            charts.equity_curve(ec_df, agent.agent_name),
+                            use_container_width=True,
+                        )
+
+        with st.expander("Agent Leaderboard"):
+            st.dataframe(
+                metrics.build_leaderboard(agent_df),
+                use_container_width=True,
+            )
+    else:
+        st.info("No agent data available.")
+
+
+# ==============================================================================
+# TAB 3: ORDER BOOK DYNAMICS
+# ==============================================================================
+
+with tab_book:
+    _has_orders = order_df is not None and len(order_df) > 0
+    _has_trades = hasufel_market is not None and hasufel_market.trades is not None and len(hasufel_market.trades) > 0
+
+    if _has_orders:
+        ofs = metrics.compute_order_flow_stats(order_df)
+        st.markdown(
+            metric_row(
+                [
+                    {"label": "Orders Submitted", "value": f"{ofs.total_submitted:,}"},
+                    {"label": "Executions", "value": f"{ofs.executed:,}"},
+                    {"label": "Cancellations", "value": f"{ofs.cancelled:,}"},
+                    {"label": "Fill Rate", "value": f"{ofs.fill_rate:.1f}%"},
+                    {"label": "Cancel Rate", "value": f"{ofs.cancel_rate:.1f}%"},
+                ]
+            ),
+            unsafe_allow_html=True,
+        )
+
+        if "EventType" in order_df.columns:
+            event_counts = order_df["EventType"].value_counts()
+            ob1, ob2 = st.columns(2)
+            with ob1:
+                st.plotly_chart(
+                    charts.event_type_pie(event_counts),
+                    use_container_width=True,
+                )
+            with ob2:
+                if "side" in order_df.columns:
+                    submitted = order_df[order_df["EventType"] == "ORDER_SUBMITTED"]
+                    side_counts = submitted["side"].value_counts()
+                    st.plotly_chart(
+                        charts.side_balance(side_counts),
+                        use_container_width=True,
+                    )
+
+        imb_df = metrics.compute_cumulative_imbalance(order_df)
+        if imb_df is not None:
+            flow_time = pd.to_datetime(imb_df["EventTime"], unit="ns")
+            st.plotly_chart(
+                charts.cumulative_imbalance(flow_time, imb_df["cum_imbalance"]),
+                use_container_width=True,
+            )
+
+        if "agent_type" in order_df.columns:
+            exec_df = order_df[order_df["EventType"] == "ORDER_EXECUTED"]
+            if len(exec_df) > 0 and "quantity" in exec_df.columns:
+                vol_by_type = exec_df.groupby("agent_type")["quantity"].sum().sort_values(ascending=True)
+                st.plotly_chart(
+                    charts.volume_by_agent_type(vol_by_type),
+                    use_container_width=True,
+                )
+
+        with st.expander("Raw order logs"):
+            st.dataframe(order_df, use_container_width=True)
+
+    # Trade attribution
+    if _has_trades and hasufel_result is not None:
+        attr_df = metrics.build_trade_attribution_df(
+            hasufel_market.trades,
+            hasufel_result.agents,
+        )
+        mts = metrics.compute_maker_taker_summary(attr_df)
+
+        if not _has_orders:
+            st.markdown(
+                metric_row(
+                    [
+                        {"label": "Total Trades", "value": f"{mts.total_trades:,}"},
+                        {
+                            "label": "Maker Types",
+                            "value": str(len(mts.maker_volume_by_type)),
+                        },
+                        {
+                            "label": "Taker Types",
+                            "value": str(len(mts.taker_volume_by_type)),
+                        },
+                    ]
+                ),
+                unsafe_allow_html=True,
+            )
+
+        ob3, ob4 = st.columns(2)
+        with ob3:
+            st.plotly_chart(
+                charts.maker_taker_volume(
+                    mts.maker_volume_by_type,
+                    mts.taker_volume_by_type,
+                ),
+                use_container_width=True,
+            )
+        with ob4:
+            st.plotly_chart(
+                charts.trade_price_scatter(attr_df),
+                use_container_width=True,
+            )
+
+        with st.expander("Raw trade attribution data"):
+            st.dataframe(attr_df, use_container_width=True)
+
+    # Fill-level analysis
+    if isinstance(output, HasufelOutput):
+        try:
+            rich_ob = output.rich_metrics
+            if rich_ob.fills:
+                st.markdown(
+                    "<div style=\"font-family:'Inter',sans-serif;font-size:0.72rem;color:#6B7280;margin:12px 0 4px 0;text-transform:uppercase;letter-spacing:0.06em\">Fill-Level Analysis</div>",
+                    unsafe_allow_html=True,
+                )
+                fill_df = metrics.build_fill_records_df(rich_ob.fills)
+                if "slippage (bps)" in fill_df.columns:
+                    _slip = fill_df["slippage (bps)"].dropna()
+                    if len(_slip) > 0:
+                        st.markdown(
+                            metric_row(
+                                [
+                                    {
+                                        "label": "Fills Analysed",
+                                        "value": f"{len(fill_df):,}",
+                                    },
+                                    {
+                                        "label": "Avg Fill Slippage",
+                                        "value": f"{_slip.mean():.1f} bps",
+                                    },
+                                    {
+                                        "label": "Median Slippage",
+                                        "value": f"{_slip.median():.1f} bps",
+                                    },
+                                    {
+                                        "label": "Max Slippage",
+                                        "value": f"{_slip.max():.0f} bps",
+                                    },
+                                    {
+                                        "label": "% Adverse",
+                                        "value": (f"{(_slip > 0).mean() * 100:.1f}%"),
+                                    },
+                                ]
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                st.plotly_chart(
+                    charts.fill_slippage_histogram(fill_df),
+                    use_container_width=True,
+                )
+                with st.expander("Raw fill records"):
+                    st.dataframe(fill_df, use_container_width=True)
+        except Exception:
+            pass
+
+    # L2 Order Book Depth
+    if hasufel_market is not None and hasufel_market.l2_series is not None:
+        st.markdown(
+            "<div style=\"font-family:'Inter',sans-serif;font-size:0.72rem;color:#6B7280;margin:12px 0 4px 0;text-transform:uppercase;letter-spacing:0.06em\">L2 Order Book Depth</div>",
+            unsafe_allow_html=True,
+        )
+        l2_df = hasufel_market.l2_series.as_dataframe()
+        if len(l2_df) > 0:
+            _l2_mid = l1.mid if l1 is not None else None
+            st.plotly_chart(
+                charts.l2_depth_heatmap(l2_df, mid=_l2_mid),
+                use_container_width=True,
+            )
+            _l2_c1, _l2_c2 = st.columns(2)
+            with _l2_c1:
+                st.plotly_chart(
+                    charts.l2_depth_profile(l2_df),
+                    use_container_width=True,
+                )
+            with _l2_c2:
+                _bid_levels = l2_df[l2_df["side"] == "bid"]
+                _ask_levels = l2_df[l2_df["side"] == "ask"]
+                _n_snapshots = l2_df["time_ns"].nunique()
+                _max_depth = int(l2_df["level"].max()) + 1 if len(l2_df) > 0 else 0
+                _avg_bid_depth = float(_bid_levels["qty"].mean()) if len(_bid_levels) > 0 else 0
+                _avg_ask_depth = float(_ask_levels["qty"].mean()) if len(_ask_levels) > 0 else 0
+                st.markdown(
+                    metric_row(
+                        [
+                            {"label": "L2 Snapshots", "value": f"{_n_snapshots:,}"},
+                            {
+                                "label": "Max Depth",
+                                "value": str(_max_depth) + " levels",
+                            },
+                            {
+                                "label": "Avg Bid Qty/Level",
+                                "value": f"{_avg_bid_depth:,.0f}",
+                            },
+                            {
+                                "label": "Avg Ask Qty/Level",
+                                "value": f"{_avg_ask_depth:,.0f}",
+                            },
+                        ]
+                    ),
+                    unsafe_allow_html=True,
+                )
+            with st.expander("Raw L2 data"):
+                st.dataframe(l2_df, use_container_width=True)
+        else:
+            st.info("L2 data is empty.")
+
+    if not _has_orders and not _has_trades:
+        st.warning(
+            "Order log data not available. Enable **Log Orders** in the sidebar to populate this tab.",
+        )
+
+
+# ==============================================================================
+# TAB 4: CONFIGURATION
+# ==============================================================================
+
+with tab_config:
+    config_json = sim_config.model_dump_json(indent=2)
+    st.download_button(
+        "\U0001f4e5 Download config.json",
+        data=config_json,
+        file_name="abides_config.json",
+        mime="application/json",
+    )
+    st.code(config_json, language="json")

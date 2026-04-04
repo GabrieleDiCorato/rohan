@@ -219,6 +219,57 @@ def l2_depth_profile(l2_df: pd.DataFrame) -> go.Figure:
     return apply_fin_theme(fig)
 
 
+# ── Section A: Rich Metrics ───────────────────────────────────────────────────
+
+
+def fill_slippage_histogram(fill_df: pd.DataFrame) -> go.Figure:
+    """Histogram of per-fill slippage in basis points."""
+    if "slippage (bps)" not in fill_df.columns:
+        fig = go.Figure()
+        fig.update_layout(title="Fill Slippage Distribution", height=HEIGHT_SECONDARY)
+        return apply_fin_theme(fig)
+
+    slippage = fill_df["slippage (bps)"].dropna()
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=slippage, nbinsx=40, name="Slippage (bps)", marker_color=PALETTE["warning"], opacity=0.75))
+    fig.add_vline(x=0, line_dash="dash", line_color=PALETTE["text_dim"])
+    if len(slippage) > 0:
+        mean_slip = float(slippage.mean())
+        fig.add_vline(x=mean_slip, line_dash="dot", line_color=PALETTE["hft"], annotation_text=f"Mean: {mean_slip:.1f} bps")
+    fig.update_layout(title="Per-Fill Slippage Distribution", xaxis_title="Slippage (bps)", yaxis_title="Frequency", height=HEIGHT_SECONDARY)
+    return apply_fin_theme(fig)
+
+
+def rich_agent_comparison(rich_df: pd.DataFrame) -> go.Figure:
+    """Grouped bar chart comparing key metrics across agent types."""
+    if rich_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title="Agent Metrics Comparison", height=HEIGHT_SECONDARY)
+        return apply_fin_theme(fig)
+
+    agg_cols: dict[str, tuple[str, str]] = {}
+    if "Sharpe" in rich_df.columns:
+        agg_cols["Sharpe"] = ("Sharpe", "mean")
+    if "OTT Ratio" in rich_df.columns:
+        agg_cols["OTT Ratio"] = ("OTT Ratio", "mean")
+    if "Inventory σ" in rich_df.columns:
+        agg_cols["Inventory σ"] = ("Inventory σ", "mean")
+    if "Trade Count" in rich_df.columns:
+        agg_cols["Trades"] = ("Trade Count", "sum")
+    if not agg_cols:
+        fig = go.Figure()
+        fig.update_layout(title="Agent Metrics Comparison", height=HEIGHT_SECONDARY)
+        return apply_fin_theme(fig)
+
+    grouped = rich_df.groupby("Type").agg(**agg_cols).reset_index()
+    fig = go.Figure()
+    bar_colors = [PALETTE["institutional"], PALETTE["market"], PALETTE["hft"], PALETTE["warning"]]
+    for i, col in enumerate(c for c in agg_cols if c in grouped.columns):
+        fig.add_trace(go.Bar(x=grouped["Type"], y=grouped[col], name=col, marker_color=bar_colors[i % len(bar_colors)]))
+    fig.update_layout(title="Rich Agent Metrics by Type", xaxis_title="Agent Type", barmode="group", height=HEIGHT_PRIMARY)
+    return apply_fin_theme(fig)
+
+
 # ── Section B: Rohan Price / Returns ─────────────────────────────────────────
 
 
