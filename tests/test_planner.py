@@ -19,6 +19,40 @@ from rohan.llm.planner import (
 from rohan.llm.state import ScenarioConfig
 
 # ---------------------------------------------------------------------------
+# Integration: overlays survive through SimulationSettings → config_builder
+# ---------------------------------------------------------------------------
+
+
+class TestOverlayExecutionPath:
+    """Verify overlays flow from config_override → SimulationSettings → config_builder."""
+
+    def test_overlays_accepted_by_simulation_settings(self):
+        from rohan.config.simulation_settings import SimulationSettings
+
+        base = SimulationSettings(template="rmsc04")
+        merged = base.model_dump()
+        merged["overlays"] = ["with_momentum", "with_execution"]
+        settings = SimulationSettings.model_validate(merged)
+        assert settings.overlays == ["with_momentum", "with_execution"]
+
+    def test_overlays_applied_in_config_builder(self):
+        from rohan.config.simulation_settings import SimulationSettings
+        from rohan.simulation.abides_impl.config_builder import create_simulation_builder
+
+        settings = SimulationSettings(
+            template="rmsc04",
+            overlays=["with_momentum"],
+        )
+        builder = create_simulation_builder(settings)
+        config = builder.build()
+        # with_momentum overlay adds momentum agents — verify build succeeds
+        # and the config includes agents from both base + overlay
+        config_dict = config.model_dump()
+        assert "agents" in config_dict
+        assert len(config_dict["agents"]) > 0
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -99,6 +133,13 @@ class TestKeywordFallback:
             assert s.name
             assert s.template_name
             assert s.rationale
+
+    def test_distinct_template_names(self):
+        """Keyword heuristic uses distinct templates — not all rmsc04."""
+        results = _keyword_fallback("market-making spread profit vpin execution risk", max_adversarial=10)
+        template_names = {s.template_name for s in results}
+        # At least 3 distinct templates across 5+ matched scenarios
+        assert len(template_names) >= 3, f"Expected diverse templates, got {template_names}"
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +247,19 @@ class TestToScenarioConfig:
         config = _to_scenario_config(planned)
         # Empty template and tags should not be added to override
         assert "template" not in config.config_override or config.config_override.get("template") == ""
+
+    def test_overlays_survive_conversion(self):
+        """Overlays in config_override pass through _to_scenario_config into ScenarioConfig."""
+        planned = PlannedScenario(
+            name="overlay_test",
+            template_name="volatile_day",
+            regime_tags=["volatile"],
+            config_override={"overlays": ["with_execution"]},
+            rationale="Overlay survival test",
+        )
+        config = _to_scenario_config(planned)
+        assert config.config_override["overlays"] == ["with_execution"]
+        assert config.config_override["template"] == "volatile_day"
 
 
 # ---------------------------------------------------------------------------

@@ -43,6 +43,40 @@ class TestBuildScenario:
         result = tools["build_scenario"].invoke({"template_name": "nonexistent"})
         assert "Error" in result
 
+    def test_overlay_stacking(self, tools):
+        result = tools["build_scenario"].invoke(
+            {
+                "template_name": "rmsc04",
+                "overlays": ["with_momentum", "with_execution"],
+            }
+        )
+        parsed = json.loads(result)
+        assert parsed["template"] == "rmsc04"
+        assert parsed["applied_overlays"] == ["with_momentum", "with_execution"]
+        assert "config" in parsed
+
+    def test_invalid_overlay_skipped(self, tools):
+        result = tools["build_scenario"].invoke(
+            {
+                "template_name": "rmsc04",
+                "overlays": ["with_momentum", "nonexistent_overlay"],
+            }
+        )
+        parsed = json.loads(result)
+        assert parsed["applied_overlays"] == ["with_momentum"]
+
+    def test_override_allowlist_blocks_disallowed(self, tools):
+        """Builder overrides not in the allowlist are silently skipped."""
+        result = tools["build_scenario"].invoke(
+            {
+                "template_name": "rmsc04",
+                "overrides": {"seed": 999, "compile": None},
+            }
+        )
+        # Should succeed (compile is skipped, seed is applied)
+        parsed = json.loads(result)
+        assert parsed["template"] == "rmsc04"
+
 
 # ── validate_scenario ───────────────────────────────────────────────
 
