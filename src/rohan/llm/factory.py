@@ -156,6 +156,12 @@ def get_judge_model(settings: LLMSettings | None = None) -> BaseChatModel:
     return create_chat_model(s.judge_model, s, temperature=s.judge_temperature)
 
 
+def get_planner_model(settings: LLMSettings | None = None) -> BaseChatModel:
+    """Convenience: return the scenario-planner model (fast/cheap)."""
+    s = settings or _cached_settings()
+    return create_chat_model(s.planner_model, s)
+
+
 def get_structured_model[T](
     model: BaseChatModel,
     schema: type[T],

@@ -526,6 +526,15 @@ with ctrl_col2:
         key="scenario_multiselect",
         help="Select one or more scenarios to run the strategy against",
     )
+    adversarial_count = st.number_input(
+        "Adversarial Scenarios",
+        min_value=0,
+        max_value=5,
+        value=2,
+        step=1,
+        key="adversarial_input",
+        help="Number of adversarial scenarios the planner will add (0 = no planner)",
+    )
 
 with ctrl_col3:
     st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
@@ -674,13 +683,33 @@ def _run_refinement(
     _goal: str,
     _max_iters: int,
     _scenarios: list[ScenarioConfig],
+    _adversarial_count: int = 2,
 ) -> None:
     """Execute the refinement graph with live streaming progress."""
+
+    # ── Scenario planning ─────────────────────────────────────────
+    from rohan.config.llm_settings import LLMSettings
+    from rohan.llm.planner import plan_scenarios
+
+    plan_reasoning = ""
+    if _adversarial_count > 0:
+        settings = LLMSettings()
+        settings.max_adversarial_scenarios = _adversarial_count
+        try:
+            _scenarios, plan_reasoning = plan_scenarios(
+                goal=_goal,
+                user_scenarios=_scenarios,
+                settings=settings,
+            )
+        except Exception:
+            logging.getLogger(__name__).exception("Scenario planner failed — using user selection only")
+            plan_reasoning = "Planner failed — using user-selected scenarios only."
 
     initial_state: RefinementState = {
         "goal": _goal,
         "max_iterations": _max_iters,
         "scenarios": _scenarios,
+        "scenario_plan_reasoning": plan_reasoning,
         "current_code": None,
         "current_class_name": None,
         "current_reasoning": None,
@@ -706,6 +735,8 @@ def _run_refinement(
         with status_container:
             st.write(f"**Goal:** {_goal[:120]}{'…' if len(_goal) > 120 else ''}")
             st.write(f"**Config:** {_max_iters} iteration(s), {len(_scenarios)} scenario(s)")
+            if plan_reasoning:
+                st.write(f"**Planner:** {plan_reasoning[:200]}{'…' if len(plan_reasoning) > 200 else ''}")
             st.write("")
 
             iter_display = 1
@@ -867,7 +898,7 @@ def _run_refinement(
 if st.session_state.pop("_pending_launch", False) or (launch_pressed and not _has_unsaved_results):
     _reset_run_state()
     st.session_state.refine_running = True
-    _run_refinement(str(goal), max_iterations, _build_scenarios_from_selection(selected_scenarios))
+    _run_refinement(str(goal), max_iterations, _build_scenarios_from_selection(selected_scenarios), adversarial_count)
 
 
 # ============================================================================

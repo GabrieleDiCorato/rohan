@@ -146,3 +146,40 @@ class IterationSummary(BaseModel):
     execution_score: float | None = None
     # Which weight profile was used (e.g. "default", "risk_focused")
     scoring_profile: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Scenario Planner
+# ---------------------------------------------------------------------------
+class PlannedScenario(BaseModel):
+    """A single scenario proposed by the planner agent."""
+
+    name: str = Field(description="Short slug for this scenario (e.g. 'volatile_thin')")
+    template_name: str = Field(
+        default="rmsc04",
+        description="Hasufel template to use (e.g. 'rmsc04', 'stress_test')",
+    )
+    regime_tags: list[str] = Field(
+        default_factory=list,
+        description="Regime tags describing the market environment",
+    )
+    config_override: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Builder overrides for this scenario",
+    )
+    rationale: str = Field(
+        default="",
+        description="Why this scenario was chosen given the goal",
+    )
+
+
+class ScenarioPlan(BaseModel):
+    """Output of the scenario planner — a set of scenarios plus reasoning."""
+
+    scenarios: list[PlannedScenario] = Field(
+        description="Ordered list of scenarios to run",
+    )
+    reasoning: str = Field(
+        default="",
+        description="Overall planning rationale explaining scenario selection",
+    )

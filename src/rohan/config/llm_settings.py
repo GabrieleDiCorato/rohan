@@ -90,6 +90,16 @@ class LLMSettings(BaseSettings):
         default="google/gemini-2.0-flash-001",
         description="Model for convergence judging",
     )
+    planner_model: str = Field(
+        default="google/gemini-2.0-flash-001",
+        description="Model for the scenario-planning ReAct agent (fast/cheap recommended)",
+    )
+    max_adversarial_scenarios: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        description="Maximum number of adversarial scenarios the planner may add",
+    )
 
     # --- Sampling parameters ---
     temperature: float = Field(default=0.2, ge=0, le=2)

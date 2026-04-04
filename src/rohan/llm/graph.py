@@ -205,6 +205,7 @@ def run_refinement(
     max_iterations: int = 5,
     scenarios: list[ScenarioConfig] | None = None,
     max_wall_clock_seconds: int = 3600,
+    scenario_plan_reasoning: str = "",
 ) -> RefinementState:
     """Run the full refinement loop and return the final state.
 
@@ -220,6 +221,9 @@ def run_refinement(
     max_wall_clock_seconds:
         Hard wall-clock timeout for the entire refinement run (default
         3600 = 1 hour).  Raises ``TimeoutError`` if exceeded.
+    scenario_plan_reasoning:
+        Optional reasoning text from the scenario planner, stored in
+        state for UI display and traceability.
 
     Returns
     -------
@@ -243,6 +247,7 @@ def run_refinement(
         "max_iterations": max_iterations,
         "scenarios": scenarios,
         "feature_flags": feature_flags_snapshot(),
+        "scenario_plan_reasoning": scenario_plan_reasoning,
         "current_code": None,
         "current_class_name": None,
         "current_reasoning": None,

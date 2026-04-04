@@ -135,6 +135,7 @@ class RefinementState(TypedDict, total=False):
     scenarios: list[ScenarioConfig]
     active_scenario: ScenarioConfig  # Used during mapped execution
     feature_flags: FeatureFlagSnapshot
+    scenario_plan_reasoning: str  # Explanation from the scenario planner
 
     # --- Current iteration ---
     current_code: str | None

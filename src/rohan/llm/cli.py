@@ -44,6 +44,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Enable DEBUG logging",
     )
+    parser.add_argument(
+        "--adversarial-scenarios",
+        type=int,
+        default=None,
+        help="Number of adversarial scenarios to add (overrides config; 0 disables planner)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -59,11 +65,31 @@ def main(argv: list[str] | None = None) -> int:
         raw = json.loads(args.scenarios)
         scenarios = [ScenarioConfig(**s) for s in raw]
 
+    # Run scenario planner
+    from rohan.config.llm_settings import LLMSettings
+    from rohan.llm.planner import plan_scenarios
+
+    settings = LLMSettings()
+    if args.adversarial_scenarios is not None:
+        settings.max_adversarial_scenarios = args.adversarial_scenarios
+
+    user_scenarios = scenarios or [ScenarioConfig(name="default")]
+    planned_scenarios, plan_reasoning = plan_scenarios(
+        goal=args.goal,
+        user_scenarios=user_scenarios,
+        settings=settings,
+    )
+
+    if plan_reasoning:
+        print(f"\n[Planner] {plan_reasoning}")
+    print(f"[Planner] Running with {len(planned_scenarios)} scenario(s): {[s.name for s in planned_scenarios]}")
+
     # Run
     final_state = run_refinement(
         goal=args.goal,
         max_iterations=args.max_iterations,
-        scenarios=scenarios,
+        scenarios=planned_scenarios,
+        scenario_plan_reasoning=plan_reasoning,
     )
 
     # Print results
