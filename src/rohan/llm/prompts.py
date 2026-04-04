@@ -158,6 +158,7 @@ WRITER_HUMAN = """\
 ## Goal
 {goal}
 
+{scenario_context}
 {feedback_section}
 
 Generate a complete Python strategy class. Respond with structured output.
@@ -261,6 +262,15 @@ adverse selection, counterparty data, and order lifecycle records.
 - **Market Availability** (pct_time_two_sided): 0–1, fraction of time both
   bid and ask are present.  Higher = healthier market.  If the strategy
   reduces availability, it's removing liquidity.
+- **Adverse Selection** (multi-window): available at 100ms, 500ms, 1s, 5s
+  look-ahead windows.  Short-window AS (100ms) indicates immediate toxic flow;
+  long-window AS (5s) indicates persistent information leakage.  Compare
+  windows to distinguish transient from persistent adverse selection.
+- **VWAP**: compare to the mid-price to assess execution quality.  If VWAP
+  is consistently worse than mid, the strategy is crossing the spread or
+  being adversely selected.  If better, it's capturing spread.
+- **Fill Slippage**: signed bps from mid-price at fill.  Positive = worse
+  than mid (cost), negative = better than mid (rebate/capture).
 
 All Δ% metrics in the performance summary are relative to a **no-agent
 baseline** simulation.  Positive Δ means the strategy *increased* the metric;
@@ -317,6 +327,20 @@ You will see them in the human message.  Your job is to explain *why* the
 strategy scored as it did on each axis, identify specific code patterns
 driving the scores, and provide actionable recommendations.
 
+## Scoring Formula Reference (deterministic — for your interpretation only)
+1. **Profitability** — capture_rate = PnL / (baseline_spread × baseline_volume / 2).
+   Negative capture → 1–3, 0–0.1% → 3–5, 0.1–0.5% → 5–7, 0.5–2% → 7–9, >2% → 9–10.
+2. **Risk-Adjusted** — Sharpe ratio piecewise: <−1 → 1, −1–0 → 1–3, 0–0.5 → 3–4,
+   0.5–1.5 → 4–6, 1.5–3 → 6–8, >3 → 8–10.  Drawdown penalty: >5% of capital → −2, >2% → −1.
+3. **Volatility Impact** — baseline-relative Δ: >+10% → 1, +5–10% → 1–4, ±5% → 4–7,
+   −5–15% → 7–9, <−15% → 9 (lower = stabilising = better).
+4. **Spread Impact** — same piecewise as volatility (lower = tighter = better).
+5. **Liquidity Impact** — inverted: more liquidity = better.  <−15% → 1, ±5% → 4–7,
+   >+15% → 9.  Availability penalty: >10% drop → −2, >5% drop → −1.
+6. **Execution Quality** — fill rate: <5% → 1–2, 5–15% → 2–4, 15–30% → 4–6,
+   30–50% → 6–8, >50% → 8–10.  OTT penalty: >200 → −2, >100 → −1.
+   Slippage: <0 bps (better than mid) → +0.5, >5 bps → −1, >10 bps → −2.
+
 Produce a structured ``QualitativeAnalysis`` with:
 - **reasoning**: A thorough explanation of why each axis scored as it did,
   referencing specific metrics and code patterns.
@@ -354,8 +378,8 @@ For the `comparison` field compare this iteration against the **Best Iteration
 So Far** (shown above), not merely the previous row in the history table.
 """
 
-HISTORY_ROW_TEMPLATE = "| {iter} | {pnl} | {trades} | {fill_rate} | {vol_delta} | {spread_delta} | {score} | {summary} |"
+HISTORY_ROW_TEMPLATE = "| {iter} | {pnl} | {trades} | {fill_rate} | {slippage} | {vol_delta} | {spread_delta} | {score} | {summary} |"
 
 HISTORY_TABLE_HEADER = """\
-| Iter | PnL | Trades | Fill Rate | Volatility Δ | Spread Δ | Score | Summary |
-|------|-----|--------|-----------|--------------|----------|-------|---------|"""
+| Iter | PnL | Trades | Fill Rate | Slippage | Volatility Δ | Spread Δ | Score | Summary |
+|------|-----|--------|-----------|----------|--------------|----------|-------|---------|"""

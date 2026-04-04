@@ -34,10 +34,12 @@ class TestWriterPrompts:
     def test_human_prompt_has_slots(self):
         assert "{goal}" in WRITER_HUMAN
         assert "{feedback_section}" in WRITER_HUMAN
+        assert "{scenario_context}" in WRITER_HUMAN
 
     def test_human_prompt_renders(self):
         rendered = WRITER_HUMAN.format(
             goal="Make a market-maker",
+            scenario_context="",
             feedback_section="No feedback yet",
         )
         assert "Make a market-maker" in rendered
@@ -98,6 +100,7 @@ class TestAggregatorPrompts:
             pnl="$1.00",
             trades="142",
             fill_rate="4.2%",
+            slippage="2.3bps",
             vol_delta="+5.0%",
             spread_delta="-2.0%",
             score="7.0",
@@ -106,3 +109,4 @@ class TestAggregatorPrompts:
         assert "$1.00" in row
         assert "7.0" in row
         assert "4.2%" in row
+        assert "2.3bps" in row

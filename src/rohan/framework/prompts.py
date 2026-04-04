@@ -25,9 +25,12 @@ INTERPRETER_PROMPT_TEMPLATE = """You are analyzing the results of a trading stra
 - **Inventory Std**: {inventory_std}
 
 ### Execution Quality
-- **Adverse Selection**: {adverse_selection}
-- **Counterparty Mix**: {counterparty_mix}
+- **VWAP**: {vwap}
 - **Avg Fill Slippage**: {avg_slippage}
+- **Adverse Selection**: {adverse_selection}
+- **Adverse Selection (multi-window)**: {adverse_selection_windows}
+- **Counterparty Mix**: {counterparty_mix}
+- **Order Lifecycle**: {order_lifecycle}
 
 ### Market Impact (vs Baseline)
 - **Volatility Change**: {volatility_delta_pct}
@@ -97,8 +100,15 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analys
 
     # --- Rich analysis summary ---
     adverse_selection = "N/A"
+    adverse_selection_windows = "N/A"
     counterparty_mix = "N/A"
     avg_slippage = "N/A"
+    order_lifecycle = "N/A"
+    vwap = "N/A"
+
+    # VWAP from agent metrics (available even without rich analysis)
+    if agent.vwap_cents is not None:
+        vwap = fmt_dollar_metric(agent.vwap_cents)
 
     if rich_analysis_json:
         try:
@@ -107,6 +117,11 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analys
             bundle = json.loads(rich_analysis_json)
             if bundle.get("adverse_selection_bps") is not None:
                 adverse_selection = f"{bundle['adverse_selection_bps']:.1f} bps"
+            # Multi-window adverse selection
+            as_windows = bundle.get("adverse_selection_by_window", {})
+            if as_windows:
+                parts = [f"{label}={val:.1f}bps" for label, val in as_windows.items()]
+                adverse_selection_windows = ", ".join(parts)
             cps = bundle.get("counterparty_breakdown", [])
             if cps:
                 parts = [f"{cp['agent_type']}({cp['trade_count']})" for cp in cps]
@@ -115,6 +130,14 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analys
             slippages = [f["slippage_bps"] for f in fills if f.get("slippage_bps") is not None]
             if slippages:
                 avg_slippage = f"{sum(slippages) / len(slippages):.1f} bps"
+            # Order lifecycle summary
+            lifecycles = bundle.get("order_lifecycle", [])
+            if lifecycles:
+                total = len(lifecycles)
+                filled = sum(1 for o in lifecycles if o.get("status") == "filled")
+                cancelled = sum(1 for o in lifecycles if o.get("status") == "cancelled")
+                resting = total - filled - cancelled
+                order_lifecycle = f"{filled} filled, {cancelled} cancelled, {resting} resting (of {total})"
         except Exception:
             pass
 
@@ -131,8 +154,11 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analys
         inventory_std=_fmt_float(agent.inventory_std, ".1f"),
         # Execution quality (rich analysis)
         adverse_selection=adverse_selection,
+        adverse_selection_windows=adverse_selection_windows,
         counterparty_mix=counterparty_mix,
         avg_slippage=avg_slippage,
+        order_lifecycle=order_lifecycle,
+        vwap=vwap,
         # Market impact deltas
         volatility_delta_pct=_fmt_pct(impact.volatility_delta_pct),
         spread_delta_pct=_fmt_pct(impact.spread_delta_pct),
