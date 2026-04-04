@@ -14,8 +14,12 @@ import pytest
 
 from rohan.simulation.models.schemas import (
     AgentLogsSchema,
+    AgentRosterSchema,
+    FillRecordsSchema,
+    FundamentalSeriesSchema,
     OrderBookL1Schema,
     OrderBookL2Schema,
+    TradeAttributionSchema,
 )
 
 
@@ -357,3 +361,150 @@ class TestSchemaRealWorldEdgeCases:
         )
         result = AgentLogsSchema.validate(df)
         assert len(result["EventType"].unique()) == 5
+
+
+# ---------------------------------------------------------------------------
+# FundamentalSeriesSchema
+# ---------------------------------------------------------------------------
+class TestFundamentalSeriesSchema:
+    def test_valid_series_passes(self):
+        series = pd.Series(
+            [10000, 10050, 10100],
+            index=pd.to_datetime(["2026-01-30 09:30:00", "2026-01-30 09:30:01", "2026-01-30 09:30:02"]),
+        )
+        result = FundamentalSeriesSchema.validate(series)
+        assert len(result) == 3
+
+    def test_negative_values_fail(self):
+        series = pd.Series(
+            [-100, 10050],
+            index=pd.to_datetime(["2026-01-30 09:30:00", "2026-01-30 09:30:01"]),
+        )
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
+            FundamentalSeriesSchema.validate(series)
+
+    def test_zero_values_fail(self):
+        series = pd.Series(
+            [0, 10050],
+            index=pd.to_datetime(["2026-01-30 09:30:00", "2026-01-30 09:30:01"]),
+        )
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
+            FundamentalSeriesSchema.validate(series)
+
+    def test_float_values_coerced_to_int(self):
+        series = pd.Series(
+            [10000.0, 10050.0],
+            index=pd.to_datetime(["2026-01-30 09:30:00", "2026-01-30 09:30:01"]),
+        )
+        result = FundamentalSeriesSchema.validate(series)
+        assert result.dtype in [np.int64, np.int32, int]
+
+
+# ---------------------------------------------------------------------------
+# AgentRosterSchema
+# ---------------------------------------------------------------------------
+class TestAgentRosterSchema:
+    @pytest.fixture
+    def valid_agent_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "ID": [0, 1],
+                "Type": ["ExchangeAgent", "NoiseAgent"],
+                "Category": ["exchange", "noise"],
+                "Name": ["Exchange-0", "Noise-1"],
+                "Starting Cash ($)": [1_000_000.0, 50_000.0],
+                "Mark-to-Market ($)": [1_000_100.0, 49_900.0],
+                "P&L ($)": [100.0, -100.0],
+                "P&L (%)": [0.01, -0.2],
+            }
+        )
+
+    def test_valid_dataframe_passes(self, valid_agent_df):
+        result = AgentRosterSchema.validate(valid_agent_df)
+        assert len(result) == 2
+
+    def test_extra_execution_columns_allowed(self, valid_agent_df):
+        valid_agent_df["Fill Rate (%)"] = [95.0, None]
+        result = AgentRosterSchema.validate(valid_agent_df)
+        assert "Fill Rate (%)" in result.columns
+
+    def test_missing_required_column_fails(self, valid_agent_df):
+        bad_df = valid_agent_df.drop(columns=["P&L ($)"])
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
+            AgentRosterSchema.validate(bad_df)
+
+
+# ---------------------------------------------------------------------------
+# TradeAttributionSchema
+# ---------------------------------------------------------------------------
+class TestTradeAttributionSchema:
+    @pytest.fixture
+    def valid_trade_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "time": pd.to_datetime(["2026-01-30 09:30:00", "2026-01-30 09:30:01"]),
+                "price ($)": [100.5, 101.0],
+                "quantity": [10, 20],
+                "side": ["buy", "sell"],
+                "maker_id": [1, 2],
+                "taker_id": [2, 1],
+                "maker_type": ["MarketMaker", "NoiseAgent"],
+                "taker_type": ["NoiseAgent", "MarketMaker"],
+            }
+        )
+
+    def test_valid_dataframe_passes(self, valid_trade_df):
+        result = TradeAttributionSchema.validate(valid_trade_df)
+        assert len(result) == 2
+
+    def test_extra_columns_rejected(self, valid_trade_df):
+        valid_trade_df["extra"] = [1, 2]
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
+            TradeAttributionSchema.validate(valid_trade_df)
+
+    def test_zero_quantity_fails(self, valid_trade_df):
+        valid_trade_df.loc[0, "quantity"] = 0
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
+            TradeAttributionSchema.validate(valid_trade_df)
+
+    def test_negative_price_fails(self, valid_trade_df):
+        valid_trade_df.loc[0, "price ($)"] = -1.0
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
+            TradeAttributionSchema.validate(valid_trade_df)
+
+
+# ---------------------------------------------------------------------------
+# FillRecordsSchema
+# ---------------------------------------------------------------------------
+class TestFillRecordsSchema:
+    @pytest.fixture
+    def valid_fill_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "time": pd.to_datetime(["2026-01-30 09:30:00"]),
+                "agent_id": [1],
+                "side": ["buy"],
+                "price ($)": [100.5],
+                "quantity": [10],
+            }
+        )
+
+    def test_valid_dataframe_passes(self, valid_fill_df):
+        result = FillRecordsSchema.validate(valid_fill_df)
+        assert len(result) == 1
+
+    def test_extra_slippage_columns_allowed(self, valid_fill_df):
+        valid_fill_df["slippage (bps)"] = [2.5]
+        valid_fill_df["AS 100ms (bps)"] = [1.0]
+        result = FillRecordsSchema.validate(valid_fill_df)
+        assert "slippage (bps)" in result.columns
+
+    def test_missing_required_column_fails(self, valid_fill_df):
+        bad_df = valid_fill_df.drop(columns=["agent_id"])
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
+            FillRecordsSchema.validate(bad_df)
+
+    def test_zero_quantity_fails(self, valid_fill_df):
+        valid_fill_df.loc[0, "quantity"] = 0
+        with pytest.raises(pa.errors.SchemaError):  # pyright: ignore[reportPrivateImportUsage]
+            FillRecordsSchema.validate(valid_fill_df)
