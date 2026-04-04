@@ -1,4 +1,4 @@
-"""Tests for AnalysisService delegation to hasufel v2.5.7 compute_rich_metrics().
+"""Tests for AnalysisService delegation to hasufel v2.5.8 compute_rich_metrics().
 
 These tests verify that when AnalysisService receives a HasufelOutput
 (from a real simulation), all metric computations are delegated to
@@ -14,6 +14,7 @@ from rohan.framework.analysis_models import (
     CounterpartySummary,
     FillRecord,
     InventoryPoint,
+    OrderLifecycleRecord,
     PnLPoint,
     RichAnalysisBundle,
 )
@@ -213,7 +214,7 @@ class TestComputeAgentMetricsDelegation:
         with pytest.raises(ValueError, match="Agent 999999 not found"):
             AnalysisService.compute_agent_metrics(hasufel_output, 999999)
 
-    def test_capital_from_hasufel(
+    def test_capital_default_zero(
         self,
         hasufel_output: HasufelOutput,
         trading_agent_id: int,
@@ -222,8 +223,8 @@ class TestComputeAgentMetricsDelegation:
             hasufel_output,
             trading_agent_id,
         )
-        # initial_cash should come from hasufel AgentData, not the default 0
-        assert metrics.initial_cash > 0
+        # Default initial_cash=0 is honoured (Bug 2 fix)
+        assert metrics.initial_cash == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -416,20 +417,153 @@ class TestComputeRichAnalysisDelegation:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Order lifecycle — should still return [] for HasufelOutput
+# Order lifecycle — hasufel v2.5.8 uses OrderLifecycle model
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestOrderLifecycleNoEndState:
-    """get_order_lifecycle returns [] for HasufelOutput (no end_state)."""
+class TestOrderLifecycleDelegation:
+    """get_order_lifecycle returns populated records for HasufelOutput (v2.5.8)."""
 
-    def test_returns_empty_list(
+    def test_returns_non_empty(
         self,
         hasufel_output: HasufelOutput,
-        strategic_agent_id: int,
+        trading_agent_id: int,
     ) -> None:
         lifecycle = AnalysisService.get_order_lifecycle(
             hasufel_output,
-            strategic_agent_id,
+            trading_agent_id,
         )
+        assert len(lifecycle) > 0
+
+    def test_returns_lifecycle_records(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        lifecycle = AnalysisService.get_order_lifecycle(
+            hasufel_output,
+            trading_agent_id,
+        )
+        assert all(isinstance(r, OrderLifecycleRecord) for r in lifecycle)
+
+    def test_has_filled_orders(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        lifecycle = AnalysisService.get_order_lifecycle(
+            hasufel_output,
+            trading_agent_id,
+        )
+        filled = [r for r in lifecycle if r.status == "filled"]
+        assert len(filled) > 0
+
+    def test_record_fields_valid(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        lifecycle = AnalysisService.get_order_lifecycle(
+            hasufel_output,
+            trading_agent_id,
+        )
+        for rec in lifecycle:
+            assert rec.order_id >= 0
+            assert rec.submitted_at_ns >= 0
+            assert rec.status in ("filled", "cancelled", "resting")
+            assert rec.filled_qty >= 0
+            assert rec.submitted_qty >= 0
+
+    def test_resting_time_non_negative(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        lifecycle = AnalysisService.get_order_lifecycle(
+            hasufel_output,
+            trading_agent_id,
+        )
+        for rec in lifecycle:
+            if rec.resting_time_ns is not None:
+                assert rec.resting_time_ns > 0
+
+    def test_unknown_agent_returns_empty(
+        self,
+        hasufel_output: HasufelOutput,
+    ) -> None:
+        lifecycle = AnalysisService.get_order_lifecycle(hasufel_output, 999999)
         assert lifecycle == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Bug fix: PnL curve density (v2.5.8 dense L1-interpolated curve)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestPnlCurveDensity:
+    """Verify PnL curve uses dense L1 interpolation (Bug 1 fix)."""
+
+    def test_curve_denser_than_sparse(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        """Dense curve should have more points than the raw fill count."""
+        pnl = AnalysisService.get_pnl_curve(hasufel_output, trading_agent_id)
+        # The sparse fill-only curve typically has ~4 points for a 5-min sim;
+        # the dense L1-interpolated curve should have many more.
+        assert len(pnl) > 4
+
+    def test_timestamps_are_ascending(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        pnl = AnalysisService.get_pnl_curve(hasufel_output, trading_agent_id)
+        for i in range(1, len(pnl)):
+            assert pnl[i].timestamp_ns >= pnl[i - 1].timestamp_ns
+
+    def test_timestamps_since_midnight(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        pnl = AnalysisService.get_pnl_curve(hasufel_output, trading_agent_id)
+        # Timestamps should be ns-since-midnight, not epoch ns
+        one_day_ns = 24 * 3600 * 10**9
+        for p in pnl:
+            assert 0 <= p.timestamp_ns < one_day_ns
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Bug fix: initial_cash contract (v2.5.8)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestInitialCashContract:
+    """Verify AgentMetrics.initial_cash honours the caller parameter (Bug 2 fix)."""
+
+    def test_returns_caller_initial_cash(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        custom_cash = 123_456_789
+        metrics = AnalysisService.compute_agent_metrics(
+            hasufel_output,
+            trading_agent_id,
+            initial_cash=custom_cash,
+        )
+        assert metrics.initial_cash == custom_cash
+
+    def test_default_initial_cash_zero(
+        self,
+        hasufel_output: HasufelOutput,
+        trading_agent_id: int,
+    ) -> None:
+        metrics = AnalysisService.compute_agent_metrics(
+            hasufel_output,
+            trading_agent_id,
+        )
+        # Default initial_cash is 0
+        assert metrics.initial_cash == 0
