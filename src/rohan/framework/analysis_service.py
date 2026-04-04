@@ -398,6 +398,14 @@ class AnalysisService:
         starting_cash = agent_data.starting_cash_cents if agent_data else initial_cash
         ending_cash = agent_data.final_holdings.get("CASH", 0) if agent_data else 0
 
+        if initial_cash != 0 and agent_data and initial_cash != starting_cash:
+            logger.debug(
+                "initial_cash=%d differs from hasufel starting_cash_cents=%d for agent %d; returning caller's initial_cash in AgentMetrics",
+                initial_cash,
+                starting_cash,
+                agent_id,
+            )
+
         # End inventory: sum of non-CASH holdings
         end_inv = sum(v for k, v in rich_agent.end_inventory.items()) if rich_agent.end_inventory else 0
 
@@ -408,7 +416,7 @@ class AnalysisService:
 
         return AgentMetrics(
             agent_id=agent_id,
-            initial_cash=starting_cash,
+            initial_cash=initial_cash,
             ending_cash=ending_cash,
             total_pnl=float(rich_agent.total_pnl_cents) if rich_agent.total_pnl_cents is not None else None,
             sharpe_ratio=rich_agent.sharpe_ratio,
@@ -1146,9 +1154,9 @@ class AnalysisService:
 
         Returns an empty list when there are no fills or no two-sided book.
         """
-        # ----- HasufelOutput fast path: use EquityCurve -----
+        # ----- HasufelOutput fast path: use dense EquityCurve -----
         if isinstance(result, HasufelOutput):
-            return AnalysisService._get_pnl_curve_hasufel(result, agent_id)
+            return AnalysisService._get_pnl_curve_hasufel(result, agent_id, initial_cash)
 
         agent_fills = AnalysisService._get_agent_fills(result, agent_id)
         if agent_fills is None:
@@ -1183,8 +1191,16 @@ class AnalysisService:
     def _get_pnl_curve_hasufel(
         result: HasufelOutput,
         agent_id: int,
+        initial_cash: int = 0,  # noqa: ARG004 – kept for signature parity with legacy path
     ) -> list[PnLPoint]:
-        """Build PnL curve from hasufel's EquityCurve."""
+        """Build dense PnL curve from hasufel's EquityCurve + L1 interpolation.
+
+        Uses ``compute_equity_curve(fill_events, l1=...)`` (hasufel v2.5.8)
+        to produce one NAV observation per two-sided L1 tick, matching the
+        resolution of the legacy path.
+        """
+        from abides_markets.simulation import compute_equity_curve
+
         # Find matching AgentData for this agent
         agent_data = None
         for ad in result.hasufel_result.agents:
@@ -1195,7 +1211,17 @@ class AnalysisService:
         if agent_data is None or agent_data.equity_curve is None:
             return []
 
-        ec = agent_data.equity_curve
+        sparse = agent_data.equity_curve
+
+        # Attempt dense interpolation against L1
+        ticker = result._ticker  # noqa: SLF001
+        market = result.hasufel_result.markets.get(ticker)
+        l1 = market.l1_series if market else None
+
+        fill_events = list(zip(sparse.times_ns, sparse.nav_cents, sparse.peak_nav_cents, strict=True))
+        dense = compute_equity_curve(fill_events, l1=l1) if l1 else None
+        ec = dense if dense is not None else sparse
+
         initial_nav = ec.nav_cents[0] if len(ec.nav_cents) > 0 else 0
 
         points: list[PnLPoint] = []
@@ -1404,7 +1430,15 @@ class AnalysisService:
 
         Cross-references ``ORDER_SUBMITTED``, ``ORDER_EXECUTED``, and
         ``ORDER_CANCELLED`` events by order_id in the agent's raw log.
+
+        When *result* is a :class:`HasufelOutput`, order lifecycles are
+        populated from hasufel's ``RichAgentMetrics.order_lifecycles``
+        (v2.5.8+).
         """
+        # ----- HasufelOutput fast path: use hasufel OrderLifecycle -----
+        if isinstance(result, HasufelOutput):
+            return AnalysisService._get_order_lifecycle_hasufel(result, agent_id)
+
         if not hasattr(result, "end_state"):
             return []
 
@@ -1486,6 +1520,54 @@ class AnalysisService:
                     resting_time_ns=resting_time,
                     filled_qty=filled_qty,
                     submitted_qty=submitted_qty,
+                )
+            )
+
+        return records
+
+    @staticmethod
+    def _get_order_lifecycle_hasufel(
+        result: HasufelOutput,
+        agent_id: int,
+    ) -> list[OrderLifecycleRecord]:
+        """Build OrderLifecycleRecords from hasufel's OrderLifecycle model (v2.5.8)."""
+        rich = result.rich_metrics
+
+        # Find the RichAgentMetrics for this agent_id
+        rich_agent = None
+        for ra in rich.agents:
+            if ra.agent_id == agent_id:
+                rich_agent = ra
+                break
+
+        if rich_agent is None or not rich_agent.order_lifecycles:
+            return []
+
+        records: list[OrderLifecycleRecord] = []
+        for lc in rich_agent.order_lifecycles:
+            # Convert epoch timestamp to midnight-local
+            submitted_at = lc.submitted_at_ns - ns_date(lc.submitted_at_ns)
+
+            # Map hasufel status to Rohan status.
+            # Hasufel has 'partially_filled' which the legacy path maps to 'filled'
+            # (any filled_qty > 0 was classified as 'filled').
+            status = "filled" if lc.status in ("filled", "partially_filled") else lc.status
+
+            # resting_time_ns is a duration — pass through positive values,
+            # clamp non-positive to None (hasufel may produce negatives
+            # for terminal states it cannot resolve).
+            resting_time: int | None = None
+            if lc.resting_time_ns is not None and lc.resting_time_ns > 0:
+                resting_time = lc.resting_time_ns
+
+            records.append(
+                OrderLifecycleRecord(
+                    order_id=lc.order_id,
+                    submitted_at_ns=submitted_at,
+                    status=status,
+                    resting_time_ns=resting_time,
+                    filled_qty=lc.filled_qty,
+                    submitted_qty=lc.submitted_qty,
                 )
             )
 
