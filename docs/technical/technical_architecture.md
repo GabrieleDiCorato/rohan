@@ -198,15 +198,25 @@ flowchart TD
     style AGG fill:#607D8B,color:white
 ```
 
-*   **Writer Agent:** Generates strategy code from goal + feedback.
+*   **Writer Agent:** Generates strategy code from goal + feedback. Receives a `{scenario_context}` block describing the scenarios the strategy will face (names, regime tags, templates, planner rationale) so it can write robustly for multiple market conditions.
 *   **Validator Agent:** Validates strategy code (AST + sandbox execution).
-*   **Scenario Executor:** Runs validated strategy across multiple scenarios. Computes `RichAnalysisBundle` → serialized JSON on `ScenarioResult`.
-*   **Explainer Agent:** ReAct agent (`create_react_agent`) with 8 parameterized investigation tools that work from serialized `RichAnalysisBundle` JSON. Produces `ScenarioExplanation` structured output. Falls back to single structured-output call on failure.
-*   **Aggregator:** Scores each iteration deterministically via 6-axis formulas (`scoring.py`), uses LLM only for qualitative analysis. Handles rollback on regression (>1.0 score drop) and convergence/plateau detection.
+*   **Scenario Executor:** Runs validated strategy across multiple scenarios. Computes `RichAnalysisBundle` → serialized JSON on `ScenarioResult`. Populates `regime_context` from scenario config overrides (regime tags, template name) for the explainer. Extracts `vwap_cents` from `AgentMetrics` and computes `avg_slippage_bps` from fill records.
+*   **Explainer Agent:** ReAct agent (`create_react_agent`) with 8 parameterized investigation tools that work from serialized `RichAnalysisBundle` JSON. Receives `regime_context` describing the scenario's market regime. Prompt includes guidance for multi-window adverse selection interpretation, VWAP comparison, and fill slippage analysis. Produces `ScenarioExplanation` structured output. Falls back to single structured-output call on failure.
+*   **Aggregator:** Scores each iteration deterministically via 6-axis formulas (`scoring.py`), uses LLM only for qualitative analysis. The aggregator prompt includes a scoring formula reference section so the LLM can explain why each axis scored as it did. Handles rollback on regression (>1.0 score drop) and convergence/plateau detection.
 
 #### 5.3.3 LangGraph State & Graph
 Implemented in `src/rohan/llm/state.py` and `src/rohan/llm/graph.py`.
-The **Aggregator** scores each iteration using deterministic formulas across 6 axes (profitability, risk, volatility impact, spread impact, liquidity impact, execution quality). The LLM provides qualitative analysis only — reasoning, strengths, weaknesses, and recommendations via the `QualitativeAnalysis` structured output. Convergence, plateau detection, comparison, and rollback are all deterministic.
+The **Aggregator** scores each iteration using deterministic formulas across 6 axes (profitability, risk, volatility impact, spread impact, liquidity impact, execution quality). The execution quality axis incorporates fill rate, order-to-trade ratio, and average fill slippage (`avg_slippage_bps`). The LLM provides qualitative analysis only — reasoning, strengths, weaknesses, and recommendations via the `QualitativeAnalysis` structured output. The aggregator prompt includes a scoring formula reference so the LLM can ground its explanations in the actual scoring mechanics. Convergence, plateau detection, comparison, and rollback are all deterministic.
+
+**Key state fields on `ScenarioResult`:**
+- `vwap_cents` — volume-weighted average fill price (from `AgentMetrics`)
+- `avg_slippage_bps` — mean signed slippage across fills (computed from `RichAnalysisBundle`)
+- `regime_context` — market regime description from scenario config overrides
+
+**Key state fields on `ScenarioMetrics`** (history persistence):
+- `avg_slippage_bps` — carried from `ScenarioResult` for iteration history table
+
+**Iteration history table** columns: Iter, PnL, Trades, Fill Rate, Slippage, Vol Δ, Spread Δ, Score, Summary.
 
 #### 5.3.4 Tool-Equipped Explainer (ReAct Agent)
 
@@ -312,7 +322,7 @@ The UI displays charts in a 2×3 grid: Market row (Price, Spread, Volume) + Stra
 *   **Pandera Schema Strictness:** Explicitly set `strict=True` or `coerce=False` depending on intent.
 *   **Domain-Specific Exception Hierarchy:** `RohanError`, `StrategyValidationError`, `SimulationTimeoutError`, `BaselineComparisonError`, `StrategyExecutionError`.
 *   **Database Factory:** Uses a module-level factory function `get_database_connector()` with `@lru_cache(maxsize=1)`.
-*   **Formatting Utilities:** Consolidated in `src/rohan/utils/formatting.py`. LLM node formatting uses private helpers `_fmt_dollar`, `_fmt_pct`, `_fmt_float` in `nodes.py` for consistent `None→"N/A"` handling and proper negative-dollar sign placement (`-$7.41` not `$-7.41`).
+*   **Formatting Utilities:** Consolidated in `src/rohan/utils/formatting.py`. LLM node formatting uses private helpers `_fmt_dollar`, `_fmt_pct`, `_fmt_float` in `nodes.py` for consistent `None→"N/A"` handling and proper negative-dollar sign placement (`-$7.41` not `$-7.41`). The interpreter prompt (`format_interpreter_prompt` in `framework/prompts.py`) surfaces: agent metrics (PnL, Sharpe, drawdown), execution analytics (VWAP, fill slippage, multi-window adverse selection, order lifecycle, counterparty mix), market impact deltas, and absolute microstructure values.
 *   **UI Monolith Split:** Extracted into a Streamlit multipage app structure.
 *   **Test Hardening:** Added failure-path tests, edge-case tests, property-based testing with `hypothesis`, minimal integration tests, and 89 parametrized piecewise-boundary tests for deterministic scoring.
 *   **Seed Consistency:** Each scenario receives a deterministic seed (SHA-256 hash of name + session timestamp) assigned once per `run_refinement()` call, ensuring identical random state across all iterations for a given scenario. Seeds are logged for reproducibility.

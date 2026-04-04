@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1] — 2026-04-04
 
+### Added
+
+- **Execution analytics in interpreter prompt** — `format_interpreter_prompt()` now surfaces VWAP, average fill slippage, multi-window adverse selection (100ms/500ms/1s/5s), order lifecycle summary (filled/cancelled/resting counts), and counterparty mix. Previously only showed 3 fields (single-window AS, counterparty, slippage).
+- **`vwap_cents` and `avg_slippage_bps` on `ScenarioResult`** — New fields threaded from `AgentMetrics` and `RichAnalysisBundle` fills through the scoring and history pipeline. `ScenarioMetrics` also carries `avg_slippage_bps` for iteration history persistence.
+- **Slippage signal in execution quality scoring** — `_score_execution()` now applies a slippage bonus/penalty: negative slippage (fills better than mid) → +0.5; >5 bps → −1; >10 bps → −2. `compute_axis_scores()` accepts `avg_slippage_bps` parameter.
+- **Scoring formula reference in aggregator prompt** — `AGGREGATOR_SYSTEM` includes a concise reference for all 6 scoring axes so the LLM can explain why each axis scored as it did, grounded in the actual formulas.
+- **Scenario context for writer** — `WRITER_HUMAN` has a new `{scenario_context}` slot populated by `_build_scenario_context()` from `state.scenarios`, including scenario names, regime tags, templates, and planner rationale.
+- **Regime context for explainer** — `ScenarioResult.regime_context` is now populated by `_build_regime_context()` from scenario config overrides (regime tags, template name). Previously always empty string.
+- **Enhanced explainer microstructure guidance** — `EXPLAINER_SYSTEM_REACT` now includes interpretation guidance for multi-window adverse selection, VWAP comparison, and fill slippage analysis.
+- **Slippage column in iteration history table** — `HISTORY_TABLE_HEADER` and `HISTORY_ROW_TEMPLATE` include a Slippage column showing `avg_slippage_bps` per iteration.
+
 ### Fixed
 
 - **PnL curve density** — `get_pnl_curve()` now uses hasufel v2.5.8's `compute_equity_curve(fill_events, l1=L1Snapshots)` to produce a dense L1-sampled curve (one point per two-sided tick). Previously returned only sparse fill-only points (~4 per sim), producing misleadingly flat PnL charts.

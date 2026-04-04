@@ -56,7 +56,36 @@ Total PnL decomposes into realized and unrealized components.
   (join on `EventTime` ↔ `time`). Units: cents. Returns `None` if no two-sided
   L1 rows exist.
 
-**Fields:** `fill_rate`, `trade_count`, `traded_volume`, `effective_spread`.
+- **VWAP**: Volume-weighted average fill price across all executions.
+  $$\text{VWAP} = \frac{\sum_i P_{\text{fill},i} \times Q_i}{\sum_i Q_i}$$
+  Units: integer cents (matching ABIDES convention). Sourced from hasufel's
+  `RichAgentMetrics.vwap_cents`. Compare to the session mid-price to
+  assess execution quality: VWAP consistently worse than mid indicates
+  adverse selection or spread crossing; better than mid indicates spread
+  capture.
+
+- **Average Fill Slippage**: Signed per-fill deviation from the mid-price
+  at the time of execution, averaged across all fills.
+  $$\text{AvgSlippage} = \frac{1}{N} \sum_i \text{sign}_i \times \frac{P_{\text{fill},i} - P_{\text{mid},i}}{P_{\text{mid},i}} \times 10\,000$$
+  where $\text{sign}_i = +1$ for buys, $-1$ for sells. Units: basis points.
+  Positive slippage = cost (fill worse than mid); negative = rebate (fill
+  better than mid). Computed from `RichAnalysisBundle.fills[].slippage_bps`.
+
+- **Order Lifecycle**: Per-order submission-to-resolution tracking from
+  hasufel's `RichAgentMetrics.order_lifecycles`. Each record contains:
+  `order_id`, `submitted_at_ns`, `status` (`filled` / `cancelled` / `resting`),
+  `resting_time_ns`, `filled_qty`, `submitted_qty`. Aggregated as fill/cancel
+  counts and mean resting time.
+
+- **Adverse Selection (multi-window)**: Mid-price movement against the fill
+  direction at multiple look-ahead windows (100ms, 500ms, 1s, 5s).
+  $$\text{AS}_w = \frac{1}{N} \sum_i \text{sign}_i \times (P_{\text{mid}}(t_i + w) - P_{\text{mid}}(t_i))$$
+  Short-window AS (100ms) indicates immediate toxic flow; long-window AS (5s)
+  indicates persistent information leakage. Sourced from hasufel's per-fill
+  `adverse_selection_bps` dict keyed by window label.
+
+**Fields:** `fill_rate`, `trade_count`, `traded_volume`, `effective_spread`,
+`vwap_cents`, `avg_slippage_bps`.
 
 ---
 
@@ -269,7 +298,7 @@ and their deltas in a single object.
 | Category | Key indicators | Actionable signal |
 |:---|:---|:---|
 | **Alpha generation** | `total_pnl`, `sharpe_ratio` | Is the strategy profitable on a risk-adjusted basis? |
-| **Execution quality** | `fill_rate`, `effective_spread`, `traded_volume` | Is the strategy efficiently accessing liquidity? |
+| **Execution quality** | `fill_rate`, `effective_spread`, `traded_volume`, `vwap_cents`, `avg_slippage_bps` | Is the strategy efficiently accessing liquidity? |
 | **Inventory risk** | `max_drawdown`, `inventory_std` | Is the strategy taking on excessive positional risk? |
 | **Market quality** | `spread_delta_pct`, `volatility_delta_pct` | Is the strategy improving or degrading the book? |
 | **Microstructure** | `vpin_delta_pct`, `resilience_delta_pct`, `ott_ratio_delta_pct` | Is the strategy introducing toxicity or fragility? |
@@ -286,3 +315,97 @@ and their deltas in a single object.
   unhedged positions.
 - *Positive `resilience_delta_pct`*: strategy is slowing spread recovery —
   consider reducing order frequency or size.
+- *High `avg_slippage_bps`*: strategy fills are consistently worse than
+  mid-price — either crossing the spread too aggressively or being picked
+  off by informed traders.
+- *Negative `avg_slippage_bps`*: fills are better than mid — strategy is
+  capturing spread effectively.
+
+---
+
+## 5. Deterministic Scoring (6-Axis)
+
+Each strategy iteration is scored deterministically across 6 axes.
+All scores are clamped to [1.0, 10.0]. The weighted average (rounded
+to nearest 0.5) produces the final score. Implemented in `scoring.py`.
+
+### 5.1 Profitability
+
+Opportunity capture rate: PnL relative to theoretical spread revenue.
+
+$$\text{capture\_rate} = \frac{PnL_{\text{strategy}}}{\bar{s}_{\text{baseline}} \times V_{\text{baseline}} / 2}$$
+
+| Capture rate | Score range |
+|:---|:---|
+| < 0 (loss) | 1–3 |
+| 0–0.1% | 3–5 |
+| 0.1–0.5% | 5–7 |
+| 0.5–2% | 7–9 |
+| > 2% | 9–10 |
+
+### 5.2 Risk-Adjusted Performance
+
+Sharpe ratio piecewise mapping with drawdown penalty.
+
+| Sharpe | Base score |
+|:---|:---|
+| < −1 | 1.0 |
+| −1 to 0 | 1–3 |
+| 0 to 0.5 | 3–4 |
+| 0.5 to 1.5 | 4–6 |
+| 1.5 to 3.0 | 6–8 |
+| > 3.0 | 8–10 |
+
+**Drawdown penalty** (% of starting capital): >5% → −2, >2% → −1.
+
+### 5.3 Volatility Impact
+
+Baseline-relative Δ where negative = stabilising = good.
+
+| Δ volatility | Score |
+|:---|:---|
+| > +10% | 1.0 |
+| +5% to +10% | 1–4 |
+| −5% to +5% | 4–7 |
+| −15% to −5% | 7–9 |
+| < −15% | 9.0 |
+
+### 5.4 Spread Impact
+
+Same piecewise as volatility (lower = tighter = better).
+
+### 5.5 Liquidity Impact
+
+Inverted: more liquidity = better, same breakpoints as volatility but
+positive direction is good. Availability penalty: >10% drop → −2, >5% → −1.
+
+### 5.6 Execution Quality
+
+Primary signal: fill rate. Secondary: OTT penalty and slippage.
+
+| Fill rate | Base score |
+|:---|:---|
+| < 5% | 1–2 |
+| 5–15% | 2–4 |
+| 15–30% | 4–6 |
+| 30–50% | 6–8 |
+| > 50% | 8–10 |
+
+**OTT penalty:** >200 → −2, >100 → −1.
+
+**Slippage adjustment** (`avg_slippage_bps`):
+- < 0 bps (fills better than mid) → +0.5
+- \> 5 bps → −1
+- \> 10 bps → −2
+
+### 5.7 Weight Profiles
+
+| Profile | Profitability | Risk | Vol Δ | Spread Δ | Liquidity | Execution |
+|:---|:---|:---|:---|:---|:---|:---|
+| `default` | 0.35 | 0.20 | 0.07 | 0.08 | 0.05 | 0.25 |
+| `impact_focused` | 0.15 | 0.10 | 0.20 | 0.20 | 0.15 | 0.20 |
+| `risk_focused` | 0.15 | 0.40 | 0.07 | 0.08 | 0.05 | 0.25 |
+| `execution_focused` | 0.15 | 0.15 | 0.07 | 0.08 | 0.05 | 0.50 |
+
+Profile is selected via keyword matching on the user's goal string
+(`classify_goal_weights`). Falls back to `default`.
