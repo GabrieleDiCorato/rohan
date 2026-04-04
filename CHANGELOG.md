@@ -10,8 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **PnL curve density** — `get_pnl_curve()` now uses hasufel v2.5.8's `compute_equity_curve(fill_events, l1=L1Snapshots)` to produce a dense L1-sampled curve (one point per two-sided tick). Previously returned only sparse fill-only points (~4 per sim), producing misleadingly flat PnL charts.
-- **`initial_cash` contract** — `compute_agent_metrics()` now returns the caller-provided `initial_cash` in `AgentMetrics`. Previously the hasufel path silently replaced it with hasufel's `starting_cash_cents`, violating the method's contract.
 - **Order lifecycle populated** — `get_order_lifecycle()` now returns populated `OrderLifecycleRecord` list for `HasufelOutput` using hasufel v2.5.8's `RichAgentMetrics.order_lifecycles`. Previously returned `[]` because hasufel output lacks the legacy `end_state` dict.
+
+### Removed
+
+- **Legacy analysis code** — Removed all `isinstance` dispatching and legacy else-branches from `AnalysisService` (2102 → 948 lines). All public methods now accept `HasufelOutput` directly.
+- **`initial_cash` parameter** — Removed from `compute_agent_metrics()`, `get_pnl_curve()`, `compute_rich_analysis()`, and `AgentMetrics` model. PnL is computed internally by hasufel as `NAV − initial_NAV`.
+- **Dead private helpers** — Removed 10 legacy helpers (`_get_agent_fills`, `_annualised_volatility`, `_effective_spread_and_volume`, `_lob_imbalance`, `_vpin`, `_market_resilience`, `_market_ott_ratio`, `_parse_fills`, `_agent_risk_metrics`, `_build_counterparty_map`).
+- **Legacy test files** — Deleted `test_agent_metrics.py`, `test_compute_metrics_smoke.py`, `test_vpin_duplicate_timestamps.py` (834 lines of MockOutput-based tests).
 
 ### Changed
 

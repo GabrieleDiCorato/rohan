@@ -214,18 +214,6 @@ class TestComputeAgentMetricsDelegation:
         with pytest.raises(ValueError, match="Agent 999999 not found"):
             AnalysisService.compute_agent_metrics(hasufel_output, 999999)
 
-    def test_capital_default_zero(
-        self,
-        hasufel_output: HasufelOutput,
-        trading_agent_id: int,
-    ) -> None:
-        metrics = AnalysisService.compute_agent_metrics(
-            hasufel_output,
-            trading_agent_id,
-        )
-        # Default initial_cash=0 is honoured (Bug 2 fix)
-        assert metrics.initial_cash == 0
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Rich analysis methods delegation
@@ -533,37 +521,3 @@ class TestPnlCurveDensity:
         one_day_ns = 24 * 3600 * 10**9
         for p in pnl:
             assert 0 <= p.timestamp_ns < one_day_ns
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Bug fix: initial_cash contract (v2.5.8)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-class TestInitialCashContract:
-    """Verify AgentMetrics.initial_cash honours the caller parameter (Bug 2 fix)."""
-
-    def test_returns_caller_initial_cash(
-        self,
-        hasufel_output: HasufelOutput,
-        trading_agent_id: int,
-    ) -> None:
-        custom_cash = 123_456_789
-        metrics = AnalysisService.compute_agent_metrics(
-            hasufel_output,
-            trading_agent_id,
-            initial_cash=custom_cash,
-        )
-        assert metrics.initial_cash == custom_cash
-
-    def test_default_initial_cash_zero(
-        self,
-        hasufel_output: HasufelOutput,
-        trading_agent_id: int,
-    ) -> None:
-        metrics = AnalysisService.compute_agent_metrics(
-            hasufel_output,
-            trading_agent_id,
-        )
-        # Default initial_cash is 0
-        assert metrics.initial_cash == 0

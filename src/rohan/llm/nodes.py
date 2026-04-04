@@ -52,6 +52,7 @@ from rohan.llm.scoring import WEIGHT_PROFILES, classify_goal_weights, compute_ax
 from rohan.llm.state import RefinementState, ScenarioResult, is_feature_enabled, terminal_metadata
 from rohan.llm.telemetry import refinement_telemetry_context
 from rohan.llm.tools import make_investigation_tools
+from rohan.simulation.abides_impl.hasufel_output import HasufelOutput
 from rohan.simulation.models.simulation_metrics import (
     ComparisonResult,
     MarketImpact,
@@ -402,7 +403,7 @@ def process_scenario_node(state: RefinementState) -> dict:
             )
             return {"scenario_results": [result], "explanations": [_run_explainer(result, state)]}
 
-        strategy_output = sim_result.result
+        strategy_output = cast(HasufelOutput, sim_result.result)
         strategy_sim_metrics = analyzer.compute_metrics(strategy_output)
 
         if strategy_output.strategic_agent_id is None:
@@ -410,7 +411,6 @@ def process_scenario_node(state: RefinementState) -> dict:
         strategy_agent_metrics = analyzer.compute_agent_metrics(
             strategy_output,
             strategy_output.strategic_agent_id,
-            initial_cash=settings.starting_cash,
         )
 
         # Run baseline
@@ -424,7 +424,7 @@ def process_scenario_node(state: RefinementState) -> dict:
             )
             return {"scenario_results": [result], "explanations": [_run_explainer(result, state)]}
 
-        baseline_sim_metrics = analyzer.compute_metrics(baseline_result.result)
+        baseline_sim_metrics = analyzer.compute_metrics(cast(HasufelOutput, baseline_result.result))
 
         # Build comparison
         strat_market = strategy_sim_metrics
@@ -496,7 +496,6 @@ def process_scenario_node(state: RefinementState) -> dict:
             rich_bundle = analyzer.compute_rich_analysis(
                 strategy_output,
                 strategy_output.strategic_agent_id,
-                initial_cash=settings.starting_cash,
             )
             rich_analysis_json = rich_bundle.model_dump_json()
         except Exception:

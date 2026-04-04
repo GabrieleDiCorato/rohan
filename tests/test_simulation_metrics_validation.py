@@ -96,26 +96,21 @@ class TestAgentMetricsValidation:
         """AgentMetrics with only agent_id."""
         metrics = AgentMetrics(agent_id=1)
         assert metrics.agent_id == 1
-        assert metrics.initial_cash == 0
         assert metrics.ending_cash == 0
         assert metrics.total_pnl is None
 
     def test_cash_fields_are_int_cents(self):
-        """initial_cash and ending_cash must be int (cents)."""
+        """ending_cash must be int (cents)."""
         metrics = AgentMetrics(
             agent_id=1,
-            initial_cash=10_000_000,  # $100,000 in cents
             ending_cash=10_500_000,  # $105,000 in cents
         )
-        assert isinstance(metrics.initial_cash, int)
         assert isinstance(metrics.ending_cash, int)
-        assert metrics.initial_cash == 10_000_000
 
     def test_pnl_is_float_cents(self):
         """total_pnl is float (can be fractional from mid-price)."""
         metrics = AgentMetrics(
             agent_id=1,
-            initial_cash=10_000_000,
             ending_cash=10_500_000,
             total_pnl=500_050.5,  # $5,000.505 - fractional cents
         )
@@ -336,17 +331,17 @@ class TestTypeCoercion:
         with pytest.raises(ValidationError):
             AgentMetrics(
                 agent_id=1,
-                initial_cash=100.5,  # type: ignore[arg-type]  # Intentionally wrong type for test
+                ending_cash=100.5,  # type: ignore[arg-type]  # Intentionally wrong type for test
             )
 
     def test_int_cash_accepts_whole_float(self):
         """int fields may coerce whole floats like 100.0 → 100."""
         metrics = AgentMetrics(
             agent_id=1,
-            initial_cash=100,
+            ending_cash=100,
         )
-        assert metrics.initial_cash == 100
-        assert isinstance(metrics.initial_cash, int)
+        assert metrics.ending_cash == 100
+        assert isinstance(metrics.ending_cash, int)
 
     def test_float_pnl_accepts_int(self):
         """float | None fields accept int and coerce."""

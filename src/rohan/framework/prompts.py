@@ -16,7 +16,6 @@ INTERPRETER_PROMPT_TEMPLATE = """You are analyzing the results of a trading stra
 
 ### Agent Metrics
 - **Total PnL**: ${total_pnl}
-- **Initial Cash**: ${initial_cash}
 - **Ending Cash**: ${ending_cash}
 - **Trade Count**: {trade_count}
 - **Fill Rate**: {fill_rate}
@@ -123,7 +122,6 @@ def format_interpreter_prompt(summary: "RunSummary", goal: str = "", rich_analys
         goal=goal,
         # Agent metrics
         total_pnl=fmt_dollar_metric(agent.total_pnl),
-        initial_cash=fmt_dollar_metric(agent.initial_cash),
         ending_cash=fmt_dollar_metric(agent.ending_cash),
         trade_count=agent.trade_count,
         fill_rate=_fmt_rate(agent.fill_rate),

@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from rohan.simulation.abides_impl.hasufel_output import HasufelOutput
 from rohan.simulation.models import AgentMetrics, ComparisonResult, SimulationMetrics
 
 
@@ -36,11 +37,11 @@ def test_run_with_baseline_impact_calculation():
     # Mock simulation results
     res1 = MagicMock()
     res1.error = None
-    res1.result = MagicMock()
+    res1.result = MagicMock(spec=HasufelOutput)
 
     res2 = MagicMock()
     res2.error = None
-    res2.result = MagicMock()
+    res2.result = MagicMock(spec=HasufelOutput)
 
     with (
         patch("rohan.simulation.utils.execute_strategy_safely", return_value=res1),

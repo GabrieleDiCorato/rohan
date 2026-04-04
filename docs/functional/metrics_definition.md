@@ -28,13 +28,11 @@ Total PnL decomposes into realized and unrealized components.
 
 > `compute_agent_metrics()` auto-detects the strategic agent via
 > `HasufelOutput` using `SimulationResult.get_agents_by_category("strategy")`
-> (first-class hasufel API). The `initial_cash` field on `AgentMetrics`
-> always reflects the **caller-provided** value (default `0`). This
-> ensures the caller controls the PnL baseline — hasufel's
-> `starting_cash_cents` is used internally for ending-cash and
-> mark-to-market but is not surfaced as `initial_cash`.
+> (first-class hasufel API). PnL is computed internally by hasufel
+> as `NAV − initial_NAV`, where NAV includes cash and mark-to-market
+> inventory value.
 
-**Fields:** `total_pnl`, `initial_cash`, `ending_cash`.
+**Fields:** `total_pnl`, `ending_cash`.
 
 ---
 

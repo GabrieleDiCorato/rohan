@@ -34,18 +34,17 @@ class SimulationMetrics(BaseModel):
 class AgentMetrics(BaseModel):
     """Performance metrics for a specific agent.
 
-    PnL is defined relative to the agent's initial state:
-        ``total_pnl = (ending_cash + mark_to_market_inventory) − initial_cash``
+    PnL is computed by hasufel from the agent's starting cash and
+    mark-to-market inventory value at simulation end.
     """
 
     agent_id: int
 
     # --- Capital ---
-    initial_cash: int = Field(default=0, description="Cash at simulation start (cents)")
     ending_cash: int = Field(default=0, description="Cash at simulation end (cents)")
 
     # --- PnL ---
-    total_pnl: float | None = Field(default=None, description="Net PnL = ending_value − initial_cash (cents, may be fractional from mid-price)")
+    total_pnl: float | None = Field(default=None, description="Net PnL = NAV − initial_NAV (cents, may be fractional from mid-price)")
 
     # --- Risk ---
     sharpe_ratio: float | None = Field(default=None, description="Annualised Sharpe ratio")

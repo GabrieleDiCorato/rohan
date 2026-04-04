@@ -106,9 +106,8 @@ class TestIntegrationVerticalSlice:
         agent_id = output.strategic_agent_id
         assert agent_id is not None, "Strategic agent ID should be set"
 
-        agent_metrics = analyzer.compute_agent_metrics(output, agent_id, initial_cash=settings.starting_cash)
+        agent_metrics = analyzer.compute_agent_metrics(output, agent_id)
         assert agent_metrics is not None
-        assert agent_metrics.initial_cash == settings.starting_cash
         # No-op strategy should have 0 trades
         assert agent_metrics.trade_count == 0
 
@@ -180,7 +179,7 @@ class TestLongSimulation:
         # 3. Build RunSummary and verify format_interpreter_prompt does not raise
         agent_id = output.strategic_agent_id
         assert agent_id is not None
-        agent_metrics = analyzer.compute_agent_metrics(output, agent_id, initial_cash=settings.starting_cash)
+        agent_metrics = analyzer.compute_agent_metrics(output, agent_id)
         market_metrics = MarketMetrics(
             volatility=sim_metrics.volatility,
             mean_spread=sim_metrics.mean_spread,

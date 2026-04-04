@@ -33,7 +33,7 @@ class PnLPoint(BaseModel):
     """A single mark-to-market PnL observation."""
 
     timestamp_ns: int = Field(description="Nanoseconds since midnight")
-    mark_to_market_pnl: float = Field(description="MTM PnL = cash + inventory × mid − initial_cash (cents)")
+    mark_to_market_pnl: float = Field(description="MTM PnL = NAV − initial_NAV (cents)")
 
 
 class InventoryPoint(BaseModel):

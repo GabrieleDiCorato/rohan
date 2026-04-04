@@ -6,6 +6,7 @@ from rohan.simulation import (
     ComparisonResult,
     MarketImpact,
 )
+from rohan.simulation.abides_impl.hasufel_output import HasufelOutput
 from rohan.simulation.simulation_service import SimulationService
 from rohan.simulation.strategy_validator import (
     execute_strategy_safely,
@@ -36,13 +37,13 @@ def run_with_baseline(
         raise RuntimeError(f"Strategy run failed: {res1.error}")
     if not res1.result:
         raise RuntimeError("Strategy run returned no result")
+    assert isinstance(res1.result, HasufelOutput)
 
     if res1.result.strategic_agent_id is None:
         raise RuntimeError("No strategic agent in simulation output")
     metrics1 = AnalysisService.compute_agent_metrics(
         res1.result,
         res1.result.strategic_agent_id,
-        initial_cash=settings.starting_cash,
     )
     metrics1_sim = AnalysisService.compute_metrics(res1.result)
 
@@ -59,6 +60,7 @@ def run_with_baseline(
         raise RuntimeError(f"Baseline run failed: {res2.error}")
     if not res2.result:
         raise RuntimeError("Baseline run returned no result")
+    assert isinstance(res2.result, HasufelOutput)
 
     metrics2_sim = AnalysisService.compute_metrics(res2.result)
 
