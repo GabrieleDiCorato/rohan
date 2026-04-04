@@ -767,6 +767,9 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
 
     # ── Build human message ──────────────────────────────────────
     regime_ctx = sr.regime_context or ""
+    if sr.hasufel_summary:
+        regime_ctx += "\n\n## Hasufel Simulation Summary\n"
+        regime_ctx += "\n".join(f"- **{k}**: {v}" for k, v in sr.hasufel_summary.items())
     if sr.config_warnings:
         regime_ctx += "\n\n## Simulation Config Warnings\n" + "\n".join(f"- {w}" for w in sr.config_warnings)
 

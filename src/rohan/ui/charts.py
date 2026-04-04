@@ -158,6 +158,34 @@ def trade_price_scatter(attr_df: pd.DataFrame) -> go.Figure:
     return apply_fin_theme(fig)
 
 
+def trade_attribution_heatmap(attr_df: pd.DataFrame) -> go.Figure:
+    """Heatmap of trade volume flowing from maker type → taker type."""
+    if attr_df.empty or "maker_type" not in attr_df.columns or "taker_type" not in attr_df.columns:
+        fig = go.Figure()
+        fig.update_layout(title="Trade Attribution Heatmap", height=HEIGHT_PRIMARY)
+        return apply_fin_theme(fig)
+
+    pivot = attr_df.pivot_table(index="maker_type", columns="taker_type", values="quantity", aggfunc="sum", fill_value=0)
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=pivot.values,
+            x=pivot.columns.tolist(),
+            y=pivot.index.tolist(),
+            colorscale="Blues",
+            text=pivot.values,
+            texttemplate="%{text:,.0f}",
+            hovertemplate="Maker: %{y}<br>Taker: %{x}<br>Volume: %{z:,.0f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title="Trade Flow: Maker → Taker (Volume)",
+        xaxis_title="Taker (Aggressive)",
+        yaxis_title="Maker (Passive)",
+        height=HEIGHT_PRIMARY,
+    )
+    return apply_fin_theme(fig)
+
+
 # ── Section A: L2 Order Book Depth ────────────────────────────────────────────
 
 
@@ -220,6 +248,35 @@ def l2_depth_profile(l2_df: pd.DataFrame) -> go.Figure:
 
 
 # ── Section A: Rich Metrics ───────────────────────────────────────────────────
+
+
+def adverse_selection_by_window(fill_df: pd.DataFrame) -> go.Figure:
+    """Grouped bar chart of mean adverse selection at each look-ahead window.
+
+    Expects columns like ``AS 100ms (bps)``, ``AS 500ms (bps)``, etc.
+    """
+    as_cols = [c for c in fill_df.columns if c.startswith("AS ") and c.endswith("(bps)")]
+    if not as_cols:
+        fig = go.Figure()
+        fig.update_layout(title="Adverse Selection by Window", height=HEIGHT_SECONDARY)
+        return apply_fin_theme(fig)
+
+    means = {c: fill_df[c].dropna().mean() for c in as_cols}
+    medians = {c: fill_df[c].dropna().median() for c in as_cols}
+    labels = [c.replace("AS ", "").replace(" (bps)", "") for c in as_cols]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=labels, y=[means[c] for c in as_cols], name="Mean", marker_color=PALETTE["warning"]))
+    fig.add_trace(go.Bar(x=labels, y=[medians[c] for c in as_cols], name="Median", marker_color=PALETTE["institutional"]))
+    fig.add_hline(y=0, line_dash="dash", line_color=PALETTE["text_dim"])
+    fig.update_layout(
+        title="Adverse Selection by Look-Ahead Window",
+        xaxis_title="Window",
+        yaxis_title="Adverse Selection (bps)",
+        barmode="group",
+        height=HEIGHT_SECONDARY,
+    )
+    return apply_fin_theme(fig)
 
 
 def fill_slippage_histogram(fill_df: pd.DataFrame) -> go.Figure:

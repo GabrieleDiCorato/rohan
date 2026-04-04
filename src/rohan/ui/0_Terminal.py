@@ -1861,6 +1861,12 @@ with tab_book:
                 use_container_width=True,
             )
 
+        if len(attr_df) > 0 and "maker_type" in attr_df.columns and "taker_type" in attr_df.columns:
+            st.plotly_chart(
+                charts.trade_attribution_heatmap(attr_df),
+                use_container_width=True,
+            )
+
         with st.expander("Raw trade attribution data"):
             st.dataframe(attr_df, use_container_width=True)
 
@@ -1908,6 +1914,12 @@ with tab_book:
                     charts.fill_slippage_histogram(fill_df),
                     use_container_width=True,
                 )
+                _as_cols = [c for c in fill_df.columns if c.startswith("AS ") and c.endswith("(bps)")]
+                if _as_cols:
+                    st.plotly_chart(
+                        charts.adverse_selection_by_window(fill_df),
+                        use_container_width=True,
+                    )
                 with st.expander("Raw fill records"):
                     st.dataframe(fill_df, use_container_width=True)
         except Exception:
