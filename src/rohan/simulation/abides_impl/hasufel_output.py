@@ -52,12 +52,14 @@ class HasufelOutput(SimulationOutput):
         ticker: str = "ABM",
         strategic_agent_id: int | None = None,
         compiled_config: dict[str, Any] | None = None,
+        config_warnings: list[str] | None = None,
     ):
         super().__init__()
         self._result = hasufel_result
         self._ticker = ticker
         self.strategic_agent_id = strategic_agent_id
         self.compiled_config = compiled_config
+        self.config_warnings: list[str] = config_warnings or []
         self._order_book_l2_cache: dict[int, DataFrame[OrderBookL2Schema]] = {}
 
     # ------------------------------------------------------------------

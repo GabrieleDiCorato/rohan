@@ -197,6 +197,8 @@ def writer_node(state: RefinementState) -> dict:
                     f"Inventory Std={inv_std_str}, Vol Δ={vol_str}, "
                     f"VPIN={_fmt_float(sr.vpin, '.4f')}, Availability={_fmt_pct(sr.pct_time_two_sided)}"
                 )
+                if sr.config_warnings:
+                    metrics_lines.append(f"  ⚠ Config warnings: {'; '.join(sr.config_warnings)}")
         metrics_summary = "\n".join(metrics_lines) if metrics_lines else "(no simulation results available)"
 
         feedback_section = WRITER_FEEDBACK_TEMPLATE.format(
@@ -619,6 +621,7 @@ def process_scenario_node(state: RefinementState) -> dict:
             rich_analysis_json=rich_analysis_json,
             compiled_config=getattr(strategy_output, "compiled_config", None),
             hasufel_summary=getattr(strategy_output, "summary_dict", lambda: None)(),
+            config_warnings=getattr(strategy_output, "config_warnings", []),
         )
         explanation = _run_explainer(result, state)
         _emit(
@@ -763,11 +766,15 @@ def _run_explainer(sr: ScenarioResult, state: RefinementState) -> ScenarioExplan
         return _error_explanation(sr.scenario_name, sr.error)
 
     # ── Build human message ──────────────────────────────────────
+    regime_ctx = sr.regime_context or ""
+    if sr.config_warnings:
+        regime_ctx += "\n\n## Simulation Config Warnings\n" + "\n".join(f"- {w}" for w in sr.config_warnings)
+
     human_msg = EXPLAINER_HUMAN.format(
         scenario_name=sr.scenario_name,
         strategy_code=state.get("current_code") or "(code unavailable)",
         interpreter_prompt=sr.interpreter_prompt,
-        regime_context=sr.regime_context or "",
+        regime_context=regime_ctx,
     )
 
     # ── ReAct agent path ─────────────────────────────────────────

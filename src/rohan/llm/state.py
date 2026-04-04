@@ -116,6 +116,7 @@ class ScenarioResult(BaseModel):
     # Hasufel-native objects for persistence
     compiled_config: dict[str, Any] | None = None
     hasufel_summary: dict[str, Any] | None = None
+    config_warnings: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

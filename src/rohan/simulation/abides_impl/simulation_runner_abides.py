@@ -67,12 +67,16 @@ class SimulationRunnerAbides(SimulationRunner):
         # The builder computes derived fields (e.g. kappa from
         # mean_reversion_half_life), so we downgrade errors to warnings
         # since the builder output is structurally valid by construction.
+        config_warnings: list[str] = []
         validation = validate_config(config.model_dump(mode="json"))
         if not validation.valid:
             msgs = [getattr(e, "message", str(e)) for e in validation.errors]
             logger.warning("Hasufel config validation: %s", "; ".join(msgs))
+            config_warnings.extend(msgs)
         for w in validation.warnings:
-            logger.warning("Hasufel config warning: %s", getattr(w, "message", str(w)))
+            msg = getattr(w, "message", str(w))
+            logger.warning("Hasufel config warning: %s", msg)
+            config_warnings.append(msg)
 
         # Extract oracle instance for historical mode (ExternalDataOracleConfig
         # is a marker type — the real oracle must be injected at runtime).
@@ -100,6 +104,8 @@ class SimulationRunnerAbides(SimulationRunner):
 
         hasufel_result = run_simulation(
             config,
+            # FULL = QUANT | AGENT_LOGS.  Scoring requires fill_rate and
+            # order_to_trade_ratio which are derived from raw agent logs.
             profile=ResultProfile.FULL,
             oracle_instance=oracle_instance,
             runtime_agents=runtime_agents,
@@ -116,6 +122,7 @@ class SimulationRunnerAbides(SimulationRunner):
             ticker=self.settings.ticker,
             strategic_agent_id=strategic_agent_id,
             compiled_config=config.model_dump(mode="json"),
+            config_warnings=config_warnings,
         )
 
     @override
