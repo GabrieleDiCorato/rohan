@@ -72,6 +72,11 @@ def create_simulation_builder(
     # seed, latency, and strategy injection.
     if settings.template is not None:
         builder.from_template(settings.template)
+
+        # Stack overlay templates (deep-merged on top of the base)
+        for ov in settings.overlays:
+            builder.from_template(ov)
+
         builder.market(
             ticker=settings.ticker,
             date=settings.date,

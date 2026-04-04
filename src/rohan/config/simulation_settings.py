@@ -29,6 +29,10 @@ class SimulationSettings(BaseSettings):
         default=None,
         description="Optional hasufel template name (e.g. 'rmsc04', 'volatile_day'). When set, agent composition and oracle params are loaded from the template; explicit agent/oracle overrides in this settings object are ignored.",
     )
+    overlays: list[str] = Field(
+        default_factory=list,
+        description="Overlay template names to stack on the base template (e.g. ['with_momentum', 'with_execution']). Applied in order via deep-merge after the base template.",
+    )
     seed: int = Field(
         default_factory=lambda: int(datetime.now().timestamp() * 1_000_000) % (2**32 - 1),
         description="Random seed for the simulation.",
