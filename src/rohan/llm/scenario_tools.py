@@ -21,6 +21,21 @@ logger = logging.getLogger(__name__)
 # Maximum characters per tool response.
 _MAX_RESPONSE_CHARS = 4000
 
+# Builder methods the LLM is allowed to call via `overrides`.
+# Guards against arbitrary method invocation on the SimulationBuilder.
+_ALLOWED_OVERRIDES: frozenset[str] = frozenset(
+    {
+        "seed",
+        "market",
+        "latency",
+        "computation_delay",
+        "log_level",
+        "log_orders",
+        "enable_agent",
+        "disable_agent",
+    }
+)
+
 
 def _truncate(text: str, limit: int = _MAX_RESPONSE_CHARS) -> str:
     if len(text) <= limit:
@@ -82,6 +97,13 @@ def make_scenario_tools() -> list[Any]:
         overrides: dict[str, Any] | None = None,
     ) -> str:
         """Build a simulation scenario from template and/or regime tags.
+
+        **Exploratory / preview only** — the returned config is for
+        inspection and planning.  The execution path reconstructs the
+        builder from ``SimulationSettings`` via
+        ``config_builder.create_simulation_builder()``, so the planner
+        should propagate ``template_name`` and ``overlays`` into
+        ``config_override`` for them to reach the simulation engine.
 
         Selects a base template by matching *regime_tags* against the
         template metadata, or uses *template_name* directly.  Optionally
@@ -148,6 +170,9 @@ def make_scenario_tools() -> list[Any]:
 
             if overrides:
                 for method, value in overrides.items():
+                    if method not in _ALLOWED_OVERRIDES:
+                        logger.warning("Override %r not in allowlist — skipping", method)
+                        continue
                     fn = getattr(builder, method, None)
                     if fn and callable(fn):
                         fn(value) if not isinstance(value, dict) else fn(**value)
