@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-04-06T12:00:00.000Z" agent="Rohan" version="22.1.0" type="device">
+  <diagram name="System Architecture" id="rohan-arch-ppt">
+    <mxGraphModel dx="1920" dy="1080" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="ROHAN — System Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=32;fontStyle=1;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="460" y="25" width="1000" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Autonomous trading strategy refinement via LLM-driven iteration against a market simulator" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=14;fontColor=#888888;" vertex="1" parent="1">
+          <mxGeometry x="460" y="68" width="1000" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  LAYER 1 — USER INTERFACE               -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="ui-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FCE4EC;strokeColor=#E57373;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="110" width="1800" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-tag" value="USER INTERFACE" style="text;html=1;strokeColor=none;fillColor=#E57373;fontColor=#ffffff;align=center;fontSize=11;fontStyle=1;rounded=1;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
+          <mxGeometry x="70" y="115" width="130" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ui-terminal" value="Terminal Page" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#E57373;fontSize=16;fontStyle=0;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="260" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-reflab" value="Refinement Lab" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#E57373;fontSize=16;fontStyle=0;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="490" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-charts" value="Charts &amp; Metrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#E57373;fontSize=16;fontStyle=0;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="720" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-cli" value="CLI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#E57373;fontSize=16;fontStyle=0;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="950" y="145" width="120" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-tech" value="Streamlit · Python CLI" style="text;html=1;strokeColor=none;fillColor=none;align=right;fontSize=11;fontColor=#E57373;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="115" width="220" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  LAYER 2 — AGENTIC LOOP                 -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="llm-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#66BB6A;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="250" width="1800" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-tag" value="AGENTIC LAYER" style="text;html=1;strokeColor=none;fillColor=#66BB6A;fontColor=#ffffff;align=center;fontSize=11;fontStyle=1;rounded=1;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
+          <mxGeometry x="70" y="255" width="120" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-tech" value="LangGraph · LangChain · OpenRouter" style="text;html=1;strokeColor=none;fillColor=none;align=right;fontSize=11;fontColor=#66BB6A;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1560" y="255" width="280" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Planner -->
+        <mxCell id="planner" value="Planner&#xa;&#xa;Adversarial scenario&#xa;generation (3-tier fallback)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="310" width="200" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Writer -->
+        <mxCell id="writer" value="Writer&#xa;&#xa;LLM generates&#xa;strategy code" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#66BB6A;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="370" y="310" width="180" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Validator -->
+        <mxCell id="validator" value="Validator&#xa;&#xa;AST safety + sandbox&#xa;execution (≤ 3 retries)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#FFA726;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="310" width="200" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Executor + Explainer -->
+        <mxCell id="executor" value="Execute &amp; Explain&#xa;&#xa;Run simulation per scenario&#xa;ReAct agent analyses results" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#42A5F5;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="890" y="310" width="240" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Aggregator -->
+        <mxCell id="aggregator" value="Aggregator&#xa;&#xa;Deterministic 6-axis scoring&#xa;Convergence detection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#455A64;strokeColor=#263238;fontColor=#ffffff;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="310" width="230" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Done -->
+        <mxCell id="done" value="✅ Best&#xa;Strategy" style="ellipse;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#66BB6A;fontSize=14;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1510" y="320" width="120" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Arrows in agentic layer -->
+        <mxCell id="a-pl-wr" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#F9A825;" edge="1" parent="1" source="planner" target="writer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-wr-va" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#66BB6A;" edge="1" parent="1" source="writer" target="validator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-va-ex" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#42A5F5;" edge="1" parent="1" source="validator" target="executor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-ex-ag" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#455A64;" edge="1" parent="1" source="executor" target="aggregator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-ag-done" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#66BB6A;" edge="1" parent="1" source="aggregator" target="done">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Feedback loop -->
+        <mxCell id="a-feedback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#455A64;dashed=1;" edge="1" parent="1" source="aggregator" target="writer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1315" y="470" />
+              <mxPoint x="460" y="470" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="feedback-lbl" value="Feedback loop — scores, weaknesses, recommendations" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=12;fontColor=#455A64;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="650" y="475" width="400" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Retry arrow -->
+        <mxCell id="a-retry" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=2;strokeColor=#FFA726;dashed=1;" edge="1" parent="1" source="validator" target="writer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="720" y="290" />
+              <mxPoint x="460" y="290" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="retry-lbl" value="retry on error" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#FFA726;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="545" y="275" width="90" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- Converged / max iter label -->
+        <mxCell id="done-cond" value="converged or&#xa;max iterations" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#66BB6A;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1430" y="340" width="90" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  LAYER 3 — FRAMEWORK SERVICES            -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="fw-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE7F6;strokeColor=#7E57C2;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="560" width="1800" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="fw-tag" value="FRAMEWORK" style="text;html=1;strokeColor=none;fillColor=#7E57C2;fontColor=#ffffff;align=center;fontSize=11;fontStyle=1;rounded=1;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
+          <mxGeometry x="70" y="565" width="100" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="fw-tech" value="SQLAlchemy · Pydantic · Matplotlib" style="text;html=1;strokeColor=none;fillColor=none;align=right;fontSize=11;fontColor=#7E57C2;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1590" y="565" width="250" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fw-analysis" value="Analysis Service&#xa;Metrics · Charts · Rich Analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7E57C2;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="160" y="600" width="270" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fw-persist" value="Persistence&#xa;Sessions · Iterations · Scenarios" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7E57C2;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="490" y="600" width="260" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fw-validator" value="Strategy Validator&#xa;AST Safety + Sandbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7E57C2;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="810" y="600" width="220" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fw-prompts" value="Prompt Templates&#xa;Writer · Explainer · Aggregator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#7E57C2;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="600" width="260" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- DB cylinder -->
+        <mxCell id="fw-db" value="SQLite /&#xa;PostgreSQL" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=8;fillColor=#FFF3E0;strokeColor=#EF6C00;fontSize=13;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="590" width="110" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  LAYER 4 — SIMULATION ENGINE             -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="sim-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#42A5F5;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="700" width="1800" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="sim-tag" value="SIMULATION" style="text;html=1;strokeColor=none;fillColor=#42A5F5;fontColor=#ffffff;align=center;fontSize=11;fontStyle=1;rounded=1;spacingLeft=6;spacingRight=6;" vertex="1" parent="1">
+          <mxGeometry x="70" y="705" width="100" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sim-config" value="Config Builder&#xa;Template bootstrapping" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#42A5F5;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="740" width="210" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="sim-adapter" value="Strategic Agent Adapter&#xa;Strategy ↔ ABIDES Agent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#42A5F5;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="740" width="230" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="sim-hasufel" value="abides-hasufel v2.5.8&#xa;Discrete-event LOB simulation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontSize=15;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="730" y="735" width="290" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="sim-api" value="Strategy Protocol&#xa;MarketState · OrderAction" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#42A5F5;fontSize=14;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="740" width="230" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="sim-tech" value="abides-hasufel · Pandera · NumPy" style="text;html=1;strokeColor=none;fillColor=none;align=right;fontSize=11;fontColor=#42A5F5;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1570" y="705" width="270" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  RIGHT SIDEBAR — KEY FACTS               -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="facts-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#BDBDBD;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="830" width="240" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="facts-title" value="Key Numbers" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=14;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="1640" y="840" width="200" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="facts-body" value="5 graph nodes&#xa;6 scoring axes&#xa;8 investigation tools&#xa;3-tier planner fallback&#xa;3-tier explainer fallback&#xa;≤ 3 validation retries&#xa;Deterministic scoring&#xa;Model-agnostic (OpenRouter)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=13;fontColor=#555555;spacingLeft=10;spacingTop=5;" vertex="1" parent="1">
+          <mxGeometry x="1630" y="870" width="220" height="180" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  BOTTOM LEFT — SCORING SUMMARY           -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="score-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#BDBDBD;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="830" width="750" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="score-title" value="6-Axis Scoring (deterministic, no LLM)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=14;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="70" y="835" width="350" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="s1" value="Profitability" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#66BB6A;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="870" width="105" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="Risk-Adjusted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#42A5F5;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="195" y="870" width="105" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="Volatility&#xa;Impact" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1BEE7;strokeColor=#AB47BC;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="310" y="870" width="105" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="Spread&#xa;Impact" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#FFA726;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="425" y="870" width="95" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="Liquidity&#xa;Impact" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#EF5350;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="530" y="870" width="95" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="s6" value="Execution&#xa;Quality" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#757575;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="635" y="870" width="100" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  BOTTOM CENTER — TECH STACK              -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="tech-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#BDBDBD;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="850" y="830" width="720" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="tech-title" value="Technology Stack" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=14;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="860" y="835" width="200" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="t1" value="LangGraph" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#66BB6A;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="870" y="870" width="95" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="LangChain" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#66BB6A;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="975" y="870" width="95" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="OpenRouter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#42A5F5;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="870" width="95" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" value="Streamlit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#EF5350;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1185" y="870" width="85" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t5" value="SQLAlchemy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE7F6;strokeColor=#7E57C2;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="870" width="95" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="t6" value="abides-hasufel" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#42A5F5;fontSize=12;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1385" y="870" width="120" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  VERTICAL CONNECTORS BETWEEN LAYERS      -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="v1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=2;strokeColor=#BDBDBD;entryX=0.5;entryY=0;exitX=0.5;exitY=1;" edge="1" parent="1" source="ui-reflab" target="writer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="v2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=2;strokeColor=#BDBDBD;entryX=0.3;entryY=0;exitX=0.5;exitY=1;" edge="1" parent="1" source="executor" target="fw-analysis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="v3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=2;strokeColor=#BDBDBD;entryX=0.5;entryY=0;exitX=0.5;exitY=1;" edge="1" parent="1" source="fw-analysis" target="sim-hasufel">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

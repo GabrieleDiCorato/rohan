@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-04-06T12:00:00.000Z" agent="Rohan" version="22.1.0" type="device">
+  <diagram name="Agentic Loop" id="rohan-agentic-ppt">
+    <mxGraphModel dx="1920" dy="1080" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="ROHAN — Agentic Refinement Loop" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=32;fontStyle=1;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="460" y="20" width="1000" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="LangGraph state machine with fan-out scenario execution and deterministic scoring" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=14;fontColor=#888888;" vertex="1" parent="1">
+          <mxGeometry x="460" y="63" width="1000" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  MAIN FLOW — LEFT TO RIGHT               -->
+        <!-- ════════════════════════════════════════ -->
+
+        <!-- Goal -->
+        <mxCell id="goal" value="🎯&#xa;User Goal" style="ellipse;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1976D2;fontSize=16;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="260" width="130" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- 1. Planner -->
+        <mxCell id="step1-num" value="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F9A825;strokeColor=#F57F17;fontColor=#ffffff;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="230" y="228" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="planner" value="Planner&#xa;&#xa;Generate adversarial&#xa;test scenarios" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="220" y="265" width="175" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="planner-sub" value="3-tier fallback:&#xa;ReAct → Structured LLM → Heuristic" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#F57F17;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="205" y="360" width="210" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- 2. Writer -->
+        <mxCell id="step2-num" value="2" style="ellipse;whiteSpace=wrap;html=1;fillColor=#66BB6A;strokeColor=#2E7D32;fontColor=#ffffff;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="445" y="228" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="writer" value="Writer&#xa;&#xa;LLM generates&#xa;strategy code" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#66BB6A;fontSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="435" y="265" width="160" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="writer-sub" value="Structured output:&#xa;class_name + code + reasoning" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#2E7D32;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="420" y="360" width="195" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- 3. Validator -->
+        <mxCell id="step3-num" value="3" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFA726;strokeColor=#E65100;fontColor=#ffffff;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="650" y="228" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="validator" value="Validator&#xa;&#xa;AST safety checks&#xa;+ sandbox execution" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#FFA726;fontSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="640" y="265" width="175" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="validator-sub" value="≤ 3 retries on failure" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#E65100;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="660" y="360" width="140" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- 4. Execute + Explain -->
+        <mxCell id="step4-num" value="4" style="ellipse;whiteSpace=wrap;html=1;fillColor=#42A5F5;strokeColor=#1565C0;fontColor=#ffffff;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="875" y="228" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="exec-explain" value="Execute &amp; Explain&#xa;&#xa;Run simulation per scenario&#xa;ReAct agent investigates results" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#42A5F5;fontSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="850" y="265" width="240" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="exec-sub" value="Fan-out: parallel per scenario&#xa;8 investigation tools" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#1565C0;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="870" y="360" width="200" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- 5. Aggregator -->
+        <mxCell id="step5-num" value="5" style="ellipse;whiteSpace=wrap;html=1;fillColor=#455A64;strokeColor=#263238;fontColor=#ffffff;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1155" y="228" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="aggregator" value="Aggregator&#xa;&#xa;6-axis deterministic scoring&#xa;Convergence detection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#455A64;strokeColor=#263238;fontColor=#ffffff;fontSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="265" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="agg-sub" value="Weighted score 1–10&#xa;Rollback on regression" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#455A64;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1170" y="360" width="170" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Result -->
+        <mxCell id="result" value="✅&#xa;Best&#xa;Strategy" style="ellipse;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#2E7D32;fontSize=16;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1430" y="258" width="120" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  ARROWS                                  -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="a0" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#1976D2;" edge="1" parent="1" source="goal" target="planner">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#F9A825;" edge="1" parent="1" source="planner" target="writer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#66BB6A;" edge="1" parent="1" source="writer" target="validator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#FFA726;" edge="1" parent="1" source="validator" target="exec-explain">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#42A5F5;" edge="1" parent="1" source="exec-explain" target="aggregator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#2E7D32;" edge="1" parent="1" source="aggregator" target="result">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a5-lbl" value="converged" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=12;fontColor=#2E7D32;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="280" width="70" height="18" as="geometry" />
+        </mxCell>
+
+        <!-- Retry: Validator → Writer -->
+        <mxCell id="retry" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=2;strokeColor=#FFA726;dashed=1;" edge="1" parent="1" source="validator" target="writer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="728" y="235" />
+              <mxPoint x="515" y="235" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="retry-lbl" value="retry" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#FFA726;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="596" y="218" width="40" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- Feedback loop: Aggregator → Writer -->
+        <mxCell id="feedback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeWidth=3;strokeColor=#455A64;dashed=1;" edge="1" parent="1" source="aggregator" target="writer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1255" y="430" />
+              <mxPoint x="515" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="feedback-lbl" value="🔄  Feedback loop — scores + weaknesses + recommendations → next iteration" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=13;fontColor=#455A64;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="435" width="530" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="cont-lbl" value="not converged" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#455A64;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="395" width="90" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  BOTTOM — SCORING AXES                   -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="score-band" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#BDBDBD;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="500" width="1500" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="score-title" value="Deterministic 6-Axis Scoring — weighted by goal classification" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=16;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="80" y="510" width="520" height="25" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sc1" value="Profitability&#xa;&#xa;Opportunity capture&#xa;rate vs baseline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#66BB6A;fontSize=13;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="548" width="165" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="sc2" value="Risk-Adjusted&#xa;&#xa;Sharpe ratio +&#xa;drawdown penalty" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#42A5F5;fontSize=13;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="260" y="548" width="165" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="sc3" value="Volatility Impact&#xa;&#xa;Effect on market&#xa;volatility vs baseline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1BEE7;strokeColor=#AB47BC;fontSize=13;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="548" width="165" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="sc4" value="Spread Impact&#xa;&#xa;Effect on bid-ask&#xa;spread vs baseline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#FFA726;fontSize=13;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="548" width="165" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="sc5" value="Liquidity Impact&#xa;&#xa;Effect on available&#xa;liquidity vs baseline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#EF5350;fontSize=13;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="800" y="548" width="165" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="sc6" value="Execution Quality&#xa;&#xa;Fill rate · slippage ·&#xa;order-to-trade ratio" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#757575;fontSize=13;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="548" width="165" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- Final score arrow -->
+        <mxCell id="sc-arrow" value="" style="shape=mxgraph.arrows2.arrow;dy=0.6;dx=30;notch=0;fillColor=#455A64;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="1165" y="565" width="70" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="sc-final" value="Final Score&#xa;1.0 – 10.0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#455A64;strokeColor=#263238;fontColor=#ffffff;fontSize=15;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="1250" y="550" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="sc-profile" value="4 weight profiles:&#xa;default · impact · risk · execution" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=11;fontColor=#455A64;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1395" y="560" width="160" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  RIGHT SIDE — KEY HIGHLIGHTS             -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="key-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#BDBDBD;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="1590" y="180" width="280" height="280" as="geometry" />
+        </mxCell>
+        <mxCell id="key-title" value="Design Highlights" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=16;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="190" width="220" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="key-body" value="▸  No LLM in scoring loop —&#xa;   fully deterministic evaluation&#xa;&#xa;▸  Fan-out/fan-in via Send() —&#xa;   parallel scenario execution&#xa;&#xa;▸  3-tier graceful degradation&#xa;   for Planner &amp; Explainer&#xa;&#xa;▸  Automatic regression rollback&#xa;   to best-seen strategy&#xa;&#xa;▸  Model-agnostic via OpenRouter" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=13;fontColor=#333333;spacingLeft=10;spacingTop=5;" vertex="1" parent="1">
+          <mxGeometry x="1600" y="220" width="260" height="230" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════ -->
+        <!--  BOTTOM RIGHT — INVESTIGATION TOOLS      -->
+        <!-- ════════════════════════════════════════ -->
+        <mxCell id="tools-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#BDBDBD;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="1590" y="500" width="280" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="tools-title" value="8 ReAct Investigation Tools" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=14;fontStyle=1;fontColor=#1565C0;" vertex="1" parent="1">
+          <mxGeometry x="1600" y="508" width="260" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="tools-body" value="query_fills · query_pnl_curve&#xa;query_inventory · query_adverse_selection&#xa;query_book_at_time · query_counterparties&#xa;query_order_lifecycle&#xa;get_simulation_summary" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=12;fontColor=#555555;spacingTop=3;" vertex="1" parent="1">
+          <mxGeometry x="1600" y="535" width="260" height="85" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
