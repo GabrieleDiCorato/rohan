@@ -1,114 +1,128 @@
-# Agentic Simulation Framework - Technical Architecture
+# ROHAN — Technical Architecture
+
+> **Audience:** Developers and contributors working on the ROHAN codebase.
+> **Last verified:** v0.3.1 (2026-04-06).
+
+---
 
 ## 1. Overview
-This framework provides an autonomous loop for generating, testing, and refining specific trading strategies using `abides-rohan`. It leverages **LangGraph** for state management, **PostgreSQL** for relational data storage, and **Docker** for isolated execution.
 
-## 2. Core Architecture
+ROHAN is an autonomous loop for generating, testing, and refining algorithmic
+trading strategies. It uses **LangGraph** for state management,
+**`abides-hasufel`** as the high-fidelity market simulator, **SQLAlchemy** for
+persistence (SQLite by default, PostgreSQL optional), and **Streamlit** for the
+user interface.
 
-### 2.1 Technology Stack
-*   **Orchestration:** LangGraph (Python)
-*   **Simulation Engine:** abides-rohan (Existing)
-*   **Database:** PostgreSQL
-    *   *Features:* Relational Tables for Metrics/Logs/Series, BYTEA for Images/Code.
-*   **LLM Integration:** Via `langchain` connectors or `OpenRouter` API. For example:
-    *   *Analysis:* Google Gemini 1.5 Pro (via `langchain-google-genai`)
-    *   *Code Generation:* Claude 3.5 (via `langchain-openai` / OpenRouter)
-*   **Execution:** LLM-generated code is executed in Docker containers (via `docker-py`) or using secure Python interpreters (e.g. [`pydantic/monty`](https://github.com/pydantic/monty)).
+## 2. Technology Stack
 
-### 2.2 System Components & Communication
+| Layer | Technology | Notes |
+|-------|-----------|-------|
+| **Orchestration** | LangGraph (Python) | Directed state-machine graph |
+| **Simulation** | `abides-hasufel` v2.5.8 | Discrete-event LOB simulator (fork of JP Morgan ABIDES) |
+| **LLM Integration** | LangChain + OpenRouter | Model-agnostic; any OpenAI-compatible endpoint works |
+| **Persistence** | SQLAlchemy ORM | SQLite default; `DATABASE_URL` for PostgreSQL |
+| **UI** | Streamlit (multipage) | Terminal (simulation explorer) + Refinement Lab |
+| **Strategy Sandbox** | AST validation + `ThreadPoolExecutor` | Rejects unsafe imports/constructs; timeout-bounded execution |
+| **Quality** | ruff, pyright, pytest, hypothesis, pre-commit | CI via GitHub Actions |
 
-The system follows a directed graph architecture where the Manager acts as the central orchestrator.
+## 3. Module Map
 
-**Communication Protocol:**
-*   **Control Flow (LangGraph):**
-    *   **Persistence:** Uses `PostgresSaver` to checkpoint agent state (messages, current code, decision processing) synchronously. This allows the UI to query the exact status of any session.
-    *   **Real-time Streaming:** The Manager API exposes a **WebSocket/SSE Endpoint**. It streams generic `LangGraph` events (Node Start/End) and custom application events (e.g., "Validation Error", "Simulation Progress 50%") directly to the UI.
-*   **Data Flow (Bulk Storage):**
-    *   **Simulation Artifacts:** Heavy data (ticks, order books) is handled via **Async Persistence**. The `SimulationNode` triggers a background write to PostgreSQL.
-    *   **Lazy Loading:** The UI/Agents receive a `SimulationResult` containing *aggregate metrics* (Pydantic) and a *RunID*. If they need detailed series data, they request it via the RunID (Lazy Load).
+```
+src/rohan/
+├── config/           # Pydantic settings hierarchy (sim, LLM, DB, features)
+├── simulation/       # ABIDES integration
+│   ├── config_builder.py         # SimulationSettings → hasufel SimulationBuilder
+│   ├── hasufel_output.py         # HasufelOutput (SimulationOutput concrete impl)
+│   ├── strategic_agent_adapter.py # StrategicAgent ↔ ABIDES TradingAgent bridge
+│   ├── strategic_agent_config.py  # @register_agent("rohan_strategy")
+│   └── models/                   # strategy_api.py, schemas.py, simulation_metrics.py
+├── framework/        # Analysis, persistence, iteration pipeline
+│   ├── analysis_service.py       # Metrics, charts, RichAnalysisBundle
+│   ├── analysis_models.py        # FillRecord, PnLPoint, L2Snapshot, etc.
+│   ├── simulation_engine.py      # Orchestrates single runs + baseline comparisons
+│   ├── iteration_pipeline.py     # Non-LLM refinement loop (legacy)
+│   ├── database/                 # ORM models, connector, init_db
+│   ├── repository.py             # Session CRUD
+│   └── prompts.py                # Interpreter prompt formatting
+├── llm/              # Agentic graph
+│   ├── graph.py                  # build_refinement_graph() — LangGraph definition
+│   ├── nodes.py                  # Writer, Validator, Executor, Explainer, Aggregator
+│   ├── state.py                  # RefinementState TypedDict
+│   ├── models.py                 # Structured output models (ScenarioExplanation, etc.)
+│   ├── scoring.py                # 6-axis deterministic scoring
+│   ├── tools.py                  # 8 investigation tools for Explainer ReAct agent
+│   ├── scenario_tools.py         # 3 scenario tools for Planner agent
+│   ├── planner.py                # Pre-graph adversarial scenario planner
+│   ├── factory.py                # LLM model factory (provider dispatch)
+│   ├── prompts.py                # System/human prompt templates
+│   ├── telemetry.py              # Structured JSON telemetry
+│   └── cli.py                    # `uv run refine` CLI entry point
+└── ui/               # Streamlit pages
+    ├── 0_Terminal.py             # Simulation explorer
+    └── 1_Refinement_Lab.py       # LLM refinement UI
+```
 
-## 3. Data Models
+## 4. Data Flow
 
-### 3.1 Strategic Agent Protocol (Framework Agnostic)
-Defined in `src/rohan/simulation/models/strategy_api.py`. This is the **ONLY** interface the LLM interacts with.
+### 4.1 Refinement Loop
 
-**Units & Conventions (matching ABIDES):**
-*   **Prices:** `int`, in **cents** (e.g. `18550` = $185.50).
-*   **Quantities:** `int`, in **shares**.
-*   **Cash:** `int`, in **cents**.
-*   **Timestamps:** `int`, nanoseconds since epoch.
+```
+User goal (natural language)
+    │
+    ▼
+[Planner] ─── proposes adversarial scenarios (optional)
+    │
+    ▼
+┌─→ [Writer] ─── generates StrategicAgent Python code
+│       │
+│       ▼
+│   [Validator] ─── AST safety check + sandbox execution
+│       │ ❌ retry (≤3)
+│       ▼ ✅
+│   [Scenario Executor] ─── runs strategy in abides-hasufel
+│       │                    per scenario: HasufelOutput → RichAnalysisBundle
+│       │                    generates 6 charts (Price, Spread, Volume, PnL, Inventory, Fills)
+│       ▼
+│   [Explainer] ─── ReAct agent with 8 investigation tools
+│       │            falls back to single structured-output call on failure
+│       ▼
+│   [Aggregator] ─── deterministic 6-axis scoring + LLM qualitative analysis
+│       │
+│       ├── converged / max iterations → DONE
+└───────┘  regression → rollback; else → next iteration
+```
 
-It defines:
+### 4.2 Data Contracts
 
-*   `MarketState`: The agent's view of the market (prices, inventory, orders, situational awareness). Key fields:
-    *   L1/L2: `best_bid`, `best_ask`, `bid_depth`, `ask_depth`, `last_trade`
-    *   Portfolio: `inventory`, `cash`, `portfolio_value` (mark-to-market), `unrealized_pnl`
-    *   Liquidity: `bid_liquidity`, `ask_liquidity` (near-touch volume within 0.5%)
-    *   Time: `timestamp_ns`, `time_remaining_ns` (until market close), `is_market_closed`
-    *   Orders: `open_orders` (list of `Order`)
-    *   Computed: `mid_price`, `spread` (derived from L1 via `@computed_field`)
+| Boundary | Format | Rationale |
+|----------|--------|-----------|
+| Simulator → Executor node | `HasufelOutput` (live Python) | Access to typed `SimulationResult` |
+| Executor → Explainer | `RichAnalysisBundle` (JSON string) | Checkpoint-safe, container-independent |
+| Explainer → Aggregator | `ScenarioExplanation` (Pydantic) | Structured qualitative analysis |
+| Aggregator → DB | `ScenarioMetrics` → `RefinementScenarioResult` ORM | Full round-trip persistence |
 
-*   `OrderAction`: The actions the agent can take. Discriminated by `action_type` (`OrderActionType` enum: `PLACE`, `CANCEL`, `CANCEL_ALL`, `MODIFY`, `PARTIAL_CANCEL`, `REPLACE`). Includes `@model_validator`s enforcing:
-    *   `LIMIT` orders **must** specify a `price`.
-    *   `MARKET` orders **must not** specify a `price`.
-    *   `is_hidden` and `is_post_only` are only valid for `LIMIT` orders.
-    *   Auto-infers `action_type` from `cancel_order_id` for backward compatibility.
-    *   Convenience factories: `OrderAction.cancel()`, `cancel_all()`, `modify()`, `partial_cancel()`, `replace()`.
+### 4.3 Strategy Protocol
 
-*   `OrderStatus` enum: `ACCEPTED`, `NEW`, `PARTIAL`, `FILLED`, `CANCELLED`, `REJECTED`, `MODIFIED`, `PARTIAL_CANCELLED`, `REPLACED`.
+Defined in `src/rohan/simulation/models/strategy_api.py`. This is the **only**
+interface the LLM-generated code implements.
 
-*   `AgentConfig`: Configuration passed at simulation start. Fields: `starting_cash`, `symbol`, `latency_ns`, `mkt_open_ns` (optional), `mkt_close_ns` (optional).
+- **Units:** prices in integer cents, quantities in shares, cash in cents, timestamps in nanoseconds.
+- **`MarketState`:** L1/L2 book data, portfolio, liquidity, time remaining, open orders. `mid_price` and `spread` are `@computed_field`s.
+- **`OrderAction`:** Discriminated union (`PLACE`, `CANCEL`, `CANCEL_ALL`, `MODIFY`, `PARTIAL_CANCEL`, `REPLACE`). Validated by `@model_validator`.
+- **`StrategicAgent` Protocol:** `initialize`, `on_tick`, `on_market_data`, `on_order_update`, `on_simulation_end`.
 
-*   `StrategicAgent` Protocol: The interface (`initialize`, `on_tick`, `on_market_data`, `on_order_update`, `on_simulation_end`) that generated strategies must implement.
+### 4.4 Database Schema
 
-### 3.2 Data Exchange Objects (DXOs)
-To balance type safety within the Agent Logic and performance for Simulation Data, we use a tiered approach:
+Defined in `src/rohan/framework/database/models.py`. Hierarchy:
 
-1.  **Metadata & Summaries (Pydantic):**
-    *   `SimulationSummary`: Lightweight object containing aggregate KPIs (PnL, Sharpe, Max Drawdown). Safe to serialize and pass to LLMs/UI.
-    *   `StrategyEvaluation`: Contains the code, the summary, and the LLM's reasoning.
-2.  **Bulk Data (Typed DataFrames via Pandera):**
-    *   `SimulationOutput` (DAO): An abstract interface (`ABC`) that provides access to bulk data (Order Books, Logs). Return types are annotated with `pandera.typing.DataFrame[Schema]`.
-    *   **Schema Definitions:** Defined in `src/rohan/simulation/models/schemas.py` using `pandera.DataFrameModel`:
-        *   `OrderBookL1Schema`: `time`, `bid_price`, `bid_qty`, `ask_price`, `ask_qty`, `timestamp`. `strict=False` to allow downstream-computed columns (e.g. `mid_price`).
-        *   `OrderBookL2Schema`: `time`, `level`, `side`, `price`, `qty`, `timestamp`. `side` is constrained to `{"bid", "ask"}`, `level >= 1`.
-        *   `AgentLogsSchema`: `AgentID`, `AgentType`, `EventType`. `strict=False` because upstream `parse_logs_df` may add extra columns.
-    *   **Validation Strategy:** Schemas are validated at the *production boundary* — i.e. in `HasufelOutput` (concrete `SimulationOutput`) right after data is computed and before it is cached. Consumers (e.g. `AnalysisService`) rely on annotations for documentation without re-validating.
-    *   **Transport:** Internally passed as `pd.DataFrame`. Over network/API, served as **Parquet** or **Arrow** streams, referenced by `RunID`.
+`StrategySession` → `StrategyIteration` → `SimulationScenario` → `SimulationRun`
 
-### 3.3 Database Schema (PostgreSQL/SQLite)
-Defined in `src/rohan/framework/database/models.py`.
+Supporting tables: `market_data_l1`, `agent_logs`, `artifacts`.
 
-**Hierarchy:**
-`StrategySession` (User goal) -> `StrategyIteration` (One code version) -> `SimulationScenario` (Conditions) -> `SimulationRun` (Execution).
+### 4.5 DataFrame Schemas (Pandera)
 
-**Key Tables:**
-*   `strategy_sessions`: High-level user goal.
-*   `simulation_scenarios`: Configuration overrides for different test cases.
-*   `strategy_iterations`: Generated Python code versions.
-*   `simulation_runs`: Execution results linked to iteration and scenario.
-*   `market_data_l1`: High-frequency L1 order book data.
-*   `agent_logs`: Detailed agent actions and events.
-*   `artifacts`: Binary storage for plots and log files.
-
-## 4. Workflows
-
-### 4.1 Phase 1: The "Observer" (Running Baselines on Existing Agents)
-**Goal:** Verify the system can run simulations, capture data, and provide intelligent analysis without injecting new strategy code yet.
-
-1.  **Session Initialization**: User requests analysis. System creates session and scenarios.
-2.  **Orchestration**: Manager triggers generic runs.
-3.  **Execution**: `SimulationNode` runs simulations, extracts data, computes metrics, and persists to DB.
-4.  **Analysis**: `ResultAnalyzer` retrieves metrics and plots, uses LLM to generate a report explaining observed dynamics.
-
-### 4.2 Phase 2: The "Strategist" (Iterative Refinement)
-**Goal:** Autonomous strategy generation and improvement loops.
-
-1.  **Strategy Generation**: LLM generates Python code implementing `StrategicAgent`.
-2.  **Validation**: Code is validated via AST (no dangerous imports).
-3.  **Scenario Testing**: System runs simulation with new code injected.
-4.  **Evaluation**: Compare against baseline or previous iteration.
-5.  **Refinement**: Feedback loop to generate next iteration if needed.
+Validated at the production boundary in `HasufelOutput`:
+- `OrderBookL1Schema`, `OrderBookL2Schema`, `AgentLogsSchema` (in `schemas.py`)
 
 ## 5. Implementation Details
 

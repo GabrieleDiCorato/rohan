@@ -1,5 +1,9 @@
 # ABIDES — Declarative Configuration System
 
+> **Snapshotted from `abides-hasufel` v2.5.8.** If you've upgraded hasufel, verify this doc is still current.
+>
+> **Audience:** AI coding agents and developers configuring ABIDES simulations.
+
 This document covers the pluggable, AI-friendly configuration system for ABIDES
 market simulations. It replaces (or complements) the procedural `build_config()`
 functions with declarative Pydantic models, YAML/JSON serialization, and
@@ -496,7 +500,7 @@ This provides two guarantees:
 - **Composition invariance** — adding, removing, or resizing an agent
   group does not shift any other component's seed.
 
-See [PARALLEL_SIMULATION_GUIDE.md](PARALLEL_SIMULATION_GUIDE.md) for the
+See [HASUFEL_PARALLEL_SIMULATION.md](HASUFEL_PARALLEL_SIMULATION.md) for the
 full derivation tree.
 
 > **Breaking change from v2.3.0:** the same master seed produces different

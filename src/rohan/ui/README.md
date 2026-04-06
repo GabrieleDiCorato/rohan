@@ -1,5 +1,8 @@
 # ABIDES Simulation Terminal
 
+> **Audience:** Users and developers working with the Streamlit UI.
+> **Last verified:** v0.3.1 (2026-04-06).
+
 A Streamlit-based web application for configuring, running, and analyzing ABIDES market simulations with an intuitive interface and comprehensive visualization tools.
 
 ## Features
@@ -12,12 +15,8 @@ A Streamlit-based web application for configuring, running, and analyzing ABIDES
 - Real-time input validation
 
 **Preset Management**
-- Load preset configurations for common market scenarios:
-  - Default (Balanced Market)
-  - High Volatility
-  - Low Liquidity
-  - Market Maker Stress Test
-  - Momentum Dominated
+- Presets are backed by hasufel simulation templates, discovered dynamically
+- New upstream templates are automatically surfaced in the UI
 - Customize any preset to fit your needs
 - "Load Preset" updates sidebar inputs
 - "Apply Configuration" transfers settings to Execute tab

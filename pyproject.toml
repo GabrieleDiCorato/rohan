@@ -1,6 +1,6 @@
 [project]
 name = "rohan"
-version = "0.3.0"
+version = "0.3.1"
 description = "Risk Optimizing Holistic Agentic Network"
 readme = "README.md"
 requires-python = ">=3.12"

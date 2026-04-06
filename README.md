@@ -37,9 +37,8 @@ The core refinement loop operates as follows:
 ROHAN organizes its documentation into three distinct categories to serve different audiences:
 
 - **[Functional Docs (`docs/functional/`)](docs/functional/)**: User-facing documentation explaining the "why" and "how" of the system. Includes functional definitions of all quantitative market metrics.
-- **[Technical Docs (`docs/technical/`)](docs/technical/)**: Developer-facing documentation containing the core system architecture, adversarial scenario generation design, and parallel simulation execution guides.
-- **[Refinement Observability Notes (`docs/technical/llm_refinement_observability.md`)](docs/technical/llm_refinement_observability.md)**: Execution assumptions, rollout controls, and how local telemetry complements LangGraph/LangSmith tracing.
-- **[LLM Knowledge Base (`docs/llm/`)](docs/llm/)**: Explicitly designed references, API contracts, and gotchas built for AI coding assistants integrating with the `abides-rohan` simulator.
+- **[Technical Docs (`docs/technical/`)](docs/technical/)**: Developer-facing documentation containing the core system architecture and implementation details.
+- **[ABIDES-Hasufel Knowledge Base (`docs/abides/`)](docs/abides/)**: Explicitly designed references, API contracts, and gotchas built for AI coding assistants and developers integrating with the `abides-hasufel` simulator. Covers the config system, metrics API, custom agent guide, parallel simulation, data extraction, and common pitfalls.
 
 ## Getting Started
 

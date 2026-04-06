@@ -1,3 +1,8 @@
+> **Archive notice:** This is the original thesis proposal (January 2026). It describes
+> the project's goals and initial design — not the current implementation. For the
+> current architecture, see [`docs/technical/technical_architecture.md`](../technical/technical_architecture.md).
+> For the current feature set and changelog, see [`CHANGELOG.md`](../../CHANGELOG.md).
+
 # THESIS PROPOSAL
 
 ## R.O.H.A.N.: Risk Optimizing Holistic Agentic Network

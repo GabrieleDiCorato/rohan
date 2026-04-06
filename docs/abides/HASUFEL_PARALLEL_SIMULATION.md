@@ -1,5 +1,7 @@
 # ABIDES — Parallel Simulation Guide
 
+> **Snapshotted from `abides-hasufel` v2.5.8.** If you've upgraded hasufel, verify this doc is still current.
+
 > **Audience:** LLM agents or developers who need to launch multiple ABIDES simulations concurrently.
 
 ---

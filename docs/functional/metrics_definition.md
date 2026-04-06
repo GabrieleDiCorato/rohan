@@ -1,5 +1,8 @@
 # Performance Metrics & Evaluation Framework
 
+> **Audience:** Quant researchers, developers, AI coding agents.
+> **Last verified:** v0.3.1 (2026-04-06).
+
 Canonical functional reference for all quantitative metrics in the Rohan simulation
 framework. Metrics are organised into three groups: **agent performance**,
 **market microstructure**, and **market impact** (strategy vs. baseline deltas).

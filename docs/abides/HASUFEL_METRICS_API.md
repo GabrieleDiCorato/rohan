@@ -1,5 +1,7 @@
 # ABIDES Metrics API Reference
 
+> **Snapshotted from `abides-hasufel` v2.5.8.** If you've upgraded hasufel, verify this doc is still current.
+
 Complete reference for the `abides_markets.simulation` metrics surface.
 Covers standalone compute functions, the `compute_rich_metrics()` convenience
 API, and the Pydantic models that carry the results.
@@ -63,6 +65,65 @@ order-level fill-rate, OTT metrics, or per-order lifecycle tracking are needed.
 
 ---
 
+## Runner Functions
+
+### `run_simulation()`
+
+```python
+def run_simulation(
+    config: SimulationConfig,
+    *,
+    profile: ResultProfile = ResultProfile.SUMMARY,
+    log_dir: str | None = None,
+    extractors: list[ResultExtractor] | None = None,
+    runtime_agents: list[TradingAgent] | None = None,
+    oracle_instance: Any | None = None,
+) -> SimulationResult
+```
+
+| Parameter | Type | Description |
+|:---|:---|:---|
+| `config` | `SimulationConfig` | Validated config from `SimulationBuilder` or direct construction. |
+| `profile` | `ResultProfile` | Controls which data is extracted. Default: `SUMMARY`. |
+| `log_dir` | `str \| None` | Directory for ABIDES log files. Auto-assigned (UUID) when `None`. |
+| `extractors` | `list[ResultExtractor] \| None` | Plugin extractors contributing to `SimulationResult.extensions`. |
+| `runtime_agents` | `list[TradingAgent] \| None` | Pre-built agents injected after compilation (bypass config system). |
+| `oracle_instance` | `Any \| None` | Pre-built oracle; required when config uses `ExternalDataOracleConfig`. |
+
+**Returns:** `SimulationResult`
+
+---
+
+### `run_batch()`
+
+```python
+def run_batch(
+    configs: list[SimulationConfig],
+    *,
+    profile: ResultProfile = ResultProfile.SUMMARY,
+    n_workers: int | None = None,
+    extractors: list[ResultExtractor] | None = None,
+    log_dir_prefix: str | None = None,
+    worker_initializer: Callable[[], None] | None = None,
+) -> list[SimulationResult]
+```
+
+Runs multiple simulations in parallel (multiprocessing, `spawn` context) and
+returns results in input order.
+
+| Parameter | Type | Description |
+|:---|:---|:---|
+| `configs` | `list[SimulationConfig]` | One config per simulation. Use explicit integer seeds for reproducibility. |
+| `profile` | `ResultProfile` | Applied to every simulation. |
+| `n_workers` | `int \| None` | Worker processes. Defaults to `os.cpu_count()`. |
+| `extractors` | `list[ResultExtractor] \| None` | Must be picklable (no lambdas). |
+| `log_dir_prefix` | `str \| None` | Worker *i* writes to `{prefix}_{i}`; UUID suffix when `None`. |
+| `worker_initializer` | `Callable[[], None] \| None` | Called once per worker before any simulation runs. Use to register custom agents via `@register_agent` in spawned processes. Must be picklable. |
+
+**Returns:** `list[SimulationResult]` — same order as `configs`.
+
+---
+
 ## `compute_rich_metrics()`
 
 ```python
@@ -112,6 +173,10 @@ All fields are `None` when the required L1 series or agent logs are absent.
 | `resilience_mean_ns` | `float \| None` | Mean spread recovery time after shock events (spread > $\mu + 2\sigma$), in nanoseconds. `None` if no shocks detected. Longer = more fragile market. | Foucault, Kadan & Kandel (2013) |
 | `market_ott_ratio` | `float \| None` | Market-wide order-to-trade ratio: $N_{\text{submissions}} / N_{\text{fills}}$. MiFID II RTS 9 reference threshold: 4:1. Requires `AGENT_LOGS`. | MiFID II RTS 9 |
 | `pct_time_two_sided` | `float` | Percentage of L1 observations with both bid and ask present (0–100). Complement of `pct_time_no_bid`/`pct_time_no_ask`. | |
+
+> **Note:** `volatility`, `mean_spread`, `avg_bid_liquidity`, `avg_ask_liquidity`, and
+> `vpin` are **not** fields on `MicrostructureMetrics`. They are available as standalone
+> compute functions — see [Standalone Compute Functions](#standalone-compute-functions).
 
 ---
 
@@ -297,6 +362,91 @@ Per-symbol container. The `microstructure` field is populated by
 
 ---
 
+### `SimulationMetadata`
+
+Simulation-level identifiers and timing. Always present in `SimulationResult.metadata`.
+
+| Field | Type | Description |
+|:---|:---|:---|
+| `seed` | `int` | RNG seed used for the run. |
+| `tickers` | `list[str]` | Symbols traded in the simulation. |
+| `sim_start_ns` | `int` | Simulation start time (nanoseconds, Unix epoch). |
+| `sim_end_ns` | `int` | Simulation stop time (nanoseconds, Unix epoch). |
+| `wall_clock_elapsed_s` | `float` | Wall-clock seconds elapsed during the discrete-event loop. |
+| `config_snapshot` | `dict[str, Any]` | JSON-serialisable subset of the `SimulationConfig` that produced this result. |
+
+---
+
+### `TradeAttribution`
+
+Causal attribution for a single execution (fill). One record per `EXEC` event in the
+order-book history. Available in `MarketSummary.trades` when `TRADE_ATTRIBUTION` profile
+flag is active.
+
+| Field | Type | Description |
+|:---|:---|:---|
+| `time_ns` | `int` | Execution timestamp (nanoseconds, Unix epoch). |
+| `passive_agent_id` | `int` | Agent ID of the resting order (maker). |
+| `aggressive_agent_id` | `int` | Agent ID of the incoming order (taker). |
+| `side` | `str` | Side of the passive order: `"BUY"` or `"SELL"`. |
+| `price_cents` | `int` | Execution price in integer cents. |
+| `quantity` | `int` | Number of shares executed. |
+
+---
+
+### `L1Snapshots`
+
+Full L1 time-series as parallel numpy arrays. Available in `MarketSummary.l1_series`
+when `L1_SERIES` profile flag is active.
+
+| Field | Type | Description |
+|:---|:---|:---|
+| `times_ns` | `np.ndarray` | Event timestamps (ns, Unix epoch). |
+| `bid_prices` | `np.ndarray` | Best bid prices (integer cents; `pd.NA` when side is empty). |
+| `bid_quantities` | `np.ndarray` | Quantities at best bid (`pd.NA` when side is empty). |
+| `ask_prices` | `np.ndarray` | Best ask prices (integer cents; `pd.NA` when side is empty). |
+| `ask_quantities` | `np.ndarray` | Quantities at best ask (`pd.NA` when side is empty). |
+
+**Method:** `as_dataframe() → DataFrame[L1DataFrameSchema]` — converts to a wide
+DataFrame with columns `time_ns`, `bid_price_cents`, `bid_qty`, `ask_price_cents`,
+`ask_qty` (all nullable `Int64`). Pass this to standalone compute functions.
+
+---
+
+### `L2Snapshots`
+
+Full sparse L2 order-book snapshots. Available in `MarketSummary.l2_series`
+when `L2_SERIES` profile flag is active.
+
+| Field | Type | Description |
+|:---|:---|:---|
+| `times_ns` | `np.ndarray` | Event timestamps (ns, Unix epoch). |
+| `bids` | `list[list[tuple[int, int]]]` | Per-snapshot bid levels as `(price_cents, qty)` pairs, best-first. |
+| `asks` | `list[list[tuple[int, int]]]` | Per-snapshot ask levels as `(price_cents, qty)` pairs, best-first. |
+
+**Method:** `as_dataframe() → DataFrame[L2DataFrameSchema]` — converts to a tidy
+long DataFrame with columns `time_ns`, `side`, `level`, `price_cents`, `qty`. Only
+observed resting levels are present (no zero-padding); `price_cents > 0`, `qty > 0`.
+
+---
+
+### `SimulationResult` Methods
+
+`SimulationResult` is the immutable return type of `run_simulation()`. In addition
+to its data fields (see `MarketSummary`, `AgentData`, etc.), it exposes the following
+methods:
+
+| Method | Returns | Description |
+|:---|:---|:---|
+| `get_agents_by_category(category: str)` | `list[AgentData]` | Filter agents by `agent_category` (registry category string). |
+| `summary()` | `str` | Concise human/LLM-readable narrative. Succeeds regardless of profile. |
+| `order_logs()` | `DataFrame[OrderLogsSchema]` | Order-event subset of the log DataFrame. Raises `RuntimeError` if `AGENT_LOGS` was not active. |
+| `to_dict()` | `dict[str, Any]` | Fully JSON-serialisable dict (no numpy arrays or DataFrames). |
+| `to_json()` | `str` | JSON string representation. |
+| `summary_dict()` | `dict[str, Any]` | Structured dict for dashboard widgets: `metadata`, `markets`, `agent_leaderboard`, `execution_summary`, `warnings`. |
+
+---
+
 ## Sign Conventions
 
 ### Slippage (`slippage_bps`)
@@ -332,12 +482,93 @@ Common interpretation patterns for practitioners and LLM agents:
 
 ---
 
+## Extractors
+
+Extractors are plugins that receive the raw `end_state` dict after a simulation run
+and contribute values to `SimulationResult.extensions`.
+
+| Class | Description |
+|:---|:---|
+| `ResultExtractor` | Protocol / base type. Any callable matching `(end_state: dict) -> Any` qualifies. |
+| `BaseResultExtractor` | Abstract base class. Subclass this for reusable, picklable extractors. Override `extract(end_state) -> Any` and set `self.key`. |
+| `FunctionExtractor` | Wraps a plain function: `FunctionExtractor(key, fn)`. The result is stored under `SimulationResult.extensions[key]`. Must be picklable for `run_batch()`. |
+
+```python
+from abides_markets.simulation import FunctionExtractor, run_simulation
+
+ext = FunctionExtractor("n_agents", lambda e: len(e["agents"]))
+result = run_simulation(config, extractors=[ext])
+print(result.extensions["n_agents"])
+```
+
+---
+
+## DataFrame Schemas
+
+All schemas are [Pandera](https://pandera.readthedocs.io/) `DataFrameModel` classes.
+Import them for runtime validation or type checking.
+
+### `L1DataFrameSchema`
+
+Schema for `L1Snapshots.as_dataframe()`. Strict (no extra columns).
+
+| Column | dtype | Nullable | Description |
+|:---|:---|:---|:---|
+| `time_ns` | `Int64` | No | Event timestamp (ns, Unix epoch). |
+| `bid_price_cents` | `Int64` | Yes | Best bid price in cents; `None` if no bid. |
+| `bid_qty` | `Int64` | Yes | Quantity at best bid; `None` if no bid. |
+| `ask_price_cents` | `Int64` | Yes | Best ask price in cents; `None` if no ask. |
+| `ask_qty` | `Int64` | Yes | Quantity at best ask; `None` if no ask. |
+
+### `L2DataFrameSchema`
+
+Schema for `L2Snapshots.as_dataframe()`. Tidy long format. Strict (no extra columns).
+
+| Column | dtype | Nullable | Description |
+|:---|:---|:---|:---|
+| `time_ns` | `Int64` | No | Event timestamp (ns, Unix epoch). |
+| `side` | `str` | No | `"bid"` or `"ask"`. |
+| `level` | `Int64` | No | Depth level, 0-indexed (0 = best). |
+| `price_cents` | `Int64` | No | Limit price in cents (> 0). |
+| `qty` | `Int64` | No | Aggregate resting quantity (> 0). |
+
+### `RawLogsSchema`
+
+Base schema for `SimulationResult.logs`. Non-strict (extra columns pass through).
+
+| Column | dtype | Description |
+|:---|:---|:---|
+| `EventTime` | `Int64` | Event timestamp (ns, Unix epoch). |
+| `EventType` | `str` | Event label, e.g. `"ORDER_SUBMITTED"`. |
+| `agent_id` | `Int64` | ID of the agent that logged the event. |
+| `agent_type` | `str` | Agent class name. |
+
+### `OrderLogsSchema`
+
+Schema for `SimulationResult.order_logs()`. Extends `RawLogsSchema` with order-specific
+columns. Non-strict (extra per-event-type columns are retained).
+
+| Column | dtype | Nullable | Description |
+|:---|:---|:---|:---|
+| `symbol` | `str` | No | Trading symbol. |
+| `order_id` | `Int64` | No | Unique order identifier. |
+| `quantity` | `Int64` | No | Order quantity in shares (> 0). |
+| `side` | `str` | No | `"BID"` or `"ASK"`. |
+| `fill_price` | `Int64` | Yes | Fill price in cents; `None` unless `ORDER_EXECUTED`. |
+| `limit_price` | `Int64` | Yes | Limit price in cents; `None` for market orders. |
+
+---
+
 ## Import Paths
 
 All public symbols are re-exported from `abides_markets.simulation`:
 
 ```python
 from abides_markets.simulation import (
+    # Runner functions
+    run_simulation,
+    run_batch,
+
     # High-level API
     compute_rich_metrics,
     RichSimulationMetrics,
@@ -373,6 +604,7 @@ from abides_markets.simulation import (
 
     # Result models
     SimulationResult,
+    SimulationMetadata,
     MarketSummary,
     AgentData,
     ExecutionMetrics,
@@ -383,5 +615,16 @@ from abides_markets.simulation import (
     L1Snapshots,
     L2Snapshots,
     ResultProfile,
+
+    # Extractors
+    BaseResultExtractor,
+    FunctionExtractor,
+    ResultExtractor,
+
+    # DataFrame schemas
+    L1DataFrameSchema,
+    L2DataFrameSchema,
+    RawLogsSchema,
+    OrderLogsSchema,
 )
 ```

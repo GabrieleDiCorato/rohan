@@ -1,5 +1,9 @@
 # Analyzing ABIDES Output
 
+> **Snapshotted from `abides-hasufel` v2.5.8.** If you've upgraded hasufel, verify this doc is still current.
+>
+> **Audience:** Developers and AI coding agents extracting simulation results.
+
 ## 1. Recommended: `SimulationResult`
 
 `run_simulation()` returns a typed, immutable `SimulationResult` with structured data:
@@ -236,5 +240,5 @@ for fill in (rich.fills or []):
           f"AS={fill.adverse_selection_bps}")
 ```
 
-See [ABIDES_METRICS_API.md](ABIDES_METRICS_API.md) for the full metric
+See [HASUFEL_METRICS_API.md](HASUFEL_METRICS_API.md) for the full metric
 catalogue and mathematical definitions.

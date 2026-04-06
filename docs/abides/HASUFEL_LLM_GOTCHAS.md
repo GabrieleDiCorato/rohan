@@ -1,29 +1,37 @@
-# ABIDES — LLM Integration Gotchas & Reference
+# HASUFEL — LLM Integration Reference & Gotchas
 
-This document is written for **AI coding assistants** integrating with ABIDES.
-It catalogs every source of `None`, `NaN`, empty collections, and surprising
-API behavior that commonly causes LLM-generated code to crash or misbehave.
+> **Snapshotted from `abides-hasufel` v2.5.8.** If you've upgraded hasufel, verify this doc is still current.
+>
+> **Audience:** AI coding agents building on ABIDES-Hasufel.
+
+Canonical reference for **AI coding assistants** building on ABIDES-Hasufel.
+Covers the async agent model, every source of `None`/`NaN`/empty collections,
+safe-access patterns, and the simulation runner API.
 
 ---
 
 ## Table of Contents
 
 1. [Mental Model — Not a Loop, Not Synchronous](#1-mental-model)
-2. [Market Data — All Sources of None / Empty](#2-market-data--all-sources-of-none--empty)
-3. [Pre-Market Window — Special State](#3-pre-market-window--special-state)
-4. [Order Book Data Structures Explained](#4-order-book-data-structures-explained)
-5. [The mark_to_market Trap](#5-the-mark_to_market-trap)
-6. [Price Units — Everything is Integer Cents](#6-price-units--everything-is-integer-cents)
-7. [Order Lifecycle and Tracking](#7-order-lifecycle-and-tracking)
-8. [Correct Safe-Access Patterns](#8-correct-safe-access-patterns)
-9. [Subscription vs. Pull-Based Data](#9-subscription-vs-pull-based-data)
-10. [Complete State Validity Checklist](#10-complete-state-validity-checklist)
+2. [Agent Lifecycle](#2-agent-lifecycle)
+3. [Market Data — All Sources of None / Empty](#3-market-data--all-sources-of-none--empty)
+4. [Pre-Market Window — Special State](#4-pre-market-window--special-state)
+5. [Order Book Data Structures Explained](#5-order-book-data-structures-explained)
+6. [The mark_to_market Trap](#6-the-mark_to_market-trap)
+7. [Price Units — Everything is Integer Cents](#7-price-units--everything-is-integer-cents)
+8. [Order Lifecycle and Tracking](#8-order-lifecycle-and-tracking)
+9. [Correct Safe-Access Patterns](#9-correct-safe-access-patterns)
+10. [Subscription vs. Pull-Based Data](#10-subscription-vs-pull-based-data)
+11. [Complete State Validity Checklist](#11-complete-state-validity-checklist)
+12. [Running Simulations](#12-running-simulations)
+13. [External Oracle — Historical / Generated Data](#13-external-oracle--historical--generated-data)
+14. [logEvent Deep Copy](#14-logevent-deep-copy)
 
 ---
 
 ## 1. Mental Model
 
-ABIDES is a **discrete-event simulation**, NOT a loop-based system.
+ABIDES is a **discrete-event simulation** — NOT a loop-based system.
 
 ```
 ❌ WRONG mental model:
@@ -51,9 +59,42 @@ arrives asynchronously in `receive_message()`.
 
 ---
 
-## 2. Market Data — All Sources of None / Empty
+## 2. Agent Lifecycle
 
-### 2.1 `self.known_bids[symbol]` and `self.known_asks[symbol]`
+Custom agents subclass `TradingAgent` and implement exactly two callbacks:
+
+| Callback | Called when | Typical actions |
+|---|---|---|
+| `wakeup(current_time)` | At each scheduled time | `set_wakeup()` for next tick; request data; place orders |
+| `receive_message(current_time, sender_id, message)` | When a message arrives | React to fills, spread responses, market data |
+
+`TradingAgent` handles all other lifecycle phases internally (`kernel_starting`,
+`kernel_stopping`, mark-to-market at close, etc.). **Do not override these.**
+
+```python
+class MyAgent(TradingAgent):
+    def wakeup(self, current_time):
+        can_trade = super().wakeup(current_time)  # ALWAYS call super first
+        if not can_trade:
+            return
+        self.get_current_spread(self.symbol)      # send data request
+        self.set_wakeup(current_time + self.wake_freq)  # schedule next tick
+
+    def receive_message(self, current_time, sender_id, message):
+        super().receive_message(current_time, sender_id, message)  # ALWAYS call super
+        if isinstance(message, QuerySpreadResponseMsg):
+            self._on_spread(message)
+```
+
+> **Subscribe-mode agents**: call `super().wakeup()` but proceed with
+> one-time subscription setup even when it returns `False` — subscriptions
+> must be registered before market hours arrive.
+
+---
+
+## 3. Market Data — All Sources of None / Empty
+
+### 3.1 `self.known_bids[symbol]` and `self.known_asks[symbol]`
 
 | Situation | Value |
 |-----------|-------|
@@ -73,7 +114,7 @@ bids = self.known_bids.get("ABM", [])
 bid = bids[0][0] if bids else None
 ```
 
-### 2.2 `self.last_trade[symbol]`
+### 3.2 `self.last_trade[symbol]`
 
 | Situation | Value |
 |-----------|-------|
@@ -89,7 +130,7 @@ price = self.last_trade["ABM"]
 price = self.last_trade.get("ABM")  # Returns None if missing
 ```
 
-### 2.3 `self.mkt_open` and `self.mkt_close`
+### 3.3 `self.mkt_open` and `self.mkt_close`
 
 Both start as `None`. They are only populated after the agent receives a
 `MarketHoursMsg` from the Exchange (which arrives in response to the automatic
@@ -107,7 +148,7 @@ def wakeup(self, current_time):
     ...
 ```
 
-### 2.4 `L1DataMsg.bid` and `L1DataMsg.ask`
+### 3.4 `L1DataMsg.bid` and `L1DataMsg.ask`
 
 The type annotation says `Tuple[int, int]` but in practice these come from
 `OrderBook.get_l1_bid_data()` / `get_l1_ask_data()` which return **`None`**
@@ -124,7 +165,7 @@ if message.bid is not None:
     bid_price, bid_qty = message.bid
 ```
 
-### 2.5 `L2DataMsg.bids` and `L2DataMsg.asks`
+### 3.5 `L2DataMsg.bids` and `L2DataMsg.asks`
 
 These are always `List[Tuple[int, int]]` — never `None`. But they can be
 `[]` (empty list) when the book side has no resting orders.
@@ -136,7 +177,7 @@ if bids:
     best_bid_qty   = bids[0][1]
 ```
 
-### 2.6 `QuerySpreadResponseMsg.last_trade`
+### 3.6 `QuerySpreadResponseMsg.last_trade`
 
 Type annotation: `Optional[int]`. Value is `None` when no trade has happened
 in the session yet.
@@ -152,7 +193,7 @@ if spread_msg.last_trade is not None:
 
 ---
 
-## 3. Pre-Market Window — Special State
+## 4. Pre-Market Window — Special State
 
 The **pre-market window** is the period between simulation start and `mkt_open`.
 LLM-generated agents frequently crash during this window because:
@@ -180,7 +221,7 @@ def wakeup(self, current_time):
 
 ---
 
-## 4. Order Book Data Structures Explained
+## 5. Order Book Data Structures Explained
 
 ### L1 — Best bid/ask only
 
@@ -228,7 +269,7 @@ None             # no bids at all
 
 ---
 
-## 5. The `mark_to_market` Trap
+## 6. The `mark_to_market` Trap
 
 `TradingAgent.mark_to_market(holdings)` does:
 
@@ -254,7 +295,7 @@ def compute_portfolio_value(self):
 
 ---
 
-## 6. Price Units — Everything is Integer Cents
+## 7. Price Units — Everything is Integer Cents
 
 **All prices in ABIDES are integers in cents.** There are no floats for prices.
 
@@ -287,7 +328,7 @@ midpoint = int(round((bid + ask) / 2))
 
 ---
 
-## 7. Order Lifecycle and Tracking
+## 8. Order Lifecycle and Tracking
 
 ### Agent's view of its own orders
 
@@ -325,7 +366,7 @@ place_limit_order() → LimitOrderMsg → Exchange
 
 ---
 
-## 8. Correct Safe-Access Patterns
+## 9. Correct Safe-Access Patterns
 
 ### Getting bid/ask safely
 
@@ -375,7 +416,7 @@ def _spread(self, symbol: str) -> Optional[int]:
 
 ---
 
-## 9. Subscription vs. Pull-Based Data
+## 10. Subscription vs. Pull-Based Data
 
 ABIDES supports two ways to get market data:
 
@@ -424,7 +465,7 @@ every tick. Use **pull** if you only need data occasionally.
 
 ---
 
-## 10. Complete State Validity Checklist
+## 11. Complete State Validity Checklist
 
 Use this checklist before acting on any market state in your agent:
 
@@ -477,3 +518,121 @@ def _state_is_valid(self, symbol: str) -> bool:
 | `OrderBook.get_l2_bid_data()` | `List` | Never `None`, but can be `[]` |
 | `OrderBook.get_l2_ask_data()` | `List` | Never `None`, but can be `[]` |
 | `OrderBook.last_trade` | `Optional[int]` | Before any trade |
+
+---
+
+## 12. Running Simulations
+
+```python
+from abides_markets.config_system import SimulationBuilder
+from abides_markets.simulation import run_simulation, ResultProfile
+
+config = (SimulationBuilder()
+    .from_template("rmsc04")
+    .enable_agent("my_strategy", count=1, threshold=0.08)
+    .seed(42)
+    .build())
+
+result = run_simulation(config, profile=ResultProfile.QUANT)
+```
+
+**`ResultProfile` tiers:**
+
+| Profile | Includes | Use when |
+|---|---|---|
+| `SUMMARY` (default) | PnL, liquidity, L1 close | REST responses, quick checks |
+| `QUANT` | + L1/L2 series, trade attribution, equity curves | Backtesting, analytics |
+| `FULL` | + raw agent log DataFrame | Debugging agent behaviour |
+
+**Key `SimulationResult` fields:**
+
+| Field | Type | Content |
+|---|---|---|
+| `result.metadata` | `SimulationMetadata` | Seed, tickers, timing |
+| `result.agents` | `list[AgentData]` | Per-agent PnL, holdings |
+| `result.markets` | `dict[str, MarketSummary]` | L1 close, liquidity, optional L1/L2 series |
+| `result.logs` | `DataFrame \| None` | Raw agent events (`FULL` only) |
+| `result.extensions` | `dict[str, Any]` | Custom extractor outputs |
+
+**Parallel runs:**
+
+```python
+from abides_markets.simulation import run_batch
+
+results = run_batch([cfg1, cfg2, cfg3], n_workers=4, profile=ResultProfile.QUANT)
+```
+
+> Full API: `HASUFEL_CONFIG_SYSTEM.md`, `HASUFEL_METRICS_API.md`, `HASUFEL_PARALLEL_SIMULATION.md`
+
+---
+
+## 13. External Oracle — Historical / Generated Data
+
+> **Important:** `Oracle` is an `abc.ABC`. Any custom oracle must implement both
+> `get_daily_open_price(...)` and `observe_price(...)`.
+
+```python
+from abides_markets.oracles import ExternalDataOracle
+
+oracle = ExternalDataOracle(
+    mkt_open, mkt_close, ["AAPL"],
+    data={"AAPL": my_series},  # pd.Series with DatetimeIndex, values in integer cents
+)
+
+config = (SimulationBuilder()
+    .oracle_instance(oracle)   # inject pre-built oracle
+    .enable_agent("noise", count=500)
+    .seed(42)
+    .build())
+```
+
+Alternatively, declare `ExternalDataOracleConfig` in the config (marker type) and pass
+the oracle at runtime:
+
+```python
+result = run_simulation(config, oracle_instance=my_oracle)
+```
+
+> Full pattern, `DataFrameProvider`, and oracle-less simulations:
+> `HASUFEL_CUSTOM_AGENT_GUIDE.md §7`
+
+---
+
+## 14. logEvent Deep Copy
+
+`logEvent(event_type, event, deepcopy_event=False)` — default is **no deep copy**.
+Logging a mutable object and then mutating it means the log entry reflects
+the *final* state, not the state at log time.
+
+```python
+# BAD — dict is mutated after logging
+self.logEvent("SNAPSHOT", self.holdings)
+
+# GOOD — snapshot is frozen at log time
+self.logEvent("SNAPSHOT", self.holdings, deepcopy_event=True)
+
+# OK — immutable primitives don't need deepcopy
+self.logEvent("TRADE", {"price": price, "qty": qty})
+```
+
+---
+
+## Common Crashes — Quick Reference
+
+| Crash / symptom | Root cause | Fix |
+|---|---|---|
+| `KeyError: 'ABM'` on `self.known_bids` | No spread response received yet | `.get(symbol, [])` |
+| `IndexError` on `self.known_bids[symbol][0]` | Book side is `[]` | `if bids:` guard |
+| `KeyError: 'ABM'` on `self.last_trade` | No trade executed yet | `.get(symbol)` |
+| `TypeError: unsupported operand None + int` | `mkt_open` is `None` | Check `super().wakeup()` return |
+| Prices wrong by factor of 100 | Treating cents as dollars | All prices are integer cents |
+| `RuntimeError` at `kernel_stopping` | `mark_to_market` called before first trade | Guard with `self.last_trade.get(symbol)` |
+
+---
+
+## See Also
+
+- `HASUFEL_CUSTOM_AGENT_GUIDE.md` — adapter pattern, scaffold, checklist
+- `HASUFEL_CONFIG_SYSTEM.md` — builder API, templates, oracle config, serialization
+- `HASUFEL_DATA_EXTRACTION.md` — parsing results, L1/L2 book history
+- `HASUFEL_PARALLEL_SIMULATION.md` — multiprocessing, RNG hierarchy, log layout
