@@ -1,0 +1,376 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-04-06T12:00:00.000Z" agent="Rohan Agentic Framework" version="22.1.0" type="device">
+  <diagram name="Agentic Refinement Loop" id="rohan-agentic-loop">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- TITLE                                               -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="title" value="ROHAN — LangGraph Agentic Refinement Loop (v0.3.1)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="500" y="15" width="700" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="StateGraph(RefinementState) · Fan-out/fan-in scenario processing · Deterministic 6-axis scoring" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#888888;" vertex="1" parent="1">
+          <mxGeometry x="450" y="48" width="800" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- GRAPH ENTRY — GOAL + PLANNER                        -->
+        <!-- ═══════════════════════════════════════════════════ -->
+
+        <!-- Goal -->
+        <mxCell id="goal" value="🎯 Goal&#xa;+ ScenarioConfig[]&#xa;+ FeatureFlags" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="120" width="140" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Planner box -->
+        <mxCell id="planner-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="230" width="220" height="330" as="geometry" />
+        </mxCell>
+        <mxCell id="planner-label" value="Planner (pre-graph)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="70" y="235" width="180" height="18" as="geometry" />
+        </mxCell>
+
+        <mxCell id="planner-t1" value="Tier 1: ReAct Agent&#xa;&#xa;Tools:&#xa;• list_scenarios()&#xa;• build_scenario()&#xa;&#xa;→ ScenarioPlan" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="80" y="265" width="140" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="planner-t2" value="Tier 2: Structured LLM&#xa;&#xa;Single-shot structured&#xa;output → ScenarioPlan" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="80" y="365" width="140" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="planner-t3" value="Tier 3: Keyword Heuristic&#xa;&#xa;_GOAL_ADVERSARIAL_MAP&#xa;(deterministic, no LLM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="80" y="440" width="140" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Fallback arrows -->
+        <mxCell id="t1-to-t2" value="⚠ fail" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1;strokeColor=#d6b656;dashed=1;fontSize=8;" edge="1" parent="1" source="planner-t1" target="planner-t2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t2-to-t3" value="⚠ fail" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1;strokeColor=#d6b656;dashed=1;fontSize=8;" edge="1" parent="1" source="planner-t2" target="planner-t3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="planner-out" value="ScenarioPlan&#xa;scenarios[] + reasoning" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="80" y="515" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="goal-to-planner" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="goal" target="planner-t1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- LANGGRAPH STATE MACHINE — MAIN LOOP                 -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="graph-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#333333;strokeWidth=3;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="330" y="90" width="1550" height="660" as="geometry" />
+        </mxCell>
+        <mxCell id="graph-label" value="StateGraph(RefinementState) — LangGraph" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="340" y="95" width="400" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ NODE 1: WRITER ═══════ -->
+        <mxCell id="writer" value="writer_node&#xa;───────────&#xa;▸ Build prompt from goal + feedback&#xa;▸ Inject validation errors (if retry)&#xa;▸ Inject rollback context (if regressed)&#xa;▸ LLM → GeneratedStrategy&#xa;  (class_name, code, reasoning)&#xa;▸ Retry with fallback model on failure&#xa;&#xa;Output:&#xa;  current_code · current_class_name&#xa;  current_reasoning · status=&quot;validating&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;align=left;spacingLeft=8;spacingRight=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="370" y="140" width="240" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="writer-label" value="ENTRY POINT" style="text;html=1;strokeColor=none;fillColor=#82b366;fontColor=#ffffff;align=center;fontSize=8;fontStyle=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="440" y="122" width="75" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- GeneratedStrategy model -->
+        <mxCell id="gen-strat" value="GeneratedStrategy&#xa;class_name: str&#xa;code: str&#xa;reasoning: str" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=8;align=left;spacingLeft=5;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="370" y="330" width="120" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ NODE 2: VALIDATOR ═══════ -->
+        <mxCell id="validator" value="validator_node&#xa;─────────────&#xa;▸ AST safety checks (SAFE_BUILTINS)&#xa;▸ Check class definition exists&#xa;▸ Smoke-test: instantiate()&#xa;  + initialize() + on_market_data()&#xa;  + on_tick()&#xa;▸ Clears scenario_results &amp; explanations&#xa;&#xa;Output:&#xa;  validation_errors · validation_attempts&#xa;  status=&quot;executing&quot; or errors" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;align=left;spacingLeft=8;spacingRight=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="660" y="140" width="230" height="180" as="geometry" />
+        </mxCell>
+
+        <!-- Writer → Validator edge -->
+        <mxCell id="w-to-v" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="writer" target="validator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w-to-v-lbl" value="unconditional" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=8;fontColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="615" y="208" width="50" height="12" as="geometry" />
+        </mxCell>
+
+        <!-- validation_router diamond -->
+        <mxCell id="v-router" value="validation&#xa;_router()" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="720" y="355" width="100" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="v-to-router" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#d79b00;" edge="1" parent="1" source="validator" target="v-router">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Retry path: router → writer -->
+        <mxCell id="router-to-writer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#d79b00;dashed=1;" edge="1" parent="1" source="v-router" target="writer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="650" y="390" />
+              <mxPoint x="650" y="460" />
+              <mxPoint x="350" y="460" />
+              <mxPoint x="350" y="230" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="retry-lbl" value="errors &amp;&#xa;retries left&#xa;→ &quot;retry&quot;" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=8;fontColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="625" y="430" width="60" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Fail path: router → terminalize -->
+        <mxCell id="term-fail" value="terminalize_&#xa;validation_failure&#xa;&#xa;status=&quot;failed&quot;&#xa;terminal_reason=&#xa;&quot;validation_budget_exhausted&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=8;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="670" y="475" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="router-to-fail" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="v-router" target="term-fail">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fail-lbl" value="max retries&#xa;→ &quot;fail&quot;" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=8;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="740" y="438" width="55" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- END from fail -->
+        <mxCell id="end-fail" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="710" y="580" width="60" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="fail-to-end" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="term-fail" target="end-fail">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ NODE 3: PROCESS_SCENARIO (fan-out) ═══════ -->
+        <mxCell id="fanout-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="930" y="120" width="380" height="530" as="geometry" />
+        </mxCell>
+        <mxCell id="fanout-label" value="⚡ Fan-out via Send() — one per scenario" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=11;fontStyle=1;fontColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="940" y="125" width="350" height="18" as="geometry" />
+        </mxCell>
+
+        <!-- Valid path: router → fan-out -->
+        <mxCell id="router-to-fanout" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="v-router" target="fanout-box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="860" y="390" />
+              <mxPoint x="860" y="150" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="valid-lbl" value="no errors&#xa;→ Send(&quot;process_scenario&quot;, ...)&#xa;for each scenario" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=8;fontColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="830" y="345" width="100" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- process_scenario_node -->
+        <mxCell id="process-scenario" value="process_scenario_node&#xa;────────────────────&#xa;▸ Merge scenario.config_override → SimulationSettings&#xa;▸ execute_strategy_safely(code, settings, timeout)&#xa;▸ analyzer.compute_agent_metrics()&#xa;▸ analyzer.compute_metrics()&#xa;▸ Run baseline (no-strategy) simulation&#xa;▸ Compute MarketImpact deltas&#xa;  (spread · volatility · liquidity)&#xa;▸ Generate 6 charts (base64 PNG)&#xa;▸ compute_rich_analysis() → RichAnalysisBundle (JSON)&#xa;▸ format_interpreter_prompt()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;align=left;spacingLeft=8;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="950" y="150" width="340" height="170" as="geometry" />
+        </mxCell>
+
+        <!-- Explainer inside fan-out -->
+        <mxCell id="explainer-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;strokeWidth=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="950" y="340" width="340" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="expl-label" value="_run_explainer() — 3-tier fallback" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontStyle=1;fontColor=#996185;" vertex="1" parent="1">
+          <mxGeometry x="960" y="345" width="300" height="16" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ps-to-expl" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="process-scenario" target="explainer-box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ps-to-expl-lbl" value="rich_analysis_json" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=8;fontColor=#6c8ebf;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="325" width="80" height="12" as="geometry" />
+        </mxCell>
+
+        <!-- Tier 1: ReAct Explainer -->
+        <mxCell id="expl-t1" value="Tier 1: ReAct Agent&#xa;&#xa;8 Investigation Tools:&#xa;  query_fills · query_pnl_curve&#xa;  query_inventory · query_adverse_selection&#xa;  query_book_at_time · query_counterparties&#xa;  query_order_lifecycle · get_simulation_summary&#xa;&#xa;Bound to RichAnalysisBundle (closure)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="965" y="370" width="240" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- Tier 2: Structured Fallback -->
+        <mxCell id="expl-t2" value="Tier 2: Structured LLM&#xa;Single-shot → ScenarioExplanation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=8;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="965" y="505" width="190" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Tier 3: Deterministic -->
+        <mxCell id="expl-t3" value="Tier 3: Deterministic Template&#xa;Rule-based from metrics (no LLM)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=8;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="965" y="555" width="190" height="35" as="geometry" />
+        </mxCell>
+
+        <mxCell id="expl-t1-to-t2" value="⚠" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1;strokeColor=#996185;dashed=1;fontSize=8;" edge="1" parent="1" source="expl-t1" target="expl-t2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="expl-t2-to-t3" value="⚠" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1;strokeColor=#996185;dashed=1;fontSize=8;" edge="1" parent="1" source="expl-t2" target="expl-t3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Scenario output model -->
+        <mxCell id="expl-out" value="→ ScenarioExplanation&#xa;  strengths · weaknesses&#xa;  market_impact_assessment&#xa;  key_observations&#xa;  recommendations" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#996185;fontSize=8;align=left;spacingLeft=5;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1195" y="385" width="130" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ScenarioResult model -->
+        <mxCell id="sr-out" value="→ ScenarioResult&#xa;  metrics · market_impact&#xa;  charts · rich_analysis_json&#xa;  error" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#6c8ebf;fontSize=8;align=left;spacingLeft=5;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1195" y="475" width="130" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ NODE 4: AGGREGATOR ═══════ -->
+        <mxCell id="aggregator" value="aggregator_node&#xa;──────────────&#xa;▸ Deterministic 6-axis scoring (no LLM):&#xa;  compute_axis_scores() per scenario&#xa;  Average → AxisScores&#xa;  classify_goal_weights(goal) → profile&#xa;  compute_final_score() → 1.0–10.0&#xa;&#xa;▸ Comparison: better / worse / similar&#xa;▸ Convergence: ±0.5 over last 3 → plateau&#xa;▸ Regression: &gt;1.0 drop → rollback to best_code&#xa;&#xa;▸ LLM qualitative analysis (optional):&#xa;  → QualitativeAnalysis (reasoning only)&#xa;&#xa;▸ Build AggregatedFeedback:&#xa;  verdict · cross_scenario_patterns&#xa;  unified_feedback · scenario_weaknesses" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=8;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="130" width="270" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="agg-label" value="MAP-REDUCE SINK" style="text;html=1;strokeColor=none;fillColor=#647687;fontColor=#ffffff;align=center;fontSize=8;fontStyle=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="1445" y="114" width="100" height="16" as="geometry" />
+        </mxCell>
+
+        <!-- Fan-in arrow: fan-out → aggregator -->
+        <mxCell id="fanout-to-agg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#996185;" edge="1" parent="1" source="fanout-box" target="aggregator">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1340" y="385" />
+              <mxPoint x="1340" y="265" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="fanin-lbl" value="fan-in:&#xa;scenario_results[]&#xa;explanations[]" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=8;fontColor=#996185;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="310" width="80" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- should_continue router -->
+        <mxCell id="sc-router" value="should_&#xa;continue()" style="rhombus;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="1545" y="430" width="100" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="agg-to-router" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#647687;" edge="1" parent="1" source="aggregator" target="sc-router">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Continue path: router → writer -->
+        <mxCell id="router-to-writer-loop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#647687;" edge="1" parent="1" source="sc-router" target="writer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1595" y="700" />
+              <mxPoint x="490" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="continue-lbl" value="status==&quot;writing&quot; → &quot;continue&quot;&#xa;&#xa;feedback + per-scenario weaknesses&#xa;+ score history + recommendations" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=8;fontColor=#647687;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="780" y="682" width="180" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Done path: router → END -->
+        <mxCell id="end-done" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1720" y="443" width="60" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="router-to-end" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="sc-router" target="end-done">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="done-lbl" value="→ &quot;done&quot;" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=8;fontColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1660" y="440" width="45" height="12" as="geometry" />
+        </mxCell>
+
+        <!-- Terminal reasons -->
+        <mxCell id="term-reasons" value="TerminalReason&#xa;─────────────&#xa;• converged (score ≥ 7.0 + plateau)&#xa;• plateau_detected (last 3 ±0.5)&#xa;• max_iterations_reached&#xa;• validation_budget_exhausted&#xa;• failed_execution" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=8;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="500" width="170" height="95" as="geometry" />
+        </mxCell>
+
+        <!-- Planner to graph entry -->
+        <mxCell id="planner-to-graph" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#d6b656;" edge="1" parent="1" source="planner-out" target="writer">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="150" y="570" />
+              <mxPoint x="320" y="570" />
+              <mxPoint x="320" y="230" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="planner-to-graph-lbl" value="scenarios[] +&#xa;scenario_plan_reasoning" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=8;fontColor=#d6b656;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="200" y="555" width="90" height="24" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- SCORING DETAIL                                      -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="scoring-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="800" width="500" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="scoring-label" value="Deterministic 6-Axis Scoring Pipeline (scoring.py)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="805" width="400" height="18" as="geometry" />
+        </mxCell>
+
+        <!-- Axes -->
+        <mxCell id="axis1" value="① Profitability&#xa;opportunity_capture_rate&#xa;= pnl / (spread × vol / 2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=8;align=left;spacingLeft=3;" vertex="1" parent="1">
+          <mxGeometry x="1385" y="835" width="145" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="axis2" value="② Risk-Adjusted&#xa;Sharpe + drawdown penalty" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=8;align=left;spacingLeft=3;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="835" width="145" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="axis3" value="③ Volatility Impact&#xa;vs baseline delta %" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=8;align=left;spacingLeft=3;" vertex="1" parent="1">
+          <mxGeometry x="1695" y="835" width="145" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="axis4" value="④ Spread Impact&#xa;vs baseline delta %" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=8;align=left;spacingLeft=3;" vertex="1" parent="1">
+          <mxGeometry x="1385" y="890" width="145" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="axis5" value="⑤ Liquidity Impact&#xa;vs baseline delta %" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=8;align=left;spacingLeft=3;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="890" width="145" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="axis6" value="⑥ Execution Quality&#xa;fill_rate · OTT · slippage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=8;align=left;spacingLeft=3;" vertex="1" parent="1">
+          <mxGeometry x="1695" y="890" width="145" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Weight profiles -->
+        <mxCell id="weights" value="Weight Profiles (classify_goal_weights)&#xa;──────────────────────────&#xa;default:          P=0.35  R=0.20  V=0.07  S=0.08  L=0.05  E=0.25&#xa;impact_focused:   P=0.15  R=0.10  V=0.20  S=0.20  L=0.15  E=0.20&#xa;risk_focused:     P=0.15  R=0.40  V=0.07  S=0.08  L=0.05  E=0.25&#xa;execution_focused: P=0.15  R=0.15  V=0.07  S=0.08  L=0.05  E=0.50" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="1385" y="940" width="465" height="85" as="geometry" />
+        </mxCell>
+
+        <!-- Final score -->
+        <mxCell id="final-score" value="compute_final_score()&#xa;raw = Σ(axis × weight)&#xa;→ round to 0.5 → clamp [1.0, 10.0]&#xa;&#xa;   → JudgeVerdict.score" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;fontSize=9;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="1385" y="1040" width="230" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- DATA CONTRACTS LEGEND                               -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="contracts-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="800" width="580" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="contracts-label" value="Data Contracts — Pydantic Models at Boundaries (models.py)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="70" y="805" width="450" height="18" as="geometry" />
+        </mxCell>
+
+        <mxCell id="m-genstrat" value="GeneratedStrategy&#xa;  class_name: str&#xa;  code: str&#xa;  reasoning: str" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="75" y="835" width="170" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="m-scenexpl" value="ScenarioExplanation&#xa;  scenario_name: str&#xa;  strengths: list[str]&#xa;  weaknesses: list[str]&#xa;  market_impact_assessment: str&#xa;  key_observations: list[str]&#xa;  recommendations: list[str]&#xa;  raw_analysis: str" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="75" y="900" width="200" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="m-verdict" value="JudgeVerdict&#xa;  score: float (1–10)&#xa;  comparison: better|worse|similar&#xa;  recommendation: continue|stop_*&#xa;  reasoning: str&#xa;  profitability_score: float&#xa;  risk_score: float&#xa;  volatility_impact_score: float&#xa;  spread_impact_score: float&#xa;  liquidity_impact_score: float&#xa;  execution_score: float" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="290" y="835" width="210" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="m-aggfb" value="AggregatedFeedback&#xa;  verdict: JudgeVerdict&#xa;  cross_scenario_patterns: list[str]&#xa;  unified_feedback: str&#xa;  scenario_weaknesses: list[tuple]&#xa;  scenario_recommendations: list[tuple]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="290" y="993" width="250" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="m-itersumm" value="IterationSummary&#xa;  iteration_number · strategy_code&#xa;  scenario_metrics · judge_score&#xa;  rolled_back · per-axis scores&#xa;  scoring_profile" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="75" y="1018" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- REDUCER LEGEND                                      -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="reducer-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="680" y="800" width="260" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="reducer-label" value="State Reducers" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="690" y="805" width="200" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="reducer-detail" value="scenario_results · explanations&#xa;  → _concat_or_clear reducer&#xa;  Append on list, clear on &quot;clear&quot; sentinel&#xa;&#xa;messages&#xa;  → add_messages (LangGraph built-in)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="690" y="830" width="235" height="75" as="geometry" />
+        </mxCell>
+
+        <!-- Config constants -->
+        <mxCell id="config-box" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="800" width="345" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="config-label" value="Key Configuration (LLMSettings)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="990" y="805" width="300" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="config-detail" value="max_validation_retries:           3&#xa;default_max_iterations:           5&#xa;default_recursion_limit:          50&#xa;writer_max_retries:               3&#xa;writer_fallback_model:            None&#xa;explainer_react_recursion_limit:  ~&#xa;max_adversarial_scenarios:        configurable" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=8;align=left;spacingLeft=5;fontFamily=Courier New;" vertex="1" parent="1">
+          <mxGeometry x="990" y="830" width="325" height="75" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

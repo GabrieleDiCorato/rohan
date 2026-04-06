@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="app.diagrams.net" modified="2024-02-08T18:52:38.000Z" agent="Rohan Framework" version="22.1.0" type="device">
+<mxfile host="app.diagrams.net" modified="2026-04-06T12:00:00.000Z" agent="Rohan Framework" version="22.1.0" type="device">
   <diagram name="Architecture" id="rohan-architecture">
     <mxGraphModel dx="1434" dy="780" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
       <root>
@@ -7,224 +7,239 @@
         <mxCell id="1" parent="0" />
 
         <!-- Title -->
-        <mxCell id="title" value="Rohan Agentic Simulation Framework" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
-          <mxGeometry x="500" y="20" width="600" height="40" as="geometry" />
+        <mxCell id="title" value="ROHAN — System Architecture (v0.3.1)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="400" y="20" width="800" height="40" as="geometry" />
         </mxCell>
 
-        <!-- User Input -->
-        <mxCell id="goal" value="🎯 Goal&#xa;Strategy Description" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" vertex="1" parent="1">
-          <mxGeometry x="720" y="80" width="160" height="60" as="geometry" />
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- USER INTERFACE LAYER                                -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="ui-layer" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="1320" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-label" value="User Interface (Streamlit)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="50" y="85" width="250" height="20" as="geometry" />
         </mxCell>
 
-        <!-- Strategy Generation Loop Container -->
-        <mxCell id="gen-loop" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="40" y="180" width="400" height="280" as="geometry" />
+        <mxCell id="terminal" value="Terminal Page&#xa;&#xa;Configure &amp; run&#xa;simulations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="80" y="110" width="120" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="gen-loop-label" value="📝 Strategy Generation Loop" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#d6b656;" vertex="1" parent="1">
-          <mxGeometry x="50" y="185" width="200" height="20" as="geometry" />
+        <mxCell id="reflab" value="Refinement Lab&#xa;&#xa;LLM refinement loop&#xa;+ session management" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="110" width="140" height="50" as="geometry" />
         </mxCell>
-
-        <!-- Writer Agent -->
-        <mxCell id="writer" value="Writer Agent&#xa;&#xa;• Generate strategy code&#xa;• Uses goal + feedback&#xa;• LangChain LLM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="80" y="230" width="140" height="100" as="geometry" />
+        <mxCell id="charts-ui" value="2×3 Chart Grid&#xa;&#xa;Price · Spread · Volume&#xa;PnL · Inventory · Fills" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="380" y="110" width="140" height="50" as="geometry" />
         </mxCell>
-
-        <!-- Validator Agent -->
-        <mxCell id="validator" value="Validator Agent&#xa;&#xa;• AST safety checks&#xa;• Sandbox execution&#xa;• Max 3 retries" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="260" y="230" width="140" height="100" as="geometry" />
+        <mxCell id="cli" value="CLI&#xa;&#xa;uv run refine&#xa;--goal ... --max-iterations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="540" y="110" width="150" height="50" as="geometry" />
         </mxCell>
 
-        <!-- Writer to Validator Arrow -->
-        <mxCell id="w-to-v" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="writer" target="validator">
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- AGENTIC LAYER (LLM)                                 -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="llm-layer" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="1320" height="310" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-label" value="Agentic Layer — LangGraph Refinement Loop (src/rohan/llm/)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="50" y="205" width="500" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Goal input -->
+        <mxCell id="goal" value="🎯 Goal" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="240" width="80" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Planner -->
+        <mxCell id="planner" value="Planner&#xa;(optional)&#xa;&#xa;Adversarial&#xa;scenarios" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="310" width="90" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="goal-to-planner" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1;strokeColor=#6c8ebf;" edge="1" parent="1" source="goal" target="planner">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="w-to-v-label" value="code" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="220" y="255" width="40" height="20" as="geometry" />
+
+        <!-- Writer -->
+        <mxCell id="writer" value="Writer Agent&#xa;&#xa;Generates&#xa;StrategicAgent code&#xa;+ scenario context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="190" y="240" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="planner-to-writer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1;strokeColor=#d6b656;" edge="1" parent="1" source="planner" target="writer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="goal-to-writer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="goal" target="writer">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Validator to Writer (retry) Arrow -->
-        <mxCell id="v-to-w" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=1;strokeWidth=2;strokeColor=#d79b00;dashed=1;" edge="1" parent="1" source="validator" target="writer">
+        <!-- Validator -->
+        <mxCell id="validator" value="Validator&#xa;&#xa;AST safety +&#xa;sandbox exec&#xa;(≤3 retries)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="350" y="240" width="100" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="w-to-v" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="writer" target="validator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="w-to-v-lbl" value="code" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="315" y="255" width="30" height="15" as="geometry" />
+        </mxCell>
+
+        <!-- Retry arrow -->
+        <mxCell id="v-to-w" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=1;strokeColor=#d79b00;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="1" source="validator" target="writer">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="330" y="380" />
-              <mxPoint x="150" y="380" />
+              <mxPoint x="400" y="345" />
+              <mxPoint x="250" y="345" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="v-to-w-label" value="❌ error + retry" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=10;fontColor=#d79b00;" vertex="1" parent="1">
-          <mxGeometry x="200" y="385" width="80" height="20" as="geometry" />
-        </mxCell>
-
-        <!-- Scenario Execution Container -->
-        <mxCell id="scenario-exec" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="480" y="180" width="320" height="280" as="geometry" />
-        </mxCell>
-        <mxCell id="scenario-exec-label" value="⚡ Scenario Execution" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#9673a6;" vertex="1" parent="1">
-          <mxGeometry x="490" y="185" width="200" height="20" as="geometry" />
+        <mxCell id="v-to-w-lbl" value="❌ retry" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;fontColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="305" y="348" width="40" height="15" as="geometry" />
         </mxCell>
 
         <!-- Scenario Executor -->
-        <mxCell id="executor" value="Scenario Executor&#xa;&#xa;• Run ABIDES simulation&#xa;• Collect metrics&#xa;• Baseline comparison" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="520" y="230" width="140" height="80" as="geometry" />
+        <mxCell id="executor" value="Scenario Executor&#xa;&#xa;Runs abides-hasufel per scenario&#xa;→ HasufelOutput&#xa;→ RichAnalysisBundle (JSON)&#xa;→ 6 charts (base64 PNG)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="490" y="230" width="190" height="100" as="geometry" />
         </mxCell>
-
-        <!-- Scenarios -->
-        <mxCell id="s1" value="Scenario 1&#xa;Volatile Market" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="500" y="340" width="90" height="50" as="geometry" />
-        </mxCell>
-        <mxCell id="s2" value="Scenario 2&#xa;Stable Market" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="600" y="340" width="90" height="50" as="geometry" />
-        </mxCell>
-        <mxCell id="sn" value="Scenario N&#xa;Custom" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;strokeDasharray=3;" vertex="1" parent="1">
-          <mxGeometry x="700" y="340" width="90" height="50" as="geometry" />
-        </mxCell>
-
-        <!-- Executor to Scenarios -->
-        <mxCell id="ex-to-s1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#6c8ebf;" edge="1" parent="1" source="executor" target="s1">
+        <mxCell id="v-to-ex" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="validator" target="executor">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="ex-to-s2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#6c8ebf;" edge="1" parent="1" source="executor" target="s2">
+        <mxCell id="v-to-ex-lbl" value="✅ valid" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;fontColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="455" y="255" width="35" height="15" as="geometry" />
+        </mxCell>
+
+        <!-- Explainer -->
+        <mxCell id="explainer" value="Explainer Agent (ReAct)&#xa;&#xa;8 investigation tools:&#xa;fills · PnL · inventory&#xa;adverse selection · L2 book&#xa;counterparties · order lifecycle&#xa;simulation summary&#xa;&#xa;Fallback: structured output" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="720" y="225" width="170" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="ex-to-expl" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="executor" target="explainer">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="ex-to-sn" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#6c8ebf;dashed=1;" edge="1" parent="1" source="executor" target="sn">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-
-        <!-- Validator to Executor -->
-        <mxCell id="v-to-ex" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="validator" target="executor">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="v-to-ex-label" value="✅ valid" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=10;fontColor=#82b366;" vertex="1" parent="1">
-          <mxGeometry x="450" y="255" width="40" height="20" as="geometry" />
-        </mxCell>
-
-        <!-- Analysis Container -->
-        <mxCell id="analysis" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="840" y="180" width="320" height="280" as="geometry" />
-        </mxCell>
-        <mxCell id="analysis-label" value="🔍 Scenario Analysis" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#b85450;" vertex="1" parent="1">
-          <mxGeometry x="850" y="185" width="200" height="20" as="geometry" />
-        </mxCell>
-
-        <!-- Explainer Agents -->
-        <mxCell id="e1" value="Explainer Agent&#xa;🛠️ Tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="860" y="230" width="90" height="50" as="geometry" />
-        </mxCell>
-        <mxCell id="e2" value="Explainer Agent&#xa;🛠️ Tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="960" y="230" width="90" height="50" as="geometry" />
-        </mxCell>
-        <mxCell id="en" value="Explainer Agent&#xa;🛠️ Tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6d0de;strokeColor=#996185;fontSize=10;strokeDasharray=3;" vertex="1" parent="1">
-          <mxGeometry x="1060" y="230" width="90" height="50" as="geometry" />
-        </mxCell>
-
-        <!-- Scenarios to Explainers -->
-        <mxCell id="s1-to-e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#996185;" edge="1" parent="1" source="s1" target="e1">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="545" y="410" />
-              <mxPoint x="820" y="410" />
-              <mxPoint x="820" y="255" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="s2-to-e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#996185;" edge="1" parent="1" source="s2" target="e2">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="645" y="420" />
-              <mxPoint x="830" y="420" />
-              <mxPoint x="830" y="255" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- Tools Box -->
-        <mxCell id="tools" value="Available Tools:&#xa;• get_agent_trades()&#xa;• compute_pnl_curve()&#xa;• plot_price_series()&#xa;• query_dataframe()" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
-          <mxGeometry x="860" y="300" width="130" height="80" as="geometry" />
+        <mxCell id="ex-to-expl-lbl" value="rich_analysis_json" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;fontColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="670" y="265" width="60" height="15" as="geometry" />
         </mxCell>
 
         <!-- Aggregator -->
-        <mxCell id="aggregator" value="Aggregator + Judge&#xa;&#xa;• Cross-scenario synthesis&#xa;• Score iteration (1-10)&#xa;• Compare to history&#xa;• Recommend: continue/stop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="1000" y="310" width="150" height="100" as="geometry" />
+        <mxCell id="aggregator" value="Aggregator&#xa;&#xa;Deterministic 6-axis scoring&#xa;(scoring.py)&#xa;+ LLM qualitative analysis&#xa;&#xa;Convergence · plateau ·&#xa;rollback detection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="930" y="225" width="170" height="130" as="geometry" />
         </mxCell>
-
-        <!-- Explainers to Aggregator -->
-        <mxCell id="e1-to-agg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#647687;" edge="1" parent="1" source="e1" target="aggregator">
+        <mxCell id="expl-to-agg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#996185;" edge="1" parent="1" source="explainer" target="aggregator">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e2-to-agg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;html=1;strokeWidth=1;strokeColor=#647687;" edge="1" parent="1" source="e2" target="aggregator">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="expl-to-agg-lbl" value="ScenarioExplanation" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;fontColor=#996185;" vertex="1" parent="1">
+          <mxGeometry x="880" y="265" width="60" height="15" as="geometry" />
         </mxCell>
 
-        <!-- Aggregator back to Writer -->
-        <mxCell id="agg-to-w" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=1;entryX=0;entryY=0;strokeWidth=2;strokeColor=#647687;" edge="1" parent="1" source="aggregator" target="writer">
+        <!-- Endpoints -->
+        <mxCell id="done" value="✅ Done" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="245" width="80" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="agg-to-done" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="aggregator" target="done">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="agg-to-done-lbl" value="converged /&#xa;max iter" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;fontColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1115" y="255" width="50" height="25" as="geometry" />
+        </mxCell>
+
+        <mxCell id="failed" value="💥 Failed" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="305" width="80" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Feedback loop -->
+        <mxCell id="agg-to-writer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#647687;" edge="1" parent="1" source="aggregator" target="writer">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="1000" y="500" />
-              <mxPoint x="40" y="500" />
-              <mxPoint x="40" y="230" />
+              <mxPoint x="1015" y="470" />
+              <mxPoint x="250" y="470" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="agg-to-w-label" value="feedback + score (if continue)" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=10;fontColor=#647687;" vertex="1" parent="1">
-          <mxGeometry x="400" y="505" width="160" height="20" as="geometry" />
+        <mxCell id="agg-to-w-lbl" value="feedback + per-scenario weaknesses + score history" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontSize=9;fontColor=#647687;" vertex="1" parent="1">
+          <mxGeometry x="450" y="473" width="200" height="15" as="geometry" />
         </mxCell>
 
-        <!-- Goal to Writer -->
-        <mxCell id="goal-to-w" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="goal" target="writer">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="800" y="160" />
-              <mxPoint x="150" y="160" />
-            </Array>
-          </mxGeometry>
+        <!-- State box -->
+        <mxCell id="state" value="RefinementState (TypedDict)&#xa;──────────────────────&#xa;goal · current_code · scenarios&#xa;scenario_results[] · explanations[]&#xa;iteration_history · score_history&#xa;scenario_plan_reasoning&#xa;rich_analysis_json · 6 chart fields" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="225" width="200" height="110" as="geometry" />
         </mxCell>
 
-        <!-- Done/Failed Endpoints -->
-        <mxCell id="done" value="✅ Done&#xa;(converged)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1;" vertex="1" parent="1">
-          <mxGeometry x="1200" y="340" width="100" height="50" as="geometry" />
-        </mxCell>
-        <mxCell id="failed" value="💥 Failed&#xa;(max retries)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;fontStyle=1;" vertex="1" parent="1">
-          <mxGeometry x="330" y="420" width="100" height="50" as="geometry" />
+        <!-- Scoring axes -->
+        <mxCell id="scoring" value="6-Axis Scoring&#xa;──────────────&#xa;① Profitability&#xa;② Risk-Adjusted&#xa;③ Volatility Impact&#xa;④ Spread Impact&#xa;⑤ Liquidity Impact&#xa;⑥ Execution Quality" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;align=left;spacingLeft=5;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="355" width="200" height="120" as="geometry" />
         </mxCell>
 
-        <!-- Aggregator to Done -->
-        <mxCell id="agg-to-done" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="aggregator" target="done">
-          <mxGeometry relative="1" as="geometry" />
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- FRAMEWORK LAYER                                     -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="fw-layer" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="540" width="1320" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="fw-label" value="Framework Layer (src/rohan/framework/)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="50" y="545" width="350" height="20" as="geometry" />
         </mxCell>
 
-        <!-- State Box -->
-        <mxCell id="state" value="RefinementState&#xa;─────────────&#xa;• goal&#xa;• current_code&#xa;• iterations[]&#xa;• scenario_results[]&#xa;• explanations[]&#xa;• judge_score" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=5;" vertex="1" parent="1">
-          <mxGeometry x="1200" y="180" width="120" height="130" as="geometry" />
+        <mxCell id="analysis-svc" value="AnalysisService&#xa;&#xa;AgentMetrics · MarketMetrics&#xa;RichAnalysisBundle&#xa;6 Matplotlib charts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="575" width="160" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="sim-engine" value="SimulationEngine&#xa;&#xa;run_with_baseline()&#xa;run_batch()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="240" y="575" width="130" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="persistence" value="Persistence&#xa;&#xa;SQLAlchemy ORM&#xa;Repository layer&#xa;Session save/load" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="390" y="575" width="130" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="strat-validator" value="StrategyValidator&#xa;&#xa;AST safety checks&#xa;SAFE_BUILTINS&#xa;ThreadPool sandbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="540" y="575" width="130" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="prompts" value="Prompts&#xa;&#xa;Writer · Explainer&#xa;Aggregator · Interpreter&#xa;format_interpreter_prompt()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="690" y="575" width="150" height="75" as="geometry" />
         </mxCell>
 
-        <!-- Infrastructure Layer -->
-        <mxCell id="infra" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=1;" vertex="1" parent="1">
-          <mxGeometry x="40" y="560" width="1280" height="80" as="geometry" />
-        </mxCell>
-        <mxCell id="infra-label" value="Infrastructure Layer" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#666666;" vertex="1" parent="1">
-          <mxGeometry x="50" y="565" width="150" height="20" as="geometry" />
+        <!-- DB -->
+        <mxCell id="db" value="SQLite / PostgreSQL&#xa;&#xa;sessions · iterations&#xa;scenarios · runs&#xa;market_data · artifacts" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="870" y="570" width="130" height="85" as="geometry" />
         </mxCell>
 
-        <mxCell id="langchain" value="LangChain&#xa;Models" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="60" y="590" width="80" height="40" as="geometry" />
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- SIMULATION LAYER                                    -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="sim-layer" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="700" width="1320" height="100" as="geometry" />
         </mxCell>
-        <mxCell id="langgraph" value="LangGraph&#xa;Orchestration" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="160" y="590" width="80" height="40" as="geometry" />
+        <mxCell id="sim-label" value="Simulation Layer (src/rohan/simulation/ + abides-hasufel)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=14;fontStyle=1;fontColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="50" y="705" width="500" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="abides" value="ABIDES&#xa;Simulation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="260" y="590" width="80" height="40" as="geometry" />
+
+        <mxCell id="config-builder" value="config_builder.py&#xa;&#xa;SimulationSettings&#xa;→ SimulationBuilder&#xa;Template bootstrapping" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="730" width="140" height="55" as="geometry" />
         </mxCell>
-        <mxCell id="postgres" value="PostgreSQL&#xa;Persistence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="360" y="590" width="80" height="40" as="geometry" />
+        <mxCell id="hasufel-out" value="HasufelOutput&#xa;&#xa;SimulationResult wrapper&#xa;Pandera-validated DataFrames" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="730" width="160" height="55" as="geometry" />
         </mxCell>
-        <mxCell id="analysis-svc" value="AnalysisService&#xa;Metrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="460" y="590" width="80" height="40" as="geometry" />
+        <mxCell id="adapter" value="StrategicAgentAdapter&#xa;&#xa;StrategicAgent ↔&#xa;ABIDES TradingAgent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="400" y="730" width="140" height="55" as="geometry" />
         </mxCell>
-        <mxCell id="validator-svc" value="StrategyValidator&#xa;AST + Sandbox" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="560" y="590" width="90" height="40" as="geometry" />
+        <mxCell id="strategy-api" value="Strategy API&#xa;&#xa;MarketState · OrderAction&#xa;StrategicAgent Protocol" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="730" width="140" height="55" as="geometry" />
         </mxCell>
-        <mxCell id="streamlit" value="Streamlit&#xa;UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="670" y="590" width="80" height="40" as="geometry" />
+        <mxCell id="hasufel" value="abides-hasufel v2.5.8&#xa;&#xa;SimulationBuilder · run_simulation()&#xa;run_batch() · compute_rich_metrics()&#xa;Discrete-event LOB simulation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="720" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════ -->
+        <!-- CONFIG LAYER                                        -->
+        <!-- ═══════════════════════════════════════════════════ -->
+        <mxCell id="config-layer" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="830" width="1320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="config-label" value="Configuration (src/rohan/config/)" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=12;fontStyle=1;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="50" y="835" width="250" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="sim-settings" value="SimulationSettings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="855" width="120" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="llm-settings" value="LLMSettings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="200" y="855" width="100" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="db-settings" value="DatabaseSettings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="320" y="855" width="110" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="feat-flags" value="FeatureFlags" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="855" width="100" height="25" as="geometry" />
         </mxCell>
 
       </root>
